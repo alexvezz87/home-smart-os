@@ -1702,7 +1702,7 @@ class EvClimateHub {
           '/gateway/versionFirmware',
           '/zones/zn1/temperatureActual',
           '/zones/zn1/temperatureHeatingSetpoint',
-          '/zones/zn1/manualTempHeating',
+          '/zones/zn1/manualTemperatureHeating',
           '/zones/zn1/humidity',
           '/zones/zn1/userMode',
           '/zones/zn1/status',
@@ -1745,7 +1745,7 @@ class EvClimateHub {
         }
 
         const zn1Temp = b['/zones/zn1/temperatureActual'] || b['/heatingCircuits/hc1/roomtemperature'];
-        const zn1Set = b['/zones/zn1/temperatureHeatingSetpoint'] || b['/zones/zn1/manualTempHeating'] || b['/heatingCircuits/hc1/temperatureRoomSetpoint'];
+        const zn1Set = b['/zones/zn1/temperatureHeatingSetpoint'] || b['/zones/zn1/manualTemperatureHeating'] || b['/heatingCircuits/hc1/temperatureRoomSetpoint'];
         const zn1Hum = b['/zones/zn1/humidity'];
         const zn1Mode = b['/zones/zn1/userMode'] || b['/heatingCircuits/hc1/operationMode'];
         const zn1Status = b['/zones/zn1/status'];
@@ -1912,7 +1912,7 @@ class EvClimateHub {
       }
 
       const zn1Set = await this._boschSafeGet('/zones/zn1/temperatureHeatingSetpoint')
-        || await this._boschSafeGet('/zones/zn1/manualTempHeating')
+        || await this._boschSafeGet('/zones/zn1/manualTemperatureHeating')
         || await this._boschSafeGet('/heatingCircuits/hc1/temperatureRoomSetpoint');
       const zn1Hum = await this._boschSafeGet('/zones/zn1/humidity');
       const zn1Mode = await this._boschSafeGet('/zones/zn1/userMode')
@@ -2030,12 +2030,39 @@ class EvClimateHub {
 
     if (action === 'set_temp') {
       const target = Math.max(5, Math.min(30, +(Number(value || 21)).toFixed(1)));
-      // Invia ad entrambi gli endpoint standard CT200 per compatibilità firmware
+      let applied = false;
+      let lastErr = null;
+
+      // 1. Per zone con programma orario attivo (clock), imposta l'override temporaneo di temperatura su clockOverride
       try {
-        await this._boschPut(`/zones/${zoneId}/temperatureHeatingSetpoint`, { value: target });
-      } catch (_) {
-        await this._boschPut(`/zones/${zoneId}/manualTempHeating`, { value: target });
+        await this._boschPut(`/zones/${zoneId}/clockOverride/temperatureHeating`, { value: target });
+        applied = true;
+      } catch (err) {
+        lastErr = err;
       }
+
+      // 2. Imposta la temperatura manuale della zona (valida sia in modalità manual che come fallback)
+      try {
+        await this._boschPut(`/zones/${zoneId}/manualTemperatureHeating`, { value: target });
+        applied = true;
+      } catch (err) {
+        if (!lastErr) lastErr = err;
+      }
+
+      // 3. Fallback per circuito riscaldamento hc1 se zn1
+      if (!applied) {
+        try {
+          await this._boschPut(`/heatingCircuits/hc1/temperatureRoomSetpoint`, { value: target });
+          applied = true;
+        } catch (err) {
+          if (!lastErr) lastErr = err;
+        }
+      }
+
+      if (!applied) {
+        throw new Error(`Impossibile impostare setpoint per ${zoneId}: ${lastErr?.message || 'Richiesta respinta dal CT200'}`);
+      }
+
       eventLogger.log('bosch_thermo', `🌡️ [Bosch CT200] Setpoint ${zoneId} impostato a ${target}°C`);
     } else if (action === 'set_mode') {
       // 'clock' (Programma automatico) oppure 'manual' (Manuale)
