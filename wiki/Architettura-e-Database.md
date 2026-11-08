@@ -119,3 +119,24 @@ Il ciclo di avvio di Home Smart OS in [`server.js`](../server.js) rispetta rigor
 ### 🛡️ 3.4 Gestione Chiave di Cifratura (`ENCRYPTION_KEY`)
 - La cifratura AES-256-GCM è governata **esclusivamente** dalla variabile d'ambiente `ENCRYPTION_KEY` (presente in `.env` e nei GitHub Secrets).
 - È vietato qualsiasi fallback insicuro a password del DB o stringhe fisse: se `ENCRYPTION_KEY` non è valorizzata, qualsiasi tentativo di scrittura o seed di chiavi sensibili (`ev-climate-config`, `meross-token`, `hue-config`, `security-config`) viene categoricamente bloccato con log d'errore a tutela del repository pubblico.
+
+---
+
+## 4. Architettura di Autenticazione e Sicurezza Edge/Cloud
+
+A partire dalla Feature #3, **Home Smart OS** include un layer di autenticazione unificato ([`src/auth.js`](../src/auth.js)) per proteggere le API e l'interfaccia web prima dell'esposizione pubblica su `https://home.alexsoluzioniweb.it`:
+
+### 4.1 Modelli di Accesso Supportati
+1. **Tablet Kiosk a Muro (PIN Rapido)**:
+   - Accesso touch frictionless mediante PIN numerico configurato in `TABLET_KIOSK_PIN`.
+   - Generazione di sessione stateless HMAC-SHA256 memorizzata in un cookie `HttpOnly` (`home_smart_token`) con durata estesa a **90 giorni**, evitando disconnessioni sul tablet a muro.
+2. **Accesso Fuori Casa (Google OAuth2 + Whitelist)**:
+   - Login tramite Google OpenID Connect per smartphone e PC remoti (`/api/auth/google`).
+   - Verifica di conformità dell'indirizzo email con la whitelist autorizzata definita in `ALLOWED_GOOGLE_EMAILS`. Qualsiasi account non registrato viene respinto con codice 403 e allarme di sicurezza.
+   - Sessione cookie `HttpOnly` valida 30 giorni.
+
+### 4.2 Livelli di Protezione & Rate Limiting
+- **Protezione Middleware Universale**: Tutte le chiamate `/api/*` (eccetto `/api/auth/*` e `/callback` per redirect Volvo/Bosch) richiedono un token valido, restituendo `HTTP 401 Unauthorized` in caso contrario.
+- **Protezione WebSocket RTSP**: La connessione live per lo streaming delle telecamere Tapo (`/api/stream/:cameraId`) valida l'autenticazione prima di avviare il proxy video, terminando i socket non autorizzati con codice WS 1008.
+- **Anti-Brute Force**: Il modulo traccia i tentativi PIN errati per IP; dopo 5 errori consecutivi scatta il blocco temporaneo dell'indirizzo IP per 5 minuti (`HTTP 429 Too Many Requests`).
+- **Header di Sicurezza Web (`helmet`)**: Configurazione automatica degli header HTTP protettivi anti-XSS e clickjacking.

@@ -43,6 +43,80 @@
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen font-sans flex flex-col">
 
+  <!-- Fullscreen Auth / Kiosk Lock Overlay -->
+  <div id="auth-modal" class="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-xl flex items-center justify-center p-4 transition-opacity duration-300">
+    <div class="glass-card max-w-md w-full rounded-3xl p-6 sm:p-8 shadow-2xl border border-slate-800 text-center relative overflow-hidden">
+      <!-- Glow decorativi -->
+      <div class="absolute -top-20 -left-20 w-40 h-40 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
+      <div class="absolute -bottom-20 -right-20 w-40 h-40 bg-sky-500/20 rounded-full blur-3xl pointer-events-none"></div>
+
+      <!-- Icona e Titolo -->
+      <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-indigo-600 to-sky-500 flex items-center justify-center text-white text-2xl mx-auto shadow-lg shadow-indigo-500/30 mb-4">
+        <i class="fa-solid fa-shield-halved"></i>
+      </div>
+      <h2 class="text-2xl font-black text-white tracking-tight">Home Smart OS</h2>
+      <p class="text-xs text-slate-400 mt-1 mb-5">Accesso protetto • Tablet Kiosk & Google OAuth2</p>
+
+      <!-- Alert Errore -->
+      <div id="auth-error-banner" class="hidden mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs text-left flex items-start gap-2">
+        <i class="fa-solid fa-triangle-exclamation mt-0.5 text-rose-400 shrink-0"></i>
+        <span id="auth-error-msg">PIN errato</span>
+      </div>
+
+      <!-- Sezione A: PIN Kiosk (per il Tablet a muro) -->
+      <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 mb-5">
+        <div class="flex items-center justify-between mb-2 text-xs">
+          <span class="font-bold text-slate-300 flex items-center gap-1.5">
+            <i class="fa-solid fa-tablet-screen text-indigo-400"></i> Tablet Kiosk (PIN)
+          </span>
+          <span class="text-[10px] text-slate-400 font-mono">Sessione 90 giorni</span>
+        </div>
+
+        <!-- Display Punti PIN -->
+        <div id="pin-display" class="flex justify-center gap-3 my-3">
+          <span class="pin-dot w-4 h-4 rounded-full border-2 border-slate-600 transition-all bg-transparent"></span>
+          <span class="pin-dot w-4 h-4 rounded-full border-2 border-slate-600 transition-all bg-transparent"></span>
+          <span class="pin-dot w-4 h-4 rounded-full border-2 border-slate-600 transition-all bg-transparent"></span>
+          <span class="pin-dot w-4 h-4 rounded-full border-2 border-slate-600 transition-all bg-transparent"></span>
+        </div>
+
+        <!-- Tastierino Numerico Kiosk -->
+        <div class="grid grid-cols-3 gap-2 max-w-[260px] mx-auto mt-4">
+          <button type="button" onclick="handlePinDigit('1')" class="h-12 rounded-xl bg-slate-800/90 hover:bg-slate-700 active:scale-95 text-lg font-bold text-white transition-all">1</button>
+          <button type="button" onclick="handlePinDigit('2')" class="h-12 rounded-xl bg-slate-800/90 hover:bg-slate-700 active:scale-95 text-lg font-bold text-white transition-all">2</button>
+          <button type="button" onclick="handlePinDigit('3')" class="h-12 rounded-xl bg-slate-800/90 hover:bg-slate-700 active:scale-95 text-lg font-bold text-white transition-all">3</button>
+          <button type="button" onclick="handlePinDigit('4')" class="h-12 rounded-xl bg-slate-800/90 hover:bg-slate-700 active:scale-95 text-lg font-bold text-white transition-all">4</button>
+          <button type="button" onclick="handlePinDigit('5')" class="h-12 rounded-xl bg-slate-800/90 hover:bg-slate-700 active:scale-95 text-lg font-bold text-white transition-all">5</button>
+          <button type="button" onclick="handlePinDigit('6')" class="h-12 rounded-xl bg-slate-800/90 hover:bg-slate-700 active:scale-95 text-lg font-bold text-white transition-all">6</button>
+          <button type="button" onclick="handlePinDigit('7')" class="h-12 rounded-xl bg-slate-800/90 hover:bg-slate-700 active:scale-95 text-lg font-bold text-white transition-all">7</button>
+          <button type="button" onclick="handlePinDigit('8')" class="h-12 rounded-xl bg-slate-800/90 hover:bg-slate-700 active:scale-95 text-lg font-bold text-white transition-all">8</button>
+          <button type="button" onclick="handlePinDigit('9')" class="h-12 rounded-xl bg-slate-800/90 hover:bg-slate-700 active:scale-95 text-lg font-bold text-white transition-all">9</button>
+          <button type="button" onclick="handlePinClear()" class="h-12 rounded-xl bg-rose-950/40 hover:bg-rose-900/40 border border-rose-500/20 active:scale-95 text-sm font-bold text-rose-300 transition-all" title="Cancella"><i class="fa-solid fa-delete-left"></i></button>
+          <button type="button" onclick="handlePinDigit('0')" class="h-12 rounded-xl bg-slate-800/90 hover:bg-slate-700 active:scale-95 text-lg font-bold text-white transition-all">0</button>
+          <button type="button" id="btn-pin-submit" onclick="submitKioskPin()" class="h-12 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-sm font-bold text-white transition-all" title="Accedi"><i class="fa-solid fa-arrow-right"></i></button>
+        </div>
+      </div>
+
+      <!-- Separatore -->
+      <div class="relative flex items-center justify-center my-4">
+        <div class="border-t border-slate-800 w-full"></div>
+        <span class="bg-slate-900 px-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider absolute">oppure</span>
+      </div>
+
+      <!-- Sezione B: Google OAuth -->
+      <a href="/api/auth/google" class="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-900 font-bold text-sm transition-all shadow-md active:scale-95">
+        <svg class="w-5 h-5" viewBox="0 0 24 24">
+          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+        </svg>
+        Accedi con Google (Whitelist)
+      </a>
+      <p class="text-[10px] text-slate-400 mt-2">Riservato agli account Google autorizzati</p>
+    </div>
+  </div>
+
   <!-- Top Navigation -->
   <header class="border-b border-slate-800/80 bg-slate-900/80 sticky top-0 z-40 backdrop-blur-md">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -98,6 +172,15 @@
             <i class="fa-solid fa-wifi"></i>
             <span id="stat-online">0</span> online
           </div>
+        </div>
+
+        <!-- User Profile & Logout Badge -->
+        <div id="user-badge" class="hidden sm:flex items-center gap-2 bg-slate-800/80 border border-slate-700/60 px-2.5 py-1.5 rounded-xl text-xs shadow-inner">
+          <i class="fa-solid fa-user-shield text-indigo-400" id="user-icon"></i>
+          <span id="user-display" class="font-medium text-slate-300 max-w-[130px] truncate">Admin</span>
+          <button type="button" onclick="logoutNow()" class="ml-1 text-slate-400 hover:text-rose-400 p-1 transition-colors active:scale-95" title="Disconnetti">
+            <i class="fa-solid fa-right-from-bracket"></i>
+          </button>
         </div>
 
         <button id="btn-refresh" onclick="loadDashboard()" class="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700/50 active:scale-95">
@@ -563,6 +646,10 @@
       if (icon) icon.classList.add('fa-spin');
       try {
         const res = await fetch('/api/home');
+        if (res.status === 401) {
+          showAuthModal('Sessione non valida o scaduta. Effettua il login.');
+          return;
+        }
         const json = await res.json();
         if (!json.success) throw new Error(json.error);
 
@@ -6921,6 +7008,12 @@
 
     // Gestione parametri URL (es. redirect dopo login OAuth o link diretto)
     const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('auth_error')) {
+      const err = urlParams.get('auth_error');
+      showAuthModal(decodeURIComponent(err));
+      window.history.replaceState({}, '', '/');
+    }
+
     if (urlParams.get('volvo_connected') === '1' || urlParams.get('cat') === 'VOLVO_EX30') {
       activeCategory = 'VOLVO_EX30';
       if (urlParams.get('volvo_connected') === '1') {
@@ -6928,8 +7021,161 @@
       }
     }
 
-    // Carica la dashboard all'avvio
-    loadDashboard();
+    // ============================================================================
+    // Gestione Autenticazione Kiosk & Google OAuth2
+    // ============================================================================
+    let currentUser = null;
+    let kioskPin = '';
+
+    function showAuthModal(errMsg = '') {
+      const modal = document.getElementById('auth-modal');
+      const errBanner = document.getElementById('auth-error-banner');
+      const errMsgEl = document.getElementById('auth-error-msg');
+      if (modal) {
+        modal.classList.remove('hidden');
+        modal.style.display = 'flex';
+      }
+      if (errMsg && errBanner && errMsgEl) {
+        errMsgEl.textContent = errMsg;
+        errBanner.classList.remove('hidden');
+      } else if (errBanner) {
+        errBanner.classList.add('hidden');
+      }
+      kioskPin = '';
+      updatePinDisplay();
+    }
+
+    function hideAuthModal() {
+      const modal = document.getElementById('auth-modal');
+      if (modal) {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+      }
+    }
+
+    function updateUserBadge(user) {
+      const badge = document.getElementById('user-badge');
+      const display = document.getElementById('user-display');
+      const icon = document.getElementById('user-icon');
+      if (!badge || !user) return;
+
+      badge.classList.remove('hidden');
+      badge.classList.add('flex');
+      if (user.type === 'kiosk') {
+        if (display) display.textContent = 'Tablet Kiosk';
+        if (icon) icon.className = 'fa-solid fa-tablet-screen text-indigo-400';
+      } else {
+        if (display) display.textContent = user.name || user.email || 'Google';
+        if (icon) icon.className = 'fa-brands fa-google text-indigo-400';
+      }
+    }
+
+    function updatePinDisplay() {
+      const dots = document.querySelectorAll('#pin-display .pin-dot');
+      dots.forEach((dot, idx) => {
+        if (idx < kioskPin.length) {
+          dot.className = 'pin-dot w-4 h-4 rounded-full border-2 border-indigo-500 bg-indigo-500 shadow-sm shadow-indigo-500/50 transition-all scale-110';
+        } else {
+          dot.className = 'pin-dot w-4 h-4 rounded-full border-2 border-slate-600 bg-transparent transition-all scale-100';
+        }
+      });
+    }
+
+    function handlePinDigit(digit) {
+      if (kioskPin.length < 8) {
+        kioskPin += digit;
+        updatePinDisplay();
+      }
+      // Se raggiunge 4 cifre, prova l'invio automatico
+      if (kioskPin.length === 4) {
+        submitKioskPin();
+      }
+    }
+
+    function handlePinClear() {
+      kioskPin = '';
+      updatePinDisplay();
+      const errBanner = document.getElementById('auth-error-banner');
+      if (errBanner) errBanner.classList.add('hidden');
+    }
+
+    async function submitKioskPin() {
+      if (!kioskPin) return;
+      const btn = document.getElementById('btn-pin-submit');
+      if (btn) btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/auth/kiosk-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: kioskPin })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          currentUser = data.user;
+          hideAuthModal();
+          updateUserBadge(data.user);
+          showToast('Accesso Tablet Kiosk eseguito con successo!', 'success');
+          loadDashboard();
+        } else {
+          showAuthModal(data.error || 'PIN errato');
+        }
+      } catch (err) {
+        showAuthModal('Errore di connessione al server: ' + err.message);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    async function logoutNow() {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        window.location.reload();
+      } catch (_) {
+        window.location.reload();
+      }
+    }
+
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/auth/status');
+        const data = await res.json();
+        if (data.authenticated) {
+          currentUser = data.user;
+          hideAuthModal();
+          updateUserBadge(data.user);
+          return true;
+        } else {
+          showAuthModal();
+          return false;
+        }
+      } catch (err) {
+        console.warn('Verifica auth status fallita:', err);
+        showAuthModal('Impossibile verificare lo stato di autenticazione');
+        return false;
+      }
+    }
+
+    // Supporto tastiera fisica per digitazione PIN quando il modal è visibile
+    window.addEventListener('keydown', (e) => {
+      const modal = document.getElementById('auth-modal');
+      if (!modal || modal.style.display === 'none' || modal.classList.contains('hidden')) return;
+
+      if (e.key >= '0' && e.key <= '9') {
+        handlePinDigit(e.key);
+      } else if (e.key === 'Backspace') {
+        handlePinClear();
+      } else if (e.key === 'Enter') {
+        submitKioskPin();
+      }
+    });
+
+    // Controllo autenticazione all'avvio
+    checkAuth().then((isAuthed) => {
+      if (isAuthed) {
+        loadDashboard();
+      }
+    });
 
     // Auto-refresh ogni 30 secondi (salta il re-render se c'è uno stream video attivo per non chiuderlo)
     setInterval(() => {
