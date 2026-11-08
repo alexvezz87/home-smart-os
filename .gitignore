@@ -1,0 +1,47 @@
+# Dipendenze Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Variabili d'ambiente e Credenziali (MAI committare)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.pfx
+*service-account*.json
+*gcp-key*.json
+
+# Configurazioni runtime, Token OAuth e Cache locali con dati sensibili
+ev-climate-config.json
+meross-token.json
+hue-config.json
+security-config.json
+activity-log.json
+appliance-cycles.json
+local-states-cache.json
+resources-cache.json
+spatial-custom-layout.json
+
+# Dati personali, CSV bollette/consumi e archivi storici locali
+data/
+Bosch Easy Control/
+mappa casa/
+cleanyourtv/
+
+# Binari locali, certificati SSL e Snapshot telecamere
+bin/
+public/snapshots/
+public/planimetria-hd.png
+
+# Bacheca incarichi locale Orchestratore (Cervello -> Braccio)
+tasks/
+
+# Sistema Operativo & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

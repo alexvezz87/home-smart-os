@@ -1,0 +1,824 @@
+require('dotenv').config();
+const http = require('http');
+const https = require('https');
+const net = require('net');
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const fs = require('fs');
+const mcp = require('./src/google-home-mcp');
+const { processAssistantCommand } = require('./src/assistant');
+const eventLogger = require('./src/event-logger');
+const merossEnergy = require('./src/meross-energy');
+const securitySystem = require('./src/security-system');
+const hueLocal = require('./src/hue-local');
+const spatialEngine = require('./src/spatial-engine');
+const evClimateHub = require('./src/ev-climate-hub');
+
+const app = express();
+const httpServer = http.createServer(app);
+const { proxy, scriptUrl } = require('rtsp-relay')(app, httpServer);
+const PORT = process.env.PORT || 3000;
+
+// Carica certificati SSL per HTTPS (necessario per callback OAuth2 Volvo ID su https://localhost:3000/callback)
+let httpsServer = null;
+const keyPath = path.join(__dirname, 'bin', 'localhost.key');
+const certPath = path.join(__dirname, 'bin', 'localhost.crt');
+
+if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+  try {
+    const sslOptions = {
+      key: fs.readFileSync(keyPath),
+      cert: fs.readFileSync(certPath)
+    };
+    httpsServer = https.createServer(sslOptions, app);
+    console.log('[HTTPS Setup] Certificato SSL per localhost caricato con successo.');
+  } catch (err) {
+    console.warn('[HTTPS Setup] Errore caricamento certificati SSL:', err.message);
+  }
+}
+
+// Pulizia preventiva processi ffmpeg orfani su Windows all'avvio
+try {
+  if (process.platform === 'win32') {
+    require('child_process').execSync('taskkill /f /im ffmpeg.exe 2>nul || exit 0', { stdio: 'ignore' });
+  }
+} catch (_) {}
+
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Inizializza modulo telemetria energetica Meross (se configurato in .env)
+merossEnergy.init();
+// Inizializza controllo locale Philips Hue Bridge (192.168.1.18)
+hueLocal.init();
+
+// API Philips Hue Bridge Locale
+app.get('/api/hue/status', (req, res) => {
+  res.json({ success: true, data: hueLocal.getStatus() });
+});
+
+app.post('/api/hue/pair', async (req, res) => {
+  try {
+    const r = await hueLocal.tryPairOnce();
+    res.json({ success: true, data: r, status: hueLocal.getStatus() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 1. Snapshot completo casa con arricchimento telemetria Meross, Sicurezza e Mappa Spaziale 32 Pin
+app.get('/api/home', async (req, res) => {
+  try {
+    const snapshot = await mcp.getHomeSnapshot();
+    const enriched = merossEnergy.enrichDevices(snapshot.devices);
+    snapshot.devices = enriched.devices;
+    snapshot.energySummary = enriched.energySummary;
+    snapshot.security = securitySystem.getStatus();
+    snapshot.spatial = spatialEngine.getEnrichedMapState(snapshot);
+    snapshot.evClimate = evClimateHub.getUnifiedStatus(snapshot);
+    res.json({ success: true, data: snapshot });
+  } catch (error) {
+    console.error('[API /api/home Error]:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 1a. API Domotica Spaziale & Prossimità (Lampadari Multi-Bulbo, Micro-Zone, Scia Corridoio, Camera Target-Lock)
+app.post('/api/spatial/chandelier', async (req, res) => {
+  try {
+    const { chandelierId, mode, brightness } = req.body;
+    const result = await spatialEngine.setChandelierMode(chandelierId, mode, brightness);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/spatial/micro-zone', async (req, res) => {
+  try {
+    const { zoneId } = req.body;
+    const result = await spatialEngine.activateMicroZone(zoneId);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/spatial/corridor-wave', async (req, res) => {
+  try {
+    const { direction, brightness } = req.body;
+    const result = await spatialEngine.triggerCorridorWave(direction, brightness);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/spatial/look-at-pin', async (req, res) => {
+  try {
+    const { pin } = req.body;
+    const result = await spatialEngine.lookAtPin(pin);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/spatial/auto-cinema', (req, res) => {
+  const { enabled } = req.body;
+  spatialEngine.autoCinemaEnabled = Boolean(enabled);
+  res.json({ success: true, autoCinemaEnabled: spatialEngine.autoCinemaEnabled });
+});
+
+app.post('/api/spatial/move-pin', (req, res) => {
+  try {
+    const { pin, x, y, room } = req.body;
+    const result = spatialEngine.movePin(pin, x, y, room);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/spatial/reset-layout', (req, res) => {
+  try {
+    const result = spatialEngine.resetCustomLayout();
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// 1a-bis. API Garage EV (ABB Terra AC Wallbox + Volvo EX30) & Caldaia Bosch EasyControl (CT200)
+app.get('/api/ev-climate/status', async (req, res) => {
+  try {
+    const snapshot = await mcp.getHomeSnapshot().catch(() => null);
+    res.json({ success: true, data: evClimateHub.getUnifiedStatus(snapshot) });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/config', async (req, res) => {
+  try {
+    const saved = await evClimateHub.saveConfig(req.body || {});
+    res.json({ success: true, ...saved });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/wallbox', async (req, res) => {
+  try {
+    const { action, value } = req.body;
+    const result = await evClimateHub.controlWallbox(action, value);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/volvo', async (req, res) => {
+  try {
+    const { action, value } = req.body;
+    const result = await evClimateHub.controlVolvo(action, value);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/ev-climate/volvo/oauth-url', (req, res) => {
+  try {
+    const { redirectUri } = req.query;
+    const url = evClimateHub.getVolvoOAuthUrl(redirectUri);
+    res.json({ success: true, url });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/volvo/oauth-callback', async (req, res) => {
+  try {
+    const { code, callbackUrl, redirectUri } = req.body || {};
+    const result = await evClimateHub.exchangeVolvoOAuthCode(code || callbackUrl, redirectUri);
+    const snapshot = await mcp.getHomeSnapshot().catch(() => null);
+    res.json({
+      success: true,
+      ...result,
+      data: evClimateHub.getUnifiedStatus(snapshot)
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// Endpoint per Access Token Diretto dal Portale Volvo Developer (Strada B)
+app.post('/api/ev-climate/volvo/direct-token', async (req, res) => {
+  try {
+    const { accessToken, refreshToken } = req.body || {};
+    const result = await evClimateHub.setVolvoDirectToken(accessToken, refreshToken);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// Endpoint per OAuth Redirect Volvo ID (gestisce sia HTTPS che HTTP su porta 3000 - Strada A)
+app.get('/callback', async (req, res) => {
+  const { code, error, error_description } = req.query;
+
+  if (error) {
+    return res.status(400).send(`<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>Errore Autenticazione Volvo ID</title>
+  <style>
+    body { background: #0f172a; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
+    .card { background: #1e293b; border: 1px solid #ef4444; border-radius: 16px; padding: 32px 24px; max-width: 450px; }
+    h2 { color: #ef4444; margin-top: 0; font-size: 20px; }
+    p { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
+    .btn { display: inline-block; background: #2563eb; color: white; text-decoration: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>❌ Errore Autenticazione Volvo ID</h2>
+    <p><strong>${error}</strong>: ${error_description || 'Autorizzazione negata'}</p>
+    <a href="http://localhost:${PORT}/?cat=VOLVO_EX30" class="btn">Torna a Casetta OS</a>
+  </div>
+</body>
+</html>`);
+  }
+
+  if (!code) {
+    return res.redirect(`http://localhost:${PORT}/?cat=VOLVO_EX30`);
+  }
+
+  try {
+    const redirectUri = `https://localhost:${PORT}/callback`;
+    await evClimateHub.exchangeVolvoOAuthCode(code, redirectUri);
+    eventLogger.log('volvo_ex30', '🎉 [Volvo EX30] Connessione completata con successo tramite 1-Click Callback (Strada A)');
+
+    res.send(`<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>Volvo EX30 Connessa!</title>
+  <style>
+    body {
+      background: #0b1120;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      text-align: center;
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid #10b981;
+      border-radius: 16px;
+      padding: 36px 28px;
+      max-width: 450px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+    }
+    .icon { font-size: 50px; margin-bottom: 12px; }
+    h2 { margin: 0 0 10px; color: #10b981; font-size: 22px; font-weight: 800; }
+    p { color: #94a3b8; font-size: 14px; line-height: 1.5; margin: 0 0 20px; }
+    .btn {
+      display: inline-block;
+      background: #2563eb;
+      color: white;
+      text-decoration: none;
+      padding: 10px 22px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">🚗⚡</div>
+    <h2>Volvo EX30 Connessa!</h2>
+    <p>Token OAuth2 scambiato con successo e telemetria veicolo sincronizzata.<br>Questa finestra si chiuderà automaticamente...</p>
+    <a href="http://localhost:${PORT}/?cat=VOLVO_EX30" class="btn">Torna alla Dashboard</a>
+  </div>
+  <script>
+    try {
+      if (window.opener && !window.opener.closed) {
+        window.opener.postMessage({ type: 'VOLVO_AUTH_SUCCESS' }, '*');
+        setTimeout(() => window.close(), 1200);
+      } else {
+        setTimeout(() => {
+          window.location.href = 'http://localhost:${PORT}/?cat=VOLVO_EX30';
+        }, 1500);
+      }
+    } catch (_) {
+      setTimeout(() => {
+        window.location.href = 'http://localhost:${PORT}/?cat=VOLVO_EX30';
+      }, 1500);
+    }
+  </script>
+</body>
+</html>`);
+  } catch (err) {
+    res.status(500).send(`<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>Errore Scambio Token</title>
+  <style>
+    body { background: #0f172a; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
+    .card { background: #1e293b; border: 1px solid #ef4444; border-radius: 16px; padding: 32px 24px; max-width: 480px; }
+    h2 { color: #ef4444; margin-top: 0; }
+    p { color: #94a3b8; font-size: 14px; margin-bottom: 24px; word-break: break-word; }
+    .btn { display: inline-block; background: #2563eb; color: white; text-decoration: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>❌ Errore Scambio Token</h2>
+    <p>${err.message}</p>
+    <a href="http://localhost:${PORT}/?cat=VOLVO_EX30" class="btn">Torna a Casetta OS</a>
+  </div>
+</body>
+</html>`);
+  }
+});
+
+app.post('/api/ev-climate/bosch', async (req, res) => {
+  try {
+    const { action, value, zoneId } = req.body;
+    const result = await evClimateHub.controlBosch(action, value, { zoneId });
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/ev-climate/bosch/program/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await evClimateHub.getBoschProgramSchedule(id);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/bosch/program/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { day, switchPoints } = req.body || {};
+    const result = await evClimateHub.setBoschProgramDaySchedule(id, day, switchPoints);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/bosch/raw', async (req, res) => {
+  try {
+    const { endpoint, method, payload } = req.body || {};
+    const result = await evClimateHub.queryBoschRawEndpoint(endpoint, method, payload);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/ev-climate/bosch/oauth-url', (req, res) => {
+  try {
+    const url = evClimateHub.getBoschOAuthUrl();
+    res.json({ success: true, url });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/bosch/browser-capture', async (req, res) => {
+  try {
+    const result = await evClimateHub.launchBoschBrowserCapture();
+    const snapshot = await mcp.getHomeSnapshot().catch(() => null);
+    res.json({
+      success: true,
+      ...result,
+      data: evClimateHub.getUnifiedStatus(snapshot)
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/bosch/oauth-callback', async (req, res) => {
+  try {
+    const { callbackUrl } = req.body || {};
+    const result = await evClimateHub.exchangeBoschOAuthCode(callbackUrl);
+    const snapshot = await mcp.getHomeSnapshot().catch(() => null);
+    res.json({
+      success: true,
+      ...result,
+      data: evClimateHub.getUnifiedStatus(snapshot)
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/sync', async (req, res) => {
+  try {
+    await evClimateHub.syncAll();
+    const snapshot = await mcp.getHomeSnapshot().catch(() => null);
+    res.json({ success: true, data: evClimateHub.getUnifiedStatus(snapshot) });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Storico Consumi ed Analisi Energetiche Elaborate (Google Drive: Volvo EX30, Wallbox ABB, Dolomiti Energia)
+app.get('/api/ev-climate/analytics/history', (req, res) => {
+  try {
+    const analyticsPath = path.resolve(__dirname, 'data/historical-energy-analytics.json');
+    if (fs.existsSync(analyticsPath)) {
+      const data = JSON.parse(fs.readFileSync(analyticsPath, 'utf8'));
+      return res.json({ success: true, data });
+    }
+    res.status(404).json({ success: false, error: 'Dati storici non ancora generati' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Storico Completo Consumi Gas Caldaia Bosch CT200 (PointT Cloud API + Archivio Persistente)
+app.get('/api/ev-climate/bosch/energy-history', async (req, res) => {
+  try {
+    const history = await evClimateHub.fetchBoschFullEnergyHistory(Boolean(req.query.force));
+    res.json({ success: true, data: history });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 1b. Dati energetici live Meross & Energy Intelligence
+app.get('/api/energy', (req, res) => {
+  res.json({ success: true, data: merossEnergy.getStatus() });
+});
+
+app.get('/api/energy/intelligence', async (req, res) => {
+  try {
+    const snapshot = await mcp.getHomeSnapshot().catch(() => ({ devices: [] }));
+    const summary = merossEnergy.getIntelligenceSummary(snapshot.devices || []);
+    res.json({ success: true, data: summary });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 1c. Report completo aggregato consumi di tutte le prese Meross con filtro temporale
+app.get('/api/energy/report', async (req, res) => {
+  try {
+    const timeframe = req.query.timeframe || '30d';
+    const report = await merossEnergy.getAllPlugsReport(timeframe);
+    res.json(report);
+  } catch (error) {
+    console.error('[API /api/energy/report Error]:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 1d. Esportazione CSV consumi per Excel / Fogli
+app.get('/api/energy/export-csv', async (req, res) => {
+  try {
+    const timeframe = req.query.timeframe || '30d';
+    const report = await merossEnergy.getAllPlugsReport(timeframe);
+
+    let csv = `Dispositivo,Stanza,Modello,Potenza_Live_W,Tensione_V,Corrente_A,Consumo_${timeframe}_kWh,Costo_Stimato_EUR,Media_Giornaliera_kWh,Media_Giornaliera_EUR,Quota_Percentuale,Giorno_Picco_Data,Giorno_Picco_kWh\n`;
+    for (const p of report.plugs) {
+      csv += `"${p.name}","${p.room}","${p.model}",${p.live.powerW},${p.live.voltageV},${p.live.currentA},${p.periodKwh},${p.periodCostEur},${p.dailyAvgKwh},${p.dailyAvgCostEur},"${p.sharePercent}%","${p.peakDay?.date || ''}",${p.peakDay?.kwh || 0}\n`;
+    }
+    csv += `\n"TOTALE GENERALE","Casetta","--",${report.summary.grandTotalPowerW},--,--,${report.summary.grandTotalKwh},${report.summary.grandTotalCostEur},${report.summary.dailyAverageKwh},${report.summary.dailyAverageCostEur},"100%","--",--\n`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="report-consumi-meross-${timeframe}.csv"`);
+    res.send('\uFEFF' + csv);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 1e. Dettaglio presa con storico e telemetria per grafici (con supporto timeframe)
+app.get('/api/device/:identifier/energy-detail', async (req, res) => {
+  try {
+    const { identifier } = req.params;
+    const timeframe = req.query.timeframe || '30d';
+    const detail = await merossEnergy.getDeviceEnergyDetail(identifier, timeframe);
+    res.json(detail);
+  } catch (error) {
+    console.error('[API /api/device/energy-detail Error]:', error.message);
+    res.status(404).json({ success: false, error: error.message });
+  }
+});
+
+// 1d. Sicurezza & Telecamere Tapo
+app.get('/api/security/status', (req, res) => {
+  res.json({ success: true, data: securitySystem.getStatus() });
+});
+
+app.post('/api/security/mode', (req, res) => {
+  try {
+    const { mode } = req.body;
+    const result = securitySystem.setSecurityMode(mode, mcp);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/camera/:id/privacy', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { enabled } = req.body;
+    const result = await securitySystem.toggleCameraPrivacy(id, enabled);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/camera/:id/imaging', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await securitySystem.updateCameraImaging(id, req.body || {});
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/camera/:id/snapshot', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body || {};
+    const result = await securitySystem.captureSnapshot(id, reason || 'Scatto Manuale');
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/camera/:id/patrol', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { enabled } = req.body || {};
+    const result = await securitySystem.toggleAutoPatrol(id, enabled);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/camera/:id/point-angle', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { pan, tilt } = req.body || {};
+    const result = await securitySystem.pointToAngle(id, pan, tilt);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/camera/:id/ptz', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { direction } = req.body;
+    const result = await securitySystem.ptzMove(id, direction);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/camera/:id/preset', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { presetId } = req.body;
+    const result = await securitySystem.applyPreset(id, presetId);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/camera/:id/preset/save', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { presetId, name } = req.body;
+    const result = await securitySystem.saveCurrentPositionAsPreset(id, presetId, name);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/camera/:id/preset/delete', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { presetId } = req.body;
+    const result = securitySystem.deletePreset(id, presetId);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/camera/:id/cast', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await securitySystem.castToNestHub(id, mcp);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/camera/:id/simulate-motion', (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = securitySystem.simulateMotion(id);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// 1e. Configurazione parametri RTSP/Tapo telecamera
+app.post('/api/camera/:id/config', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { ip, user, password, cloudPassword, streamQuality } = req.body;
+    const result = securitySystem.updateCameraNetwork(id, { ip, user, password, cloudPassword, streamQuality });
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// 1f. WebSocket per streaming RTSP live verso il browser (fallback JSMpeg)
+app.ws('/api/stream/:cameraId', (ws, req) => {
+  const { cameraId } = req.params;
+  const rtspUrl = securitySystem.getRTSPUrl(cameraId);
+  if (!rtspUrl) {
+    console.warn(`[RTSP Relay] Nessun URL RTSP configurato per telecamera: ${cameraId}`);
+    try {
+      ws.close(1008, 'RTSP non configurato per questa telecamera');
+    } catch (_) {}
+    return;
+  }
+
+  const safeLogUrl = rtspUrl.replace(/:([^:@]+)@/, ':****@');
+  console.log(`[RTSP Relay] Avvio proxy stream per ${cameraId} (${safeLogUrl})`);
+
+  ws.on('error', (err) => {
+    console.warn(`[RTSP Relay WS Error] Telecamera ${cameraId}:`, err.message);
+  });
+
+  try {
+    return proxy({
+      url: rtspUrl,
+      transport: 'tcp',
+      verbose: false,
+      additionalFlags: ['-q', '1', '-an']
+    })(ws);
+  } catch (err) {
+    console.error(`[RTSP Relay Proxy Exception] Telecamera ${cameraId}:`, err.message);
+    try { ws.close(1011, err.message); } catch (_) {}
+  }
+});
+
+// 2. Cronologia eventi
+app.get('/api/history', (req, res) => {
+  try {
+    const events = eventLogger.getRecent(50);
+    res.json({ success: true, data: events });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/history/clear', (req, res) => {
+  try {
+    eventLogger.clear();
+    res.json({ success: true, message: 'Cronologia svuotata' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 3. Toggle singolo dispositivo (on/off - luci, prese, purificatore)
+app.post('/api/device/:id/toggle', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { targetState } = req.body;
+    await mcp.toggleDevice(id, Boolean(targetState));
+    res.json({ success: true, message: `Dispositivo impostato a ${targetState ? 'acceso' : 'spento'}` });
+  } catch (error) {
+    console.error('[API /api/device/toggle Error]:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 4. Regola luminosità singolo dispositivo
+app.post('/api/device/:id/brightness', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { brightness } = req.body;
+    await mcp.setDeviceBrightness(id, brightness);
+    res.json({ success: true, message: `Luminosità impostata al ${brightness}%` });
+  } catch (error) {
+    console.error('[API /api/device/brightness Error]:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 5. Toggle intera stanza
+app.post('/api/room/:roomName/toggle', async (req, res) => {
+  try {
+    const { roomName } = req.params;
+    const { targetState } = req.body;
+    await mcp.setRoomPower(roomName, Boolean(targetState));
+    res.json({ success: true, message: `Stanza ${roomName} ${targetState ? 'accesa' : 'spenta'}` });
+  } catch (error) {
+    console.error('[API /api/room/toggle Error]:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 6. Regola luminosità intera stanza
+app.post('/api/room/:roomName/brightness', async (req, res) => {
+  try {
+    const { roomName } = req.params;
+    const { brightness } = req.body;
+    await mcp.setRoomBrightness(roomName, brightness);
+    res.json({ success: true, message: `Luminosità ${roomName} al ${brightness}%` });
+  } catch (error) {
+    console.error('[API /api/room/brightness Error]:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 7. Spegni tutte le luci (Master Off)
+app.post('/api/all-off', async (req, res) => {
+  try {
+    const result = await mcp.turnOffAllLights();
+    res.json({ success: true, message: `Spente ${result.count} luci` });
+  } catch (error) {
+    console.error('[API /api/all-off Error]:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 8. Assistente AI in linguaggio naturale
+app.post('/api/assistant', async (req, res) => {
+  try {
+    const { command } = req.body;
+    const result = await processAssistantCommand(command);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('[API /api/assistant Error]:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Avvio server con supporto WebSocket e Multiplexing Dual HTTP/HTTPS su singola porta
+const tcpServer = net.createServer((socket) => {
+  socket.on('error', () => {});
+  socket.once('data', (buffer) => {
+    socket.pause();
+    socket.unshift(buffer);
+    if (buffer[0] === 0x16 && httpsServer) {
+      httpsServer.emit('connection', socket);
+    } else {
+      httpServer.emit('connection', socket);
+    }
+    process.nextTick(() => socket.resume());
+  });
+});
+
+tcpServer.listen(PORT, () => {
+  console.log(`=======================================================`);
+  console.log(`🏠 Casetta Smart OS: Google Home + go2rtc + ONVIF + Meross`);
+  console.log(`🚀 In esecuzione su: http://localhost:${PORT}`);
+  if (httpsServer) {
+    console.log(`🔒 Multiplexing HTTPS attivo su: https://localhost:${PORT}`);
+  }
+  console.log(`=======================================================`);
+  eventLogger.log('system', 'Server Casetta Smart OS avviato con successo (Dual HTTP/HTTPS Multiplexing)', { source: 'Sistema' });
+});
