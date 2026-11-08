@@ -511,7 +511,39 @@ class SpatialEngine {
 
     this.defaultPins = JSON.parse(JSON.stringify(this.pins));
     this.loadCustomLayout();
+    this.initDbCustomLayout();
     this.startProximityReflexLoop();
+  }
+
+  /**
+   * Sincronizza posizioni e stanze salvate su TiDB Cloud (db_home_os)
+   */
+  async initDbCustomLayout() {
+    try {
+      const saved = await db.get('spatial-custom-layout');
+      if (saved && typeof saved === 'object') {
+        for (const [key, custom] of Object.entries(saved)) {
+          const pinNum = Number(key);
+          let p = this.pins.find(item => item.pin === pinNum);
+          if (p && custom) {
+            if (typeof custom.x === 'number') p.x = custom.x;
+            if (typeof custom.y === 'number') p.y = custom.y;
+            if (custom.room) p.room = custom.room;
+            if (Array.isArray(custom.nearbyPins)) p.nearbyPins = custom.nearbyPins;
+          } else if (!p && custom && custom.name) {
+            this.pins.push({
+              pin: pinNum,
+              name: custom.name,
+              category: custom.category || 'other',
+              x: custom.x || 50,
+              y: custom.y || 50,
+              room: custom.room || 'Salone',
+              nearbyPins: custom.nearbyPins || []
+            });
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   /**
@@ -543,6 +575,9 @@ class SpatialEngine {
       const map = {};
       for (const p of this.pins) {
         map[p.pin] = {
+          pin: p.pin,
+          name: p.name,
+          category: p.category,
           x: p.x,
           y: p.y,
           room: p.room,
@@ -614,11 +649,30 @@ class SpatialEngine {
   }
 
   /**
-   * Sposta un dispositivo (Drag & Drop sulla planimetria) e aggiorna automaticamente stanza e vicini
+   * Sposta un dispositivo (Drag & Drop sulla planimetria) e aggiorna automaticamente stanza e vicini.
+   * Supporta sia ID pin numerici sia nomi di dispositivi non collocati dal cassetto admin.
    */
   movePin(pinNum, xPct, yPct, clientDetectedRoom = null) {
-    const p = this.pins.find(item => item.pin === Number(pinNum));
-    if (!p) throw new Error(`Pin #${pinNum} non trovato.`);
+    let p = this.pins.find(item => item.pin === Number(pinNum));
+    if (!p && typeof pinNum === 'string') {
+      p = this.pins.find(item => item.name === pinNum || item.googleName === pinNum || item.merossName === pinNum);
+    }
+    
+    // Se è un nuovo dispositivo dal cassetto "non collocati"
+    if (!p) {
+      const nextPin = this.pins.reduce((max, item) => Math.max(max, item.pin || 0), 0) + 1;
+      const initialRoom = clientDetectedRoom || this.detectRoomFromCoords(Number(xPct), Number(yPct)) || 'Salone';
+      p = {
+        pin: nextPin,
+        name: String(pinNum),
+        room: initialRoom,
+        category: 'other',
+        x: Math.max(10, Math.min(92, +Number(xPct).toFixed(1))),
+        y: Math.max(4, Math.min(95, +Number(yPct).toFixed(1))),
+        nearbyPins: []
+      };
+      this.pins.push(p);
+    }
 
     const newX = Math.max(10, Math.min(92, +Number(xPct).toFixed(1)));
     const newY = Math.max(4, Math.min(95, +Number(yPct).toFixed(1)));

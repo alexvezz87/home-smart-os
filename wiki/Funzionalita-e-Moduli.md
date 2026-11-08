@@ -34,3 +34,41 @@ La dashboard integra un overlay di blocco sicuro (`#auth-modal`) che protegge le
 - **Tastierino Numerico Kiosk**: Permette al tablet a muro di sbloccarsi istantaneamente tramite PIN numerico a 4 cifre senza richiedere credenziali complesse. La sessione viene conservata per 90 giorni in un cookie `HttpOnly`.
 - **Login Google OAuth2**: Pulsante dedicato per l'accesso fuori casa da smartphone e PC con reindirizzamento Google e verifica istantanea della whitelist email.
 - **Navbar Session Badge**: Mostra l'identità dell'utente collegato ("Tablet Kiosk" o email Google) con pulsante di logout immediato.
+
+---
+
+## 4. Architettura Frontend Modularizzata & Navigazione a 3 Macro-Aree
+
+Per garantire scalabilità, pulizia del codice e massima reattività su Smartphone, Tablet a muro e Desktop PC, il frontend è stato riorganizzato eliminando la frammentazione dei tab in favore di sole **3 Macro-Aree**:
+
+### A. 🏠 La Mia Casa (Digital Twin Operativo)
+- **Planimetria Vettoriale SVG 1:1**: Rendering ultra-dettagliato CAD/Luxury con pareti, porte ad arco, finestre e texture pavimento.
+- **Pan & Zoom Multi-Device**: Supporto fluido al pan touch a 1 dito e pinch-to-zoom a 2 dita su mobile/tablet, e rotellina mouse su desktop.
+- **Badge di Stato & Glow Real-Time**: Aloni luminosi pulsanti per luci accese, radar di visione telecamere Tapo, badge dinamici di potenza (W), temperatura (°C) e carica EV (%).
+- **Drawer / Bottom Sheet Contestuale**: Toccando un pin dispositivo, si apre un drawer laterale semitrasparente (su tablet/desktop) o un bottom sheet (su smartphone) con comandi rapidi (dimmer luci, termostato Bosch, porte/clima Volvo EX30, ricarica Wallbox ABB, stream video Tapo RTSP/WebSockets e toggle prese Meross).
+
+### B. ⚡ Consumi & Energia (Energy Intelligence)
+- **Heatmap Energetica sulla Piantina**: Aloni colorati sui dispositivi proporzionali ai Watt assorbiti (blu < 100W, ambra 100-1000W, rosso intenso > 1000W).
+- **Anti-Distacco Contatore 3.0 kW**: Indicatore di carico in tempo reale con soglie di allerta (*SAFE*, *WARNING*, *CRITICAL*) e margine disponibile.
+- **Simulatore Bolletta ARERA (F1/F2/F3)**: Rilevamento automatico della fascia attiva e consigli AI di ottimizzazione carichi.
+- **Analisi Metano Caldaia Bosch CT200**: Grafici interattivi Chart.js (orari e giornalieri) con calcolo costi basato su tariffa Dolomiti Energia (0.87 €/m³).
+- **Confronto Ricarica EV Volvo EX30 / Wallbox ABB**: Calcolo risparmio economico rispetto ai veicoli termici tradizionali (~72% di risparmio medio).
+
+### C. ⚙️ Amministrazione & Hub (Gestione & Diagnostica)
+- **Modalità "Modifica Piantina" (Drag & Drop Editor)**: Blocco/sblocco protetto per riposizionare i dispositivi sulla planimetria. Trascinando un pin tra le stanze, l'assegnazione spaziale e il grafo di prossimità vengono ricalcolati istantaneamente.
+- **Cassetto "Dispositivi non collocati"**: Elenco dinamico dei dispositivi smart rilevati senza coordinate sulla mappa con collocamento a 1-click.
+- **Persistenza su TiDB Cloud**: Le coordinate percentuali `(x%, y%)` e le stanze vengono salvate sia su file locale `spatial-custom-layout.json` che sul database cloud `db_home_os` (tabella `kv_store`).
+- **Cruscotto Stato Integrazioni**: Diagnostica in tempo reale per Google Home MCP, TiDB, Bosch, Volvo, ABB, Hue LAN, Meross e Tapo.
+- **Registro Eventi & Audit Log**: Consultazione eventi operativi da `activity_logs` con filtri e svuotamento rapido.
+
+### Struttura Modulare (`public/js/`)
+| File | Scopo & Funzionalità |
+| :--- | :--- |
+| `public/index.html` | Template scheletro snello (~260 righe) con viewport mobile, topbar, bottom nav e modali. |
+| `public/js/app.js` | Router delle 3 macro-aree, gestione sessione/PIN Kiosk, polling dashboard e toast notifications. |
+| `public/js/floorplan.js` | Geometria stanze `ARCHITECTURAL_ROOMS`, pan & zoom engine, rendering SVG e layer heatmap. |
+| `public/js/device-sheet.js` | Rendering drawer/bottom sheet per tutti i dispositivi supportati e player streaming JSMpeg. |
+| `public/js/drag-editor.js` | Logica drag & drop mouse/touch, rilevamento coordinate SVG, cassetto non collocati e persistenza. |
+| `public/js/energy.js` | Cruscotto energetico, grafici Chart.js per Bosch e simulatori di risparmio ARERA/EV. |
+| `public/js/admin.js` | Hub diagnostico, stato integrazioni, controlli editor e audit log. |
+
