@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const db = require('./db');
 
 const LOG_FILE = path.join(__dirname, '..', 'activity-log.json');
 const MAX_EVENTS = 100;
@@ -46,6 +47,12 @@ class EventLogger {
       this.events.length = MAX_EVENTS;
     }
     this.save();
+
+    // Persistenza asincrona su TiDB Cloud (activity_logs)
+    try {
+      db.addLog(action, description, meta).catch(() => {});
+    } catch (_) {}
+
     return entry;
   }
 

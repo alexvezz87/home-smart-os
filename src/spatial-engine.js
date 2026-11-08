@@ -4,6 +4,7 @@ const hueLocal = require('./hue-local');
 const merossEnergy = require('./meross-energy');
 const securitySystem = require('./security-system');
 const eventLogger = require('./event-logger');
+const db = require('./db');
 
 const CUSTOM_LAYOUT_FILE = path.join(__dirname, '..', 'spatial-custom-layout.json');
 
@@ -549,6 +550,9 @@ class SpatialEngine {
         };
       }
       fs.writeFileSync(CUSTOM_LAYOUT_FILE, JSON.stringify(map, null, 2), 'utf8');
+      try {
+        db.set('spatial-custom-layout', map, false).catch(() => {});
+      } catch (_) {}
     } catch (e) {
       console.warn('[SpatialEngine] Errore salvataggio layout:', e.message);
     }
@@ -664,6 +668,9 @@ class SpatialEngine {
       if (fs.existsSync(CUSTOM_LAYOUT_FILE)) {
         fs.unlinkSync(CUSTOM_LAYOUT_FILE);
       }
+    } catch (_) {}
+    try {
+      db.delete('spatial-custom-layout').catch(() => {});
     } catch (_) {}
     eventLogger.log('spatial_move', '🔄 Ripristinate posizioni e stanze originali sulla planimetria 2D.');
     return { success: true, pinsCount: this.pins.length };

@@ -14,6 +14,7 @@ const securitySystem = require('./src/security-system');
 const hueLocal = require('./src/hue-local');
 const spatialEngine = require('./src/spatial-engine');
 const evClimateHub = require('./src/ev-climate-hub');
+const db = require('./src/db');
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -49,10 +50,18 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Inizializza modulo telemetria energetica Meross (se configurato in .env)
-merossEnergy.init();
-// Inizializza controllo locale Philips Hue Bridge (192.168.1.18)
-hueLocal.init();
+// Inizializza persistenza distribuita TiDB Cloud (db_home_os) e sincronizzazione cache all'avvio
+(async () => {
+  try {
+    await db.initDb();
+  } catch (err) {
+    console.warn('[Server Bootstrap] Avviso initDb TiDB Cloud:', err.message);
+  }
+  // Inizializza modulo telemetria energetica Meross (se configurato in .env)
+  merossEnergy.init();
+  // Inizializza controllo locale Philips Hue Bridge (192.168.1.18)
+  hueLocal.init();
+})();
 
 // API Philips Hue Bridge Locale
 app.get('/api/hue/status', (req, res) => {
@@ -443,12 +452,16 @@ app.post('/api/ev-climate/sync', async (req, res) => {
 });
 
 // Storico Consumi ed Analisi Energetiche Elaborate (Google Drive: Volvo EX30, Wallbox ABB, Dolomiti Energia)
-app.get('/api/ev-climate/analytics/history', (req, res) => {
+app.get('/api/ev-climate/analytics/history', async (req, res) => {
   try {
     const analyticsPath = path.resolve(__dirname, 'data/historical-energy-analytics.json');
     if (fs.existsSync(analyticsPath)) {
       const data = JSON.parse(fs.readFileSync(analyticsPath, 'utf8'));
       return res.json({ success: true, data });
+    }
+    const dbData = await db.getHistory('historical-energy-analytics');
+    if (dbData) {
+      return res.json({ success: true, data: dbData });
     }
     res.status(404).json({ success: false, error: 'Dati storici non ancora generati' });
   } catch (error) {

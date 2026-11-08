@@ -5,6 +5,7 @@ const axios = require('axios');
 const WebSocket = require('ws');
 const eventLogger = require('./event-logger');
 const merossEnergy = require('./meross-energy');
+const db = require('./db');
 
 // Polyfill globalThis.crypto (WebCrypto API completa con subtle + getRandomValues) e globalThis.fetch per Node 16
 if (typeof globalThis.crypto === 'undefined' || !globalThis.crypto.subtle) {
@@ -299,6 +300,17 @@ class EvClimateHub {
     }
   }
 
+  _persistConfig() {
+    try {
+      fs.writeFileSync(CONFIG_FILE, JSON.stringify(this.config, null, 2), 'utf8');
+    } catch (e) {
+      console.warn('[EV-Climate Hub] Errore salvataggio config:', e.message);
+    }
+    try {
+      db.set('ev-climate-config', this.config, true).catch(() => {});
+    } catch (_) {}
+  }
+
   async saveConfig(newConfig = {}) {
     if (newConfig.abb) {
       Object.assign(this.config.abb, newConfig.abb);
@@ -321,11 +333,7 @@ class EvClimateHub {
       this.wallboxState.autoLoadBalance = this.config.abb.autoLoadBalance;
     }
 
-    try {
-      fs.writeFileSync(CONFIG_FILE, JSON.stringify(this.config, null, 2), 'utf8');
-    } catch (e) {
-      console.warn('[EV-Climate Hub] Errore salvataggio config:', e.message);
-    }
+    this._persistConfig();
 
     await this.syncAll();
     return {
@@ -729,7 +737,7 @@ class EvClimateHub {
     if (res.status !== 200 || !res.data || !res.data.access_token) {
       if (res.data?.error_description?.includes('not active') || res.status === 400) {
         this.config.volvo.refreshToken = null;
-        try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(this.config, null, 2), 'utf8'); } catch (_) {}
+        this._persistConfig();
       }
       throw new Error(`Refresh token Volvo fallito (HTTP ${res.status}): ${res.data?.error_description || res.data?.error || 'Errore di rinnovo'}`);
     }
@@ -738,9 +746,7 @@ class EvClimateHub {
     if (res.data.refresh_token) {
       this.config.volvo.refreshToken = res.data.refresh_token;
     }
-    try {
-      fs.writeFileSync(CONFIG_FILE, JSON.stringify(this.config, null, 2), 'utf8');
-    } catch (_) {}
+    this._persistConfig();
 
     return this.config.volvo.accessToken;
   }
@@ -995,9 +1001,7 @@ class EvClimateHub {
       this.config.volvo.redirectUri = redirectUri;
     }
 
-    try {
-      fs.writeFileSync(CONFIG_FILE, JSON.stringify(this.config, null, 2), 'utf8');
-    } catch (_) {}
+    this._persistConfig();
 
     eventLogger.log('volvo_ex30', `🔑 [Volvo ID] Access Token OAuth2 ottenuto con successo per VIN ${this.config.volvo.vin || 'EX30'}`);
 
@@ -1018,9 +1022,7 @@ class EvClimateHub {
     if (refreshToken !== undefined) {
       this.config.volvo.refreshToken = refreshToken ? String(refreshToken).trim() : null;
     }
-    try {
-      fs.writeFileSync(CONFIG_FILE, JSON.stringify(this.config, null, 2), 'utf8');
-    } catch (_) {}
+    this._persistConfig();
 
     eventLogger.log('volvo_ex30', '🔑 [Volvo EX30] Access Token diretto (Strada B) salvato');
     await this.syncVolvoEx30();
@@ -1122,9 +1124,7 @@ class EvClimateHub {
       }
     } catch (_) {}
 
-    try {
-      fs.writeFileSync(CONFIG_FILE, JSON.stringify(this.config, null, 2), 'utf8');
-    } catch (_) {}
+    this._persistConfig();
 
     eventLogger.log('bosch_thermo', `🔑 [Bosch SingleKey ID] Autenticazione Cloud PointT completata per CT200 (${this.config.bosch.serialNumber || 'auto'})`);
 
@@ -1291,9 +1291,7 @@ class EvClimateHub {
     }
     this.config.bosch.pointtExpiresAt = Date.now() + Number(res.data.expires_in || 3600) * 1000;
 
-    try {
-      fs.writeFileSync(CONFIG_FILE, JSON.stringify(this.config, null, 2), 'utf8');
-    } catch (_) {}
+    this._persistConfig();
 
     return this.config.bosch.pointtAccessToken;
   }
@@ -1560,15 +1558,19 @@ class EvClimateHub {
         if (!next) break;
       }
 
-      // Salva persistentemente su disco
+      // Salva persistentemente su disco e su TiDB Cloud (energy_history_store)
       try {
         const dataDir = path.dirname(historyFilePath);
         if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-        fs.writeFileSync(historyFilePath, JSON.stringify({
+        const historyData = {
           lastUpdated: new Date().toISOString(),
           recordCount: Object.keys(persistedRecords).length,
           records: persistedRecords
-        }, null, 2), 'utf8');
+        };
+        fs.writeFileSync(historyFilePath, JSON.stringify(historyData, null, 2), 'utf8');
+        try {
+          db.setHistory('bosch-energy-history', historyData).catch(() => {});
+        } catch (_) {}
       } catch (_) {}
 
       function parseRecordTimestamp(key, r) {

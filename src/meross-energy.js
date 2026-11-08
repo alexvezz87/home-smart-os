@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const MerossCloud = require('meross-cloud');
 const eventLogger = require('./event-logger');
+const db = require('./db');
 
 class MerossEnergyService {
   constructor() {
@@ -52,6 +53,9 @@ class MerossEnergyService {
   saveCycles() {
     try {
       fs.writeFileSync(this.cyclesFilePath, JSON.stringify(this.completedCycles.slice(0, 30), null, 2), 'utf8');
+    } catch (_) {}
+    try {
+      db.setHistory('appliance-cycles', this.completedCycles.slice(0, 30)).catch(() => {});
     } catch (_) {}
   }
 
@@ -129,6 +133,7 @@ class MerossEnergyService {
           const newToken = this.meross.getTokenData();
           if (newToken) {
             fs.writeFileSync(this.tokenFilePath, JSON.stringify(newToken, null, 2), 'utf8');
+            db.set('meross-token', newToken, true).catch(() => {});
           }
         } catch (e) {
           console.warn('⚡ [Meross Energy] Errore salvataggio token:', e.message);
