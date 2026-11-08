@@ -16,3 +16,10 @@
 ## 3. Telecamere Tapo e Bridge Hue da Connessione Esterna
 - **Causa**: Le telecamere Tapo (`192.168.1.74` e `192.168.1.161`) e il Bridge Hue (`192.168.1.18`) risiedono sulla rete LAN domestica dietro il router **Iliadbox**.
 - **Soluzione**: Configurare il tunnel WireGuard nativo della Iliadbox o l'inoltro porte protetto verso il servizio `home-smart-os` su Google Cloud.
+
+---
+
+## 4. Conflitto Esecuzione Concorrente Locale vs Cloud (Token OAuth2)
+- **Avviso Critico**: **NON avviare contemporaneamente l'istanza locale e quella cloud**.
+- **Causa**: Entrambe le istanze condividono lo stesso database TiDB Cloud (`db_home_os`) e rinnovano autonomamente i token OAuth2. Poiché i provider esterni (in particolare **Volvo Cars API v2**) applicano una politica di rotazione rigorosa del `refresh_token` ad ogni richiesta di rinnovo, l'accesso concorrente di due nodi invalida a catena i token provocando errori `invalid_grant` o `Token is not active`.
+- **Raccomandazione Operativa**: Quando si testa l'istanza di sviluppo locale, assicurarsi che l'istanza remota Google Cloud sia fermata o impostata in standby.

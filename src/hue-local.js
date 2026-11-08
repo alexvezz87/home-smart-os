@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const eventLogger = require('./event-logger');
+const db = require('./db');
 
 const HUE_CONFIG_FILE = path.join(__dirname, '..', 'hue-config.json');
 
@@ -42,24 +43,24 @@ class HueLocalManager {
   }
 
   saveConfig() {
+    const cfg = {
+      bridgeIp: this.bridgeIp,
+      apiKey: this.apiKey,
+      clientKey: this.clientKey,
+      pairedAt: new Date().toISOString()
+    };
     try {
       fs.writeFileSync(
         HUE_CONFIG_FILE,
-        JSON.stringify(
-          {
-            bridgeIp: this.bridgeIp,
-            apiKey: this.apiKey,
-            clientKey: this.clientKey,
-            pairedAt: new Date().toISOString()
-          },
-          null,
-          2
-        ),
+        JSON.stringify(cfg, null, 2),
         'utf8'
       );
     } catch (e) {
       console.warn('[Hue Local] Errore salvataggio hue-config.json:', e.message);
     }
+    try {
+      db.set('hue-config', cfg, true).catch(() => {});
+    } catch (_) {}
   }
 
   async init() {

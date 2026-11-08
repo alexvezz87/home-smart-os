@@ -5,6 +5,7 @@ const axios = require('axios');
 const eventLogger = require('./event-logger');
 const merossEnergy = require('./meross-energy');
 const hueLocal = require('./hue-local');
+const db = require('./db');
 
 const MCP_ENDPOINT = 'https://home.googleapis.com/mcp';
 const DEFAULT_TOKEN_PATH = path.join(
@@ -65,19 +66,26 @@ class GoogleHomeMcpClient {
     try {
       fs.writeFileSync(LOCAL_STATES_FILE, JSON.stringify(this.localStates, null, 2), 'utf8');
     } catch (_) {}
+    try {
+      db.set('local-states-cache', this.localStates, false).catch(() => {});
+    } catch (_) {}
   }
 
   saveDiskCache(resources) {
+    const payload = {
+      updatedAt: new Date().toISOString(),
+      structureId: this.structureId,
+      structureName: this.structureName,
+      resources: resources
+    };
     try {
-      fs.writeFileSync(CACHE_FILE, JSON.stringify({
-        updatedAt: new Date().toISOString(),
-        structureId: this.structureId,
-        structureName: this.structureName,
-        resources: resources
-      }, null, 2));
+      fs.writeFileSync(CACHE_FILE, JSON.stringify(payload, null, 2));
     } catch (e) {
       console.warn('[MCP Cache] Errore salvataggio cache su disco:', e.message);
     }
+    try {
+      db.set('resources-cache', payload, false).catch(() => {});
+    } catch (_) {}
   }
 
   getAuthConfig() {

@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const eventLogger = require('./event-logger');
 const go2rtc = require('./go2rtc-manager');
+const db = require('./db');
 
 let Cam;
 try {
@@ -160,6 +161,9 @@ class SecuritySystem {
         cameras: this.cameras
       };
       fs.writeFileSync(this.configFile, JSON.stringify(data, null, 2), 'utf8');
+      try {
+        db.set('security-config', data, true).catch(() => {});
+      } catch (_) {}
     } catch (err) {
       console.warn('⚠️ [SecuritySystem] Impossibile salvare security-config.json:', err.message);
     }
