@@ -6,7 +6,10 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const helmet = require('helmet');
+const cookieParser = require('cookie-parser');
 const db = require('./src/db');
+const auth = require('./src/auth');
 
 // Riferimenti ai moduli di dominio (caricati ordinatamente dopo l'idratazione da TiDB Cloud)
 let mcp = null;
@@ -48,9 +51,107 @@ try {
   }
 } catch (_) {}
 
+// Header di sicurezza HTTP con Helmet (con CSP permissivo per WebRTC/RTSP relay e SVG)
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false
+}));
 app.use(cors());
+app.use(cookieParser());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ============================================================================
+// Endpoint Pubblici di Autenticazione (/api/auth/*)
+// ============================================================================
+
+// Stato autenticazione sessione corrente
+app.get('/api/auth/status', (req, res) => {
+  if (!auth.isAuthEnabled()) {
+    return res.json({
+      success: true,
+      authEnabled: false,
+      authenticated: true,
+      user: { email: 'dev@localhost', role: 'admin', type: 'guest' }
+    });
+  }
+  const token = auth.extractToken(req);
+  const user = auth.verifyToken(token);
+  if (user) {
+    return res.json({
+      success: true,
+      authEnabled: true,
+      authenticated: true,
+      user: {
+        email: user.email,
+        role: user.role,
+        type: user.type,
+        name: user.name || null,
+        picture: user.picture || null
+      }
+    });
+  }
+  return res.json({
+    success: true,
+    authEnabled: true,
+    authenticated: false
+  });
+});
+
+// Login rapido con PIN per Tablet Kiosk di casa
+app.post('/api/auth/kiosk-login', (req, res) => {
+  const { pin } = req.body;
+  const ip = req.ip || req.connection.remoteAddress || 'unknown';
+  const result = auth.verifyKioskPin(pin, ip);
+  if (result.success) {
+    auth.setSessionCookie(res, result.token, result.maxAge);
+    return res.json({ success: true, user: result.user });
+  }
+  const status = result.rateLimited ? 429 : 401;
+  return res.status(status).json({ success: false, error: result.error });
+});
+
+// Inizio flusso Google OAuth2
+app.get('/api/auth/google', (req, res) => {
+  try {
+    const url = auth.getGoogleAuthUrl(req);
+    res.redirect(url);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Callback Google OAuth2
+app.get('/api/auth/google/callback', async (req, res) => {
+  const { code, error } = req.query;
+  if (error) {
+    return res.redirect(`/?auth_error=${encodeURIComponent(error)}`);
+  }
+  if (!code) {
+    return res.redirect('/?auth_error=missing_code');
+  }
+  try {
+    const result = await auth.handleGoogleCallback(code, req);
+    if (!result.authorized) {
+      return res.redirect(`/?auth_error=${encodeURIComponent(result.error || 'unauthorized')}`);
+    }
+    auth.setSessionCookie(res, result.token, result.maxAge);
+    res.redirect('/');
+  } catch (err) {
+    console.error('[Google OAuth Error]:', err.message);
+    res.redirect(`/?auth_error=${encodeURIComponent(err.message)}`);
+  }
+});
+
+// Logout e cancellazione sessione
+app.post('/api/auth/logout', (req, res) => {
+  auth.clearSessionCookie(res);
+  res.json({ success: true, message: 'Logout effettuato con successo' });
+});
+
+// Protezione obbligatoria per tutte le altre API (/api/*)
+app.use(auth.middleware());
 
 // API Philips Hue Bridge Locale
 app.get('/api/hue/status', (req, res) => {
@@ -676,6 +777,18 @@ app.post('/api/camera/:id/config', (req, res) => {
 // 1f. WebSocket per streaming RTSP live verso il browser (fallback JSMpeg)
 app.ws('/api/stream/:cameraId', (ws, req) => {
   const { cameraId } = req.params;
+
+  // Protezione autenticazione stream RTSP
+  if (auth.isAuthEnabled()) {
+    const token = auth.extractToken(req);
+    const user = auth.verifyToken(token);
+    if (!user) {
+      console.warn(`[RTSP Relay WS] Tentativo streaming non autorizzato per telecamera: ${cameraId}`);
+      try { ws.close(1008, 'Non autorizzato: autenticazione richiesta'); } catch (_) {}
+      return;
+    }
+  }
+
   const rtspUrl = securitySystem.getRTSPUrl(cameraId);
   if (!rtspUrl) {
     console.warn(`[RTSP Relay] Nessun URL RTSP configurato per telecamera: ${cameraId}`);
