@@ -6,15 +6,17 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const mcp = require('./src/google-home-mcp');
-const { processAssistantCommand } = require('./src/assistant');
-const eventLogger = require('./src/event-logger');
-const merossEnergy = require('./src/meross-energy');
-const securitySystem = require('./src/security-system');
-const hueLocal = require('./src/hue-local');
-const spatialEngine = require('./src/spatial-engine');
-const evClimateHub = require('./src/ev-climate-hub');
 const db = require('./src/db');
+
+// Riferimenti ai moduli di dominio (caricati ordinatamente dopo l'idratazione da TiDB Cloud)
+let mcp = null;
+let processAssistantCommand = null;
+let eventLogger = null;
+let merossEnergy = null;
+let securitySystem = null;
+let hueLocal = null;
+let spatialEngine = null;
+let evClimateHub = null;
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -49,19 +51,6 @@ try {
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-
-// Inizializza persistenza distribuita TiDB Cloud (db_home_os) e sincronizzazione cache all'avvio
-(async () => {
-  try {
-    await db.initDb();
-  } catch (err) {
-    console.warn('[Server Bootstrap] Avviso initDb TiDB Cloud:', err.message);
-  }
-  // Inizializza modulo telemetria energetica Meross (se configurato in .env)
-  merossEnergy.init();
-  // Inizializza controllo locale Philips Hue Bridge (192.168.1.18)
-  hueLocal.init();
-})();
 
 // API Philips Hue Bridge Locale
 app.get('/api/hue/status', (req, res) => {
@@ -825,13 +814,38 @@ const tcpServer = net.createServer((socket) => {
   });
 });
 
-tcpServer.listen(PORT, () => {
-  console.log(`=======================================================`);
-  console.log(`🏠 Casetta Smart OS: Google Home + go2rtc + ONVIF + Meross`);
-  console.log(`🚀 In esecuzione su: http://localhost:${PORT}`);
-  if (httpsServer) {
-    console.log(`🔒 Multiplexing HTTPS attivo su: https://localhost:${PORT}`);
-  }
-  console.log(`=======================================================`);
-  eventLogger.log('system', 'Server Casetta Smart OS avviato con successo (Dual HTTP/HTTPS Multiplexing)', { source: 'Sistema' });
+async function bootstrap() {
+  console.log('🔄 [Bootstrap] Inizializzazione storage TiDB Cloud (db_home_os)...');
+  await db.initDb();
+
+  // Caricamento dei moduli di dominio ORA che i file JSON/cache sono garantiti da TiDB
+  mcp = require('./src/google-home-mcp');
+  ({ processAssistantCommand } = require('./src/assistant'));
+  eventLogger = require('./src/event-logger');
+  merossEnergy = require('./src/meross-energy');
+  securitySystem = require('./src/security-system');
+  hueLocal = require('./src/hue-local');
+  spatialEngine = require('./src/spatial-engine');
+  evClimateHub = require('./src/ev-climate-hub');
+
+  // Inizializza servizi hardware e telemetria
+  merossEnergy.init();
+  hueLocal.init();
+
+  // Avvia il server TCP solo a bootstrap completato con successo
+  tcpServer.listen(PORT, () => {
+    console.log(`=======================================================`);
+    console.log(`🏠 Casetta Smart OS: Google Home + go2rtc + ONVIF + Meross`);
+    console.log(`🚀 In esecuzione su: http://localhost:${PORT}`);
+    if (httpsServer) {
+      console.log(`🔒 Multiplexing HTTPS attivo su: https://localhost:${PORT}`);
+    }
+    console.log(`=======================================================`);
+    eventLogger.log('system', 'Server Casetta Smart OS avviato con successo (Dual HTTP/HTTPS Multiplexing)', { source: 'Sistema' });
+  });
+}
+
+bootstrap().catch((err) => {
+  console.error('❌ [Fatal Bootstrap Error]:', err.message);
+  process.exit(1);
 });

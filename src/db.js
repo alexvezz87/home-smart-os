@@ -24,10 +24,15 @@ class DatabaseManager {
   }
 
   /**
-   * Ricava la chiave crittografica a 256 bit da ENCRYPTION_KEY o DB_PASSWORD
+   * Ricava la chiave crittografica a 256 bit ESCLUSIVAMENTE da process.env.ENCRYPTION_KEY.
+   * Se mancante, restituisce null per bloccare qualsiasi operazione su dati sensibili.
    */
   getMasterKey() {
-    const rawSecret = process.env.ENCRYPTION_KEY || process.env.DB_PASSWORD || 'default_home_smart_os_secure_key';
+    const rawSecret = process.env.ENCRYPTION_KEY;
+    if (!rawSecret) {
+      console.error('[TiDB DB] ⚠️ ERRORE CRITICO: ENCRYPTION_KEY non configurata nelle variabili d\'ambiente! Operazioni su dati sensibili bloccate.');
+      return null;
+    }
     return crypto.createHash('sha256').update(String(rawSecret)).digest();
   }
 
@@ -36,9 +41,13 @@ class DatabaseManager {
    */
   encrypt(plainText) {
     if (plainText === null || plainText === undefined) return null;
+    const masterKey = this.getMasterKey();
+    if (!masterKey) {
+      throw new Error('ENCRYPTION_KEY mancante: impossibile cifrare dati sensibili');
+    }
     const text = typeof plainText === 'string' ? plainText : JSON.stringify(plainText);
     const iv = crypto.randomBytes(IV_LENGTH);
-    const cipher = crypto.createCipheriv(ALGORITHM, this.getMasterKey(), iv);
+    const cipher = crypto.createCipheriv(ALGORITHM, masterKey, iv);
     let encrypted = cipher.update(text, 'utf8', 'hex');
     encrypted += cipher.final('hex');
     const authTag = cipher.getAuthTag();
@@ -50,6 +59,11 @@ class DatabaseManager {
    */
   decrypt(cipherText) {
     if (!cipherText || typeof cipherText !== 'string') return cipherText;
+    const masterKey = this.getMasterKey();
+    if (!masterKey) {
+      console.warn('[TiDB DB] Decifratura fallita: ENCRYPTION_KEY non configurata.');
+      return null;
+    }
     const parts = cipherText.split(':');
     if (parts.length !== 3) {
       // Se non è nel formato atteso, restituisce la stringa originale
@@ -59,7 +73,7 @@ class DatabaseManager {
     try {
       const iv = Buffer.from(ivHex, 'hex');
       const authTag = Buffer.from(authTagHex, 'hex');
-      const decipher = crypto.createDecipheriv(ALGORITHM, this.getMasterKey(), iv);
+      const decipher = crypto.createDecipheriv(ALGORITHM, masterKey, iv);
       decipher.setAuthTag(authTag);
       let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
       decrypted += decipher.final('utf8');
@@ -212,6 +226,10 @@ class DatabaseManager {
             const fileContent = fs.readFileSync(item.file, 'utf8').trim();
             if (fileContent) {
               const shouldEncrypt = SENSITIVE_KEYS.has(item.key);
+              if (shouldEncrypt && !process.env.ENCRYPTION_KEY) {
+                console.error(`[TiDB DB] ⛔ Seed iniziale saltato per '${item.key}': ENCRYPTION_KEY non configurata!`);
+                continue;
+              }
               const payloadToStore = shouldEncrypt ? this.encrypt(fileContent) : fileContent;
               await this.pool.query(
                 `INSERT INTO kv_store (store_key, payload, is_encrypted, updated_at)
@@ -343,6 +361,11 @@ class DatabaseManager {
 
     if (!this.pool) return;
 
+    if (isEncrypted && !process.env.ENCRYPTION_KEY) {
+      console.error(`[TiDB DB] ⛔ Scrittura su TiDB bloccata per chiave sensibile '${key}': ENCRYPTION_KEY mancante!`);
+      return;
+    }
+
     try {
       const payloadToSave = isEncrypted ? this.encrypt(rawPayload) : rawPayload;
       await this.pool.query(
@@ -454,3 +477,4 @@ class DatabaseManager {
 
 const db = new DatabaseManager();
 module.exports = db;
+

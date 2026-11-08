@@ -103,7 +103,19 @@ CREATE TABLE IF NOT EXISTS activity_logs (
 | `energy_history_store` | `appliance-cycles` | `appliance-cycles.json` | 🔓 No | Cicli lavatrice rilevati da presa smart Meross |
 | `activity_logs` | *(record cronologici)* | `activity-log.json` | 🔓 No | Eventi di sistema, cambi stato, comandi vocali e audit |
 
-### 🔄 3.3 Sincronizzazione Bidirezionale & Seed Automatico
-- **Bootstrap su Server Locale**: se il database TiDB Cloud non contiene ancora una chiave ma è presente il corrispondente file JSON locale, viene eseguito il seed automatico criptato verso TiDB Cloud.
-- **Bootstrap su Google Cloud**: in ambiente cloud (o container effimeri senza file locali), `initDb()` idrata la cache e rigenera i file locali a partire dallo stato memorizzato su TiDB Cloud prima dell'avvio dei servizi.
-- **Scritture Asincrone**: ogni volta che un modulo aggiorna un token o una serie storica, la scrittura su TiDB Cloud avviene in background garantendo zero latenza sull'event loop di Node.js.
+### 🔄 3.3 Bootstrap Ordinato & Sincronizzazione Bidirezionale
+Il ciclo di avvio di Home Smart OS in [`server.js`](../server.js) rispetta rigorosamente una sequenza asincrona ordinata in tre fasi:
+1. **Fase 1 — Connessione TiDB & Idratazione Storage (`await db.initDb()`):**
+   - Viene stabilita la connessione TLS verso TiDB Cloud (`db_home_os`).
+   - Se in ambiente Google Cloud i file `.json` non esistono sul disco locale, `db.initDb()` scarica lo stato persistito, decifra i secret tramite `ENCRYPTION_KEY` e genera atomica-mente i file `.json` sul filesystem prima dell'avvio dei domini.
+   - Se in ambiente di sviluppo locale il DB è vuoto, effettua il seed iniziale cifrato dai file locali.
+2. **Fase 2 — Caricamento Moduli di Dominio:**
+   - Solo a storage idratato vengono invocati i `require()` dei moduli (`ev-climate-hub`, `google-home-mcp`, `meross-energy`, `hue-local`, `security-system`, `spatial-engine`, `event-logger`, `assistant`).
+   - I costruttori trovano così tutti i file JSON e i token pronti e coerenti al primo avvio.
+   - Vengono inizializzati i listener telemetrici (`merossEnergy.init()`, `hueLocal.init()`).
+3. **Fase 3 — Apertura Porte di Rete (`tcpServer.listen`):**
+   - Il server avvia il multiplexing Dual HTTP/HTTPS solo quando tutti i servizi e le configurazioni sono pronti.
+
+### 🛡️ 3.4 Gestione Chiave di Cifratura (`ENCRYPTION_KEY`)
+- La cifratura AES-256-GCM è governata **esclusivamente** dalla variabile d'ambiente `ENCRYPTION_KEY` (presente in `.env` e nei GitHub Secrets).
+- È vietato qualsiasi fallback insicuro a password del DB o stringhe fisse: se `ENCRYPTION_KEY` non è valorizzata, qualsiasi tentativo di scrittura o seed di chiavi sensibili (`ev-climate-config`, `meross-token`, `hue-config`, `security-config`) viene categoricamente bloccato con log d'errore a tutela del repository pubblico.
