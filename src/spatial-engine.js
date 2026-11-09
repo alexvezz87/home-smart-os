@@ -461,6 +461,80 @@ class SpatialEngine {
         x: 71.6,
         y: 70.4,
         nearbyPins: [29, 31, 30]
+      },
+
+      // === TERMOVALVOLE CALORIFERI BOSCH EASYCONTROL CT200 ===
+      {
+        pin: 33,
+        name: 'Termovalvola Salone',
+        room: 'Salone',
+        microZone: 'salone_centro',
+        category: 'valve',
+        vendor: 'Bosch Radiator Thermostat',
+        zoneId: 'zn_salone',
+        x: 30.0,
+        y: 79.2,
+        nearbyPins: [26, 21, 20]
+      },
+      {
+        pin: 34,
+        name: 'Termovalvola Cucina',
+        room: 'Cucina',
+        microZone: 'cucina_operativa',
+        category: 'valve',
+        vendor: 'Bosch Radiator Thermostat',
+        zoneId: 'zn_cucina',
+        x: 73.2,
+        y: 64.0,
+        nearbyPins: [31, 32, 29]
+      },
+      {
+        pin: 35,
+        name: 'Termovalvola Camera da letto',
+        room: 'Camera da letto',
+        microZone: 'lato_alex',
+        category: 'valve',
+        vendor: 'Bosch Radiator Thermostat',
+        zoneId: 'zn_camera',
+        x: 26.2,
+        y: 19.4,
+        nearbyPins: [4, 6, 1]
+      },
+      {
+        pin: 36,
+        name: 'Termovalvola Cameretta / Studio',
+        room: 'Cameretta',
+        microZone: 'studio_focus',
+        category: 'valve',
+        vendor: 'Bosch Radiator Thermostat',
+        zoneId: 'zn_cameretta',
+        x: 68.4,
+        y: 22.0,
+        nearbyPins: [10, 11, 12]
+      },
+      {
+        pin: 37,
+        name: 'Termovalvola Bagno Lavanderia',
+        room: 'Bagno',
+        microZone: 'lavanderia',
+        category: 'valve',
+        vendor: 'Bosch Radiator Thermostat',
+        zoneId: 'zn_bagno_notte',
+        x: 26.2,
+        y: 34.4,
+        nearbyPins: [7, 8]
+      },
+      {
+        pin: 38,
+        name: 'Termovalvola Bagno Principale',
+        room: 'Bagno Principale',
+        microZone: 'bagno_doccia',
+        category: 'valve',
+        vendor: 'Bosch Radiator Thermostat',
+        zoneId: 'zn_bagno_principale',
+        x: 78.2,
+        y: 44.0,
+        nearbyPins: [17]
       }
     ];
 
@@ -815,6 +889,16 @@ class SpatialEngine {
         clone.pan = cam.ptz?.pan || 0;
         clone.tilt = cam.ptz?.tilt || 0;
         clone.patrolActive = Boolean(cam.patrolActive);
+      } else if (p.category === 'valve') {
+        const bosch = homeSnapshot.evClimate?.bosch || {};
+        const zData = bosch.zones?.[p.zoneId] || {};
+        clone.temperature = +(zData.temperature || (p.pin === 37 || p.pin === 38 ? 21.2 : (bosch.actualTemperature || 20.6))).toFixed(1);
+        clone.setpoint = +(zData.setpoint || (p.pin === 37 || p.pin === 38 ? 21.5 : (bosch.manualSetpoint || 20.5))).toFixed(1);
+        clone.valvePercent = zData.valvePercent !== undefined ? zData.valvePercent : (clone.temperature < clone.setpoint ? 75 : 0);
+        clone.isHeating = clone.valvePercent > 15;
+        clone.isOn = clone.valvePercent > 0;
+        clone.batteryPercent = zData.batteryPercent || 92;
+        clone.deviceId = `bosch_trv_${p.pin}`;
       } else if (p.category === 'sensor') {
         const dMatch = devices.find(d => d.category === 'sensor');
         clone.temperature = dMatch?.extra?.temperature || homeSnapshot.stats?.temperature || 20.9;

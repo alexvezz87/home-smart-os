@@ -73,6 +73,13 @@ class DeviceSheetManager {
         bodyHtml = this.renderThermostatControls(p);
         break;
 
+      case 'valve':
+        categoryIcon = 'fa-temperature-arrow-up';
+        categoryLabel = 'Termovalvola Calorifero Bosch';
+        badgeColor = (p.isHeating || p.valvePercent > 15) ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' : 'bg-slate-800 text-slate-400';
+        bodyHtml = this.renderValveControls(p);
+        break;
+
       case 'ev':
         categoryIcon = 'fa-car-side';
         categoryLabel = 'Volvo EX30';
@@ -267,6 +274,80 @@ class DeviceSheetManager {
         <button onclick="setBoilerMode('boost')" class="p-3 rounded-xl border text-center transition-all ${mode === 'boost' ? 'bg-amber-600 border-amber-500 text-white font-bold' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'}">
           <i class="fa-solid fa-fire text-base mb-1 block"></i>
           <span class="text-xs">Boost 1h</span>
+        </button>
+      </div>
+    `;
+  }
+
+  /**
+   * Controlli Termovalvola Smart Radiator Bosch EasyControl
+   */
+  renderValveControls(p) {
+    const curTemp = p.temperature || 20.5;
+    const targetTemp = p.setpoint || 20.0;
+    const valvePct = p.valvePercent !== undefined ? p.valvePercent : (curTemp < targetTemp ? 75 : 0);
+    const isHeating = valvePct > 15;
+    const batt = p.batteryPercent || 92;
+
+    return `
+      <!-- Display Temperatura e Apertura Valvola -->
+      <div class="p-4 rounded-2xl bg-gradient-to-br ${isHeating ? 'from-orange-950/60 to-slate-900 border-orange-500/40' : 'from-slate-900 to-slate-950 border-slate-800'} border text-center relative overflow-hidden">
+        <div class="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
+          <span class="flex items-center gap-1.5 ${isHeating ? 'text-orange-400 font-bold' : 'text-slate-400'}">
+            <i class="fa-solid fa-temperature-arrow-up"></i>
+            ${isHeating ? 'Riscaldamento Attivo' : 'A riposo / Chiusa'}
+          </span>
+          <span class="flex items-center gap-1 text-slate-400 font-mono text-[10px]">
+            <i class="fa-solid fa-battery-three-quarters text-emerald-400"></i> ${batt}%
+          </span>
+        </div>
+
+        <div class="text-4xl font-black text-white my-1 font-mono">${curTemp.toFixed(1)}°C</div>
+        
+        <div class="text-xs text-slate-400">
+          Setpoint Target: <strong class="text-amber-400 font-mono text-sm">${targetTemp.toFixed(1)}°C</strong>
+        </div>
+
+        <!-- Barra Percentuale Apertura Valvola -->
+        <div class="mt-3 bg-slate-950/80 rounded-full h-3 border border-slate-800 overflow-hidden relative">
+          <div class="h-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-500 rounded-full" style="width: ${valvePct}%"></div>
+        </div>
+        <div class="flex items-center justify-between text-[10px] text-slate-400 mt-1 font-mono">
+          <span>Apertura Otturatore: <strong class="text-white">${valvePct}%</strong></span>
+          <span>${valvePct > 0 ? 'Flusso Acqua Calda Aperto' : 'Circuito Chiuso'}</span>
+        </div>
+      </div>
+
+      <!-- Regolazione Setpoint Termovalvola -->
+      <div class="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2">
+        <div class="text-xs font-bold text-slate-300 flex items-center justify-between">
+          <span>Regola Temperatura Radiatore</span>
+          <span class="font-mono text-amber-400 font-bold">${targetTemp.toFixed(1)}°C</span>
+        </div>
+        <div class="flex items-center justify-center gap-4">
+          <button onclick="adjustValveSetpoint(${p.pin}, -0.5)" class="w-12 h-12 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-lg font-bold text-white transition-all shadow-md">
+            <i class="fa-solid fa-minus"></i>
+          </button>
+          <span class="text-2xl font-black text-white font-mono min-w-[70px] text-center">${targetTemp.toFixed(1)}°</span>
+          <button onclick="adjustValveSetpoint(${p.pin}, 0.5)" class="w-12 h-12 rounded-xl bg-orange-600 hover:bg-orange-500 active:scale-95 text-lg font-bold text-white transition-all shadow-md shadow-orange-600/30">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Preset Rapidi -->
+      <div class="grid grid-cols-3 gap-2">
+        <button onclick="adjustValveSetpoint(${p.pin}, 0, 18.0)" class="p-2.5 rounded-xl border text-center transition-all ${targetTemp === 18.0 ? 'bg-sky-600 border-sky-500 text-white font-bold' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'}">
+          <i class="fa-solid fa-moon text-sm mb-1 block"></i>
+          <span class="text-[11px]">Eco 18°</span>
+        </button>
+        <button onclick="adjustValveSetpoint(${p.pin}, 0, 20.5)" class="p-2.5 rounded-xl border text-center transition-all ${targetTemp === 20.5 ? 'bg-indigo-600 border-indigo-500 text-white font-bold' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'}">
+          <i class="fa-solid fa-house-chimney text-sm mb-1 block"></i>
+          <span class="text-[11px]">Comfort 20.5°</span>
+        </button>
+        <button onclick="adjustValveSetpoint(${p.pin}, 0, 22.0)" class="p-2.5 rounded-xl border text-center transition-all ${targetTemp === 22.0 ? 'bg-orange-600 border-orange-500 text-white font-bold' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'}">
+          <i class="fa-solid fa-fire text-sm mb-1 block"></i>
+          <span class="text-[11px]">Warm 22°</span>
         </button>
       </div>
     `;
@@ -696,6 +777,37 @@ async function setWallboxAmps(amps) {
   }
 }
 
+async function adjustValveSetpoint(pinNum, delta = 0, directValue = null) {
+  const pins = window.homeData?.spatial?.pins || [];
+  const p = pins.find(item => item.pin === Number(pinNum));
+  if (!p) return;
+
+  const current = p.setpoint || 20.0;
+  const target = directValue !== null ? Number(directValue) : +(current + delta).toFixed(1);
+
+  try {
+    p.setpoint = target;
+    p.valvePercent = (p.temperature || 20) < target ? 75 : 0;
+    p.isHeating = p.valvePercent > 15;
+    p.isOn = p.valvePercent > 0;
+
+    if (window.floorplan) window.floorplan.render();
+    if (window.deviceSheet?.currentPin?.pin === Number(pinNum)) {
+      window.deviceSheet.open(p);
+    }
+
+    await fetch('/api/ev-climate/bosch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'setpoint', value: target, zoneId: p.zoneId })
+    });
+    showToast(`${p.name}: setpoint impostato a ${target}°C`, 'success');
+  } catch (e) {
+    showToast('Errore termovalvola: ' + e.message, 'error');
+  }
+}
+
+window.adjustValveSetpoint = adjustValveSetpoint;
 window.toggleLightPin = toggleLightPin;
 window.setLightBrightnessPin = setLightBrightnessPin;
 window.setLightColorTemperature = setLightColorTemperature;
