@@ -149,13 +149,16 @@ class FloorplanEngine {
     this.showFurniture = true;
     this.heatMapActive = false;
 
-    // Pan & Zoom manuale di precisione (senza hijacking rotellina desktop)
+    // Pan & Zoom manuale di precisione (con pinch-to-zoom touchpad e pan protetto)
     this.panX = 0;
     this.panY = 0;
     this.scale = 1;
     this.isPanning = false;
+    this.hasDragged = false;
     this.startPan = { x: 0, y: 0 };
+    this.startClient = { x: 0, y: 0 };
     this.touchStartDist = 0;
+    this._windowListenersBound = false;
   }
 
   setBgStyle(style) {
@@ -182,13 +185,18 @@ class FloorplanEngine {
   }
 
   zoomIn() {
-    this.scale = Math.min(3.0, +(this.scale * 1.2).toFixed(2));
-    this.applyTransform();
+    this.scale = Math.min(3.2, +(this.scale * 1.2).toFixed(2));
+    this.applyTransform(true);
   }
 
   zoomOut() {
-    this.scale = Math.max(0.7, +(this.scale / 1.2).toFixed(2));
-    this.applyTransform();
+    this.scale = Math.max(0.85, +(this.scale / 1.2).toFixed(2));
+    if (this.scale <= 1.05) {
+      this.scale = 1;
+      this.panX = 0;
+      this.panY = 0;
+    }
+    this.applyTransform(true);
   }
 
   resetZoom() {
@@ -196,7 +204,7 @@ class FloorplanEngine {
     this.panY = 0;
     this.scale = 1;
     this.selectedRoom = null;
-    this.applyTransform();
+    this.applyTransform(true);
     this.render();
   }
 
@@ -218,34 +226,115 @@ class FloorplanEngine {
     this.selectRoom(roomName);
   }
 
-  applyTransform() {
+  updateCursorState() {
+    const container = document.getElementById('floorplan-touch-viewport');
+    if (!container) return;
+    if (window.dragEditor?.editMode) {
+      container.style.cursor = 'default';
+      return;
+    }
+    if (this.scale > 1.05) {
+      container.style.cursor = this.isPanning ? 'grabbing' : 'grab';
+    } else {
+      container.style.cursor = 'default';
+    }
+  }
+
+  applyTransform(smooth = true) {
     const layer = document.getElementById('floorplan-panzoom-layer');
     if (layer) {
       layer.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.scale})`;
       layer.style.transformOrigin = 'center center';
-      layer.style.transition = 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)';
+      layer.style.transition = smooth ? 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)' : 'none';
     }
+    this.updateCursorState();
   }
 
   initPanZoomListeners() {
     const container = document.getElementById('floorplan-touch-viewport');
-    if (!container) return;
+    if (!container || container.dataset.panZoomBound === 'true') return;
+    container.dataset.panZoomBound = 'true';
 
-    // Disabilita zoom via rotellina mouse/touchpad per garantire scrolling fluido della pagina e piantina fissa
-    container.onwheel = null;
-    container.onmousedown = null;
+    // 1. Gestione rotellina & pinch-to-zoom touchpad senza zoom dell'intera pagina
+    container.addEventListener('wheel', (e) => {
+      // Se e.ctrlKey è true: pinch-to-zoom con due dita sul touchpad (o Ctrl + rotellina mouse)
+      if (e.ctrlKey) {
+        e.preventDefault(); // BLOCCA il full-window zoom del browser!
+        const factor = e.deltaY < 0 ? 1.06 : 0.94;
+        this.scale = Math.max(0.85, Math.min(3.2, +(this.scale * factor).toFixed(2)));
+        if (this.scale <= 1.05) {
+          this.panX = 0;
+          this.panY = 0;
+        }
+        this.applyTransform(false);
+        return;
+      }
 
-    // Supporto pinch-to-zoom a 2 dita opzionale solo su dispositivi touch (tablet/mobile)
-    container.ontouchstart = (e) => {
+      // Se la piantina è ingrandita (scale > 1.05), la rotellina sposta verticalmente la piantina
+      if (this.scale > 1.05) {
+        e.preventDefault();
+        this.panY -= e.deltaY * 0.8;
+        const maxPanY = (this.scale - 1) * 850;
+        const maxPanX = (this.scale - 1) * 500;
+        this.panY = Math.max(-maxPanY, Math.min(maxPanY, this.panY));
+        this.panX = Math.max(-maxPanX, Math.min(maxPanX, this.panX));
+        this.applyTransform(false);
+        return;
+      }
+
+      // Se e.ctrlKey è false e scale <= 1.05: normale scorrimento verticale della pagina
+      // NON chiamare preventDefault() -> la pagina web scorre fluidamente!
+    }, { passive: false });
+
+    // 2. Drag con il mouse quando ingrandita (scale > 1.05)
+    container.addEventListener('mousedown', (e) => {
+      if (window.dragEditor?.editMode || e.target.closest('.spatial-pin-item')) return;
+      if (this.scale > 1.05) {
+        this.isPanning = true;
+        this.hasDragged = false;
+        this.startPan = { x: e.clientX - this.panX, y: e.clientY - this.panY };
+        this.startClient = { x: e.clientX, y: e.clientY };
+        this.updateCursorState();
+      }
+    });
+
+    if (!this._windowListenersBound) {
+      this._windowListenersBound = true;
+
+      window.addEventListener('mousemove', (e) => {
+        if (!this.isPanning) return;
+        if (Math.hypot(e.clientX - this.startClient.x, e.clientY - this.startClient.y) > 4) {
+          this.hasDragged = true;
+        }
+        this.panX = e.clientX - this.startPan.x;
+        this.panY = e.clientY - this.startPan.y;
+        const maxPanY = (this.scale - 1) * 850;
+        const maxPanX = (this.scale - 1) * 500;
+        this.panY = Math.max(-maxPanY, Math.min(maxPanY, this.panY));
+        this.panX = Math.max(-maxPanX, Math.min(maxPanX, this.panX));
+        this.applyTransform(false);
+      });
+
+      window.addEventListener('mouseup', () => {
+        if (this.isPanning) {
+          this.isPanning = false;
+          this.updateCursorState();
+          this.applyTransform(true);
+        }
+      });
+    }
+
+    // 3. Supporto touch mobile/tablet
+    container.addEventListener('touchstart', (e) => {
       if (e.touches && e.touches.length === 2) {
         this.touchStartDist = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
         );
       }
-    };
+    }, { passive: true });
 
-    container.ontouchmove = (e) => {
+    container.addEventListener('touchmove', (e) => {
       if (e.touches && e.touches.length === 2 && this.touchStartDist > 0) {
         e.preventDefault();
         const dist = Math.hypot(
@@ -253,15 +342,20 @@ class FloorplanEngine {
           e.touches[0].clientY - e.touches[1].clientY
         );
         const factor = dist / this.touchStartDist;
-        this.scale = Math.max(0.7, Math.min(2.8, +(this.scale * (factor > 1 ? 1.03 : 0.97)).toFixed(2)));
+        this.scale = Math.max(0.85, Math.min(3.2, +(this.scale * (factor > 1 ? 1.03 : 0.97)).toFixed(2)));
         this.touchStartDist = dist;
-        this.applyTransform();
+        this.applyTransform(false);
       }
-    };
+    }, { passive: false });
 
-    container.ontouchend = () => {
+    container.addEventListener('touchend', () => {
       this.touchStartDist = 0;
-    };
+      if (this.scale <= 1.05) {
+        this.panX = 0;
+        this.panY = 0;
+        this.applyTransform(true);
+      }
+    });
   }
 
   buildVectorFurniture(isCad, isLight) {
@@ -407,8 +501,8 @@ class FloorplanEngine {
     const isCad = this.bgStyle === 'cad';
     const isLight = this.bgStyle === 'light';
 
-    // Piantina fissa con panoramica 1:1 dell'intera casa (niente salti di viewBox o ingrandimenti destabilizzanti)
-    const viewBox = '95 30 755 1225';
+    // Piantina fissa con panoramica 1:1 ottimizzata (eliminati margini neri vuoti)
+    const viewBox = '150 30 680 1215';
     const hasRoomSelection = !!this.selectedRoom;
 
     // Radar cone per le telecamere Tapo
@@ -654,8 +748,8 @@ class FloorplanEngine {
         </div>
       </div>
 
-      <!-- Viewport Piantina Fissa Vettoriale (Scrolling fluido del browser, nessun pan indesiderato) -->
-      <div id="floorplan-touch-viewport" class="relative w-full rounded-3xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl flex items-center justify-center min-h-[520px] sm:min-h-[640px] select-none cursor-default">
+      <!-- Viewport Piantina Fissa Vettoriale (Scrolling fluido del browser, pan e zoom dedicati) -->
+      <div id="floorplan-touch-viewport" class="relative w-full rounded-3xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl flex items-center justify-center min-h-[640px] md:min-h-[760px] lg:min-h-[860px] xl:min-h-[900px] select-none cursor-default">
         
         <!-- Live Drag HUD se in modalità modifica -->
         <div id="drag-pin-live-hud" class="hidden absolute top-4 left-4 right-4 z-20 p-2.5 rounded-xl bg-slate-900/90 border border-amber-500/50 text-xs text-amber-200 text-center shadow-lg backdrop-blur-md"></div>
@@ -663,7 +757,7 @@ class FloorplanEngine {
         <div id="floorplan-panzoom-layer" class="w-full h-full flex items-center justify-center">
           <svg id="casetta-blueprint-svg"
                viewBox="${viewBox}"
-               class="w-full h-full max-h-[82vh] transition-all duration-300"
+               class="w-full h-full max-h-[88vh] transition-all duration-300"
                style="filter: drop-shadow(0 20px 30px rgba(0,0,0,0.7));">
             
             <defs>
@@ -832,6 +926,10 @@ class FloorplanEngine {
 
   handlePinClick(pinNum, evt) {
     if (window.dragEditor?.editMode) return;
+    if (this.hasDragged) {
+      this.hasDragged = false;
+      return;
+    }
     if (evt) evt.stopPropagation();
     this.selectedPin = pinNum;
     const pins = window.homeData?.spatial?.pins || [];
@@ -846,6 +944,10 @@ class FloorplanEngine {
 
   quickTogglePin(pinNum, evt) {
     if (window.dragEditor?.editMode) return;
+    if (this.hasDragged) {
+      this.hasDragged = false;
+      return;
+    }
     if (evt) evt.stopPropagation();
     const pins = window.homeData?.spatial?.pins || [];
     const p = pins.find(item => item.pin === Number(pinNum));
