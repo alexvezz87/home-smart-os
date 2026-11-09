@@ -143,14 +143,13 @@ const ARCHITECTURAL_ROOMS = [
 class FloorplanEngine {
   constructor() {
     this.selectedPin = 21;
-    this.selectedRoom = 'Salone';
+    this.selectedRoom = null; // null = "Tutta la Casa" (nessuna stanza isolata)
     this.bgStyle = 'luxury'; // 'luxury' | 'cad' | 'light'
     this.showProximity = true;
     this.showFurniture = true;
-    this.zoomRoom = null;
     this.heatMapActive = false;
 
-    // Pan & Zoom state
+    // Pan & Zoom manuale di precisione (senza hijacking rotellina desktop)
     this.panX = 0;
     this.panY = 0;
     this.scale = 1;
@@ -183,12 +182,12 @@ class FloorplanEngine {
   }
 
   zoomIn() {
-    this.scale = Math.min(3.5, this.scale * 1.25);
+    this.scale = Math.min(3.0, +(this.scale * 1.2).toFixed(2));
     this.applyTransform();
   }
 
   zoomOut() {
-    this.scale = Math.max(0.65, this.scale / 1.25);
+    this.scale = Math.max(0.7, +(this.scale / 1.2).toFixed(2));
     this.applyTransform();
   }
 
@@ -196,21 +195,27 @@ class FloorplanEngine {
     this.panX = 0;
     this.panY = 0;
     this.scale = 1;
-    this.zoomRoom = null;
+    this.selectedRoom = null;
     this.applyTransform();
     this.render();
   }
 
-  zoomToRoom(roomName) {
-    if (this.zoomRoom === roomName) {
-      this.resetZoom();
-      return;
+  /**
+   * Evidenzia/Spotlight una stanza sulla piantina fissa (senza zoom o spostamento viewBox)
+   * Se la stanza è già selezionata, torna alla vista globale di tutta la casa.
+   */
+  selectRoom(roomName) {
+    if (this.selectedRoom === roomName || !roomName) {
+      this.selectedRoom = null;
+    } else {
+      this.selectedRoom = roomName;
     }
-    const r = ARCHITECTURAL_ROOMS.find(item => item.id === roomName);
-    if (!r) return;
-    this.zoomRoom = roomName;
-    this.selectedRoom = roomName;
     this.render();
+  }
+
+  // Alias per retrocompatibilità
+  zoomToRoom(roomName) {
+    this.selectRoom(roomName);
   }
 
   applyTransform() {
@@ -218,7 +223,7 @@ class FloorplanEngine {
     if (layer) {
       layer.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.scale})`;
       layer.style.transformOrigin = 'center center';
-      layer.style.transition = this.isPanning ? 'none' : 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)';
+      layer.style.transition = 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)';
     }
   }
 
@@ -226,42 +231,13 @@ class FloorplanEngine {
     const container = document.getElementById('floorplan-touch-viewport');
     if (!container) return;
 
-    // Mouse wheel zoom
-    container.onwheel = (e) => {
-      e.preventDefault();
-      const delta = e.deltaY < 0 ? 1.15 : 0.88;
-      const newScale = Math.max(0.6, Math.min(3.5, this.scale * delta));
-      this.scale = newScale;
-      this.applyTransform();
-    };
+    // Disabilita zoom via rotellina mouse/touchpad per garantire scrolling fluido della pagina e piantina fissa
+    container.onwheel = null;
+    container.onmousedown = null;
 
-    // Mouse pan (quando non si trascina un pin)
-    container.onmousedown = (e) => {
-      if (e.target.closest('.spatial-pin-item') || window.dragEditor?.isDragging) return;
-      this.isPanning = true;
-      this.startPan = { x: e.clientX - this.panX, y: e.clientY - this.panY };
-    };
-
-    window.onmousemove = (e) => {
-      if (!this.isPanning) return;
-      this.panX = e.clientX - this.startPan.x;
-      this.panY = e.clientY - this.startPan.y;
-      this.applyTransform();
-    };
-
-    window.onmouseup = () => {
-      this.isPanning = false;
-      this.applyTransform();
-    };
-
-    // Touch Pinch-to-zoom & Pan per mobile/tablet
+    // Supporto pinch-to-zoom a 2 dita opzionale solo su dispositivi touch (tablet/mobile)
     container.ontouchstart = (e) => {
-      if (e.touches.length === 1) {
-        if (e.target.closest('.spatial-pin-item') || window.dragEditor?.isDragging) return;
-        this.isPanning = true;
-        this.startPan = { x: e.touches[0].clientX - this.panX, y: e.touches[0].clientY - this.panY };
-      } else if (e.touches.length === 2) {
-        this.isPanning = false;
+      if (e.touches && e.touches.length === 2) {
         this.touchStartDist = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
@@ -270,30 +246,21 @@ class FloorplanEngine {
     };
 
     container.ontouchmove = (e) => {
-      if (e.touches.length === 1 && this.isPanning) {
-        e.preventDefault();
-        this.panX = e.touches[0].clientX - this.startPan.x;
-        this.panY = e.touches[0].clientY - this.startPan.y;
-        this.applyTransform();
-      } else if (e.touches.length === 2) {
+      if (e.touches && e.touches.length === 2 && this.touchStartDist > 0) {
         e.preventDefault();
         const dist = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
         );
-        if (this.touchStartDist > 0) {
-          const factor = dist / this.touchStartDist;
-          this.scale = Math.max(0.6, Math.min(3.5, this.scale * (factor > 1 ? 1.04 : 0.96)));
-          this.touchStartDist = dist;
-          this.applyTransform();
-        }
+        const factor = dist / this.touchStartDist;
+        this.scale = Math.max(0.7, Math.min(2.8, +(this.scale * (factor > 1 ? 1.03 : 0.97)).toFixed(2)));
+        this.touchStartDist = dist;
+        this.applyTransform();
       }
     };
 
     container.ontouchend = () => {
-      this.isPanning = false;
       this.touchStartDist = 0;
-      this.applyTransform();
     };
   }
 
@@ -440,8 +407,9 @@ class FloorplanEngine {
     const isCad = this.bgStyle === 'cad';
     const isLight = this.bgStyle === 'light';
 
-    const activeRoomMeta = ARCHITECTURAL_ROOMS.find(r => r.id === this.zoomRoom);
-    const viewBox = activeRoomMeta ? activeRoomMeta.viewBoxZoom : '95 30 755 1225';
+    // Piantina fissa con panoramica 1:1 dell'intera casa (niente salti di viewBox o ingrandimenti destabilizzanti)
+    const viewBox = '95 30 755 1225';
+    const hasRoomSelection = !!this.selectedRoom;
 
     // Radar cone per le telecamere Tapo
     const buildRadarCone = (cx, cy, baseAngleDeg, panDeg, radius = 215, spreadDeg = 62) => {
@@ -464,16 +432,19 @@ class FloorplanEngine {
     const cone6Path = buildRadarCone(cam6X, cam6Y, -65, -(cam6.pan || 0), 205, 62);
     const cone17Path = buildRadarCone(cam17X, cam17Y, 135, cam17.pan || 0, 245, 64);
 
-    // Stanze SVG interattive
+    // Stanze SVG con Evidenziazione Architettonica (Spotlight)
     const roomsSvg = ARCHITECTURAL_ROOMS.map(r => {
       const roomPins = pins.filter(p => p.room === r.id);
       const activeLights = roomPins.filter(p => (p.category === 'light' || p.category === 'chandelier') && p.isOn).length;
       const totalLights = roomPins.filter(p => p.category === 'light' || p.category === 'chandelier').length;
       const roomWatts = roomPins.reduce((acc, p) => acc + (Number(p.powerW) || 0), 0);
       const isSelected = this.selectedRoom === r.id;
+      
+      // Se una stanza è selezionata, le altre vengono attenuate per far risaltare quella attiva
+      const roomOpacity = hasRoomSelection ? (isSelected ? '1' : '0.24') : '1';
 
       let fillPattern = isCad
-        ? (isSelected ? 'rgba(14, 165, 233, 0.22)' : 'rgba(15, 23, 42, 0.85)')
+        ? (isSelected ? 'rgba(14, 165, 233, 0.28)' : 'rgba(15, 23, 42, 0.85)')
         : isLight
         ? (r.floorType === 'parquet' ? 'url(#floorParquetLight)' : r.floorType === 'tile' ? 'url(#floorTileLight)' : 'url(#floorDeck)')
         : (r.floorType === 'parquet' ? 'url(#floorParquet)' : r.floorType === 'tile' ? 'url(#floorTile)' : 'url(#floorDeck)');
@@ -482,21 +453,25 @@ class FloorplanEngine {
       const subColor = isSelected ? '#22d3ee' : (isLight ? '#475569' : '#94a3b8');
 
       return `
-        <g class="${r.interactive ? 'cursor-pointer group' : ''}"
-           onclick="${r.interactive ? `window.floorplan.zoomToRoom('${r.id}')` : ''}">
+        <g class="${r.interactive ? 'cursor-pointer group' : ''} transition-opacity duration-300"
+           opacity="${roomOpacity}"
+           onclick="${r.interactive ? `window.floorplan.selectRoom('${r.id}')` : ''}">
           <path d="${r.path}"
                 fill="${fillPattern}"
-                stroke="${isSelected ? '#22d3ee' : 'rgba(148, 163, 184, 0.2)'}"
+                stroke="${isSelected ? '#22d3ee' : 'rgba(148, 163, 184, 0.22)'}"
                 stroke-width="${isSelected ? '3.5' : '1.5'}"
-                class="transition-all duration-200 ${r.interactive ? 'hover:brightness-125' : ''}" />
-          ${isSelected ? `<path d="${r.path}" fill="rgba(34, 211, 238, 0.08)" stroke="#22d3ee" stroke-width="2.5" stroke-dasharray="8 4" pointer-events="none" />` : ''}
+                class="transition-all duration-300 ${r.interactive ? 'hover:brightness-125' : ''}" />
+          ${isSelected ? `
+            <!-- Effetto Spotlight / Bagliore morbido stanza selezionata -->
+            <path d="${r.path}" fill="rgba(34, 211, 238, 0.12)" stroke="#22d3ee" stroke-width="2.5" stroke-dasharray="8 4" pointer-events="none" />
+          ` : ''}
 
           <!-- Badge Etichetta Stanza -->
           <g transform="translate(${r.labelX}, ${r.labelY})" pointer-events="none">
             <rect x="-78" y="-22" width="156" height="${r.interactive && roomPins.length > 0 ? '44' : '28'}" rx="8"
-                  fill="${isSelected ? 'rgba(8, 47, 73, 0.94)' : (isLight ? 'rgba(255, 255, 255, 0.88)' : 'rgba(2, 6, 23, 0.82)')}"
+                  fill="${isSelected ? 'rgba(8, 47, 73, 0.95)' : (isLight ? 'rgba(255, 255, 255, 0.88)' : 'rgba(2, 6, 23, 0.82)')}"
                   stroke="${isSelected ? '#22d3ee' : 'rgba(148, 163, 184, 0.3)'}"
-                  stroke-width="${isSelected ? '2' : '1'}" />
+                  stroke-width="${isSelected ? '2.5' : '1'}" />
             <text x="0" y="-4" text-anchor="middle" fill="${isSelected ? '#38bdf8' : labelColor}" font-size="11.5" font-weight="900" font-family="Inter, sans-serif" letter-spacing="0.5">
               ${r.label}
             </text>
@@ -595,12 +570,15 @@ class FloorplanEngine {
       }
 
       const radius = p.category === 'chandelier' ? 20 : 15.5;
+      const isPinInSelectedRoom = !hasRoomSelection || p.room === this.selectedRoom;
+      const pinOpacity = isPinInSelectedRoom ? '1' : '0.22';
 
       return `
         <g id="spatial-pin-group-${p.pin}"
            data-pin="${p.pin}"
            transform="translate(${cx}, ${cy})"
-           class="spatial-pin-item ${isEditMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} transition-transform"
+           opacity="${pinOpacity}"
+           class="spatial-pin-item transition-all duration-300 ${isEditMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}"
            onmousedown="${isEditMode ? `window.dragEditor.startDrag(${p.pin}, event)` : ''}"
            ontouchstart="${isEditMode ? `window.dragEditor.startDrag(${p.pin}, event)` : ''}"
            onclick="window.floorplan.handlePinClick(${p.pin}, event)"
@@ -625,23 +603,23 @@ class FloorplanEngine {
     }).join('');
 
     // Dispositivi filtrati per stanza attiva (o tutta la casa se null)
-    const filteredPins = this.zoomRoom
-      ? pins.filter(p => p.room === this.zoomRoom)
-      : (this.selectedRoom ? pins.filter(p => p.room === this.selectedRoom) : pins);
+    const filteredPins = this.selectedRoom
+      ? pins.filter(p => p.room === this.selectedRoom)
+      : pins;
 
-    const roomLabelDisplay = this.zoomRoom || this.selectedRoom || 'Tutta la Casa';
+    const roomLabelDisplay = this.selectedRoom || 'Tutta la Casa';
 
-    // HTML Wrapper con Viewport Touch e Controlli Floating
+    // HTML Wrapper con Viewport Fissa e Controlli Floating
     container.innerHTML = `
       <!-- Toolbar rapida superiore della Piantina -->
       <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
-        <!-- Room Selector Pills -->
+        <!-- Room Selector Pills: Evidenziazione Stanza (Spotlight) -->
         <div class="flex items-center gap-1.5 overflow-x-auto pb-1 max-w-full">
-          <button onclick="window.floorplan.resetZoom()" class="px-2.5 py-1 rounded-xl text-xs font-semibold ${!this.zoomRoom ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800 text-slate-400 hover:text-white'} transition-all whitespace-nowrap">
+          <button onclick="window.floorplan.selectRoom(null)" class="px-2.5 py-1 rounded-xl text-xs font-semibold ${!this.selectedRoom ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800 text-slate-400 hover:text-white'} transition-all whitespace-nowrap">
             <i class="fa-solid fa-house-chimney mr-1"></i>Tutta la Casa
           </button>
           ${ARCHITECTURAL_ROOMS.filter(r => r.interactive).map(r => `
-            <button onclick="window.floorplan.zoomToRoom('${r.id}')" class="px-2.5 py-1 rounded-xl text-xs font-semibold ${this.zoomRoom === r.id ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800 text-slate-400 hover:text-white'} transition-all whitespace-nowrap">
+            <button onclick="window.floorplan.selectRoom('${r.id}')" class="px-2.5 py-1 rounded-xl text-xs font-semibold ${this.selectedRoom === r.id ? 'bg-indigo-600 text-white shadow-md ring-1 ring-cyan-400' : 'bg-slate-800 text-slate-400 hover:text-white'} transition-all whitespace-nowrap">
               <i class="fa-solid ${r.icon} mr-1"></i>${r.label.split(' ')[0]}
             </button>
           `).join('')}
@@ -663,21 +641,21 @@ class FloorplanEngine {
             <button onclick="window.floorplan.setBgStyle('cad')" class="px-2 py-1 rounded-lg text-[10px] font-bold ${this.bgStyle === 'cad' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'}">CAD</button>
             <button onclick="window.floorplan.setBgStyle('light')" class="px-2 py-1 rounded-lg text-[10px] font-bold ${this.bgStyle === 'light' ? 'bg-slate-200 text-slate-900' : 'text-slate-400 hover:text-white'}">Light</button>
           </div>
-          <!-- Zoom Controls -->
-          <button onclick="window.floorplan.zoomIn()" class="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-all active:scale-95" title="Ingrandisci">
+          <!-- Zoom Controls (Manuali) -->
+          <button onclick="window.floorplan.zoomIn()" class="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-all active:scale-95" title="Ingrandisci Piantina">
             <i class="fa-solid fa-plus text-xs"></i>
           </button>
-          <button onclick="window.floorplan.zoomOut()" class="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-all active:scale-95" title="Rimpicciolisci">
+          <button onclick="window.floorplan.zoomOut()" class="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-all active:scale-95" title="Rimpicciolisci Piantina">
             <i class="fa-solid fa-minus text-xs"></i>
           </button>
-          <button onclick="window.floorplan.resetZoom()" class="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-all active:scale-95" title="Centra vista">
+          <button onclick="window.floorplan.resetZoom()" class="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-all active:scale-95" title="Centra Vista">
             <i class="fa-solid fa-compress text-xs"></i>
           </button>
         </div>
       </div>
 
-      <!-- Viewport Piantina con Gestione Touch e Pan/Zoom -->
-      <div id="floorplan-touch-viewport" class="relative w-full rounded-3xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl flex items-center justify-center min-h-[520px] sm:min-h-[640px] select-none touch-none cursor-grab active:cursor-grabbing">
+      <!-- Viewport Piantina Fissa Vettoriale (Scrolling fluido del browser, nessun pan indesiderato) -->
+      <div id="floorplan-touch-viewport" class="relative w-full rounded-3xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl flex items-center justify-center min-h-[520px] sm:min-h-[640px] select-none cursor-default">
         
         <!-- Live Drag HUD se in modalità modifica -->
         <div id="drag-pin-live-hud" class="hidden absolute top-4 left-4 right-4 z-20 p-2.5 rounded-xl bg-slate-900/90 border border-amber-500/50 text-xs text-amber-200 text-center shadow-lg backdrop-blur-md"></div>
