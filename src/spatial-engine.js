@@ -463,7 +463,7 @@ class SpatialEngine {
         nearbyPins: [29, 31, 30]
       },
 
-      // === TERMOVALVOLE CALORIFERI BOSCH EASYCONTROL CT200 ===
+      // === TERMOVALVOLE CALORIFERI BOSCH EASYCONTROL CT200 (9 ZONE REALI) ===
       {
         pin: 33,
         name: 'Termovalvola Salone',
@@ -471,6 +471,7 @@ class SpatialEngine {
         microZone: 'salone_centro',
         category: 'valve',
         vendor: 'Bosch Radiator Thermostat',
+        boschName: 'Salone',
         zoneId: 'zn_salone',
         x: 30.0,
         y: 79.2,
@@ -483,6 +484,7 @@ class SpatialEngine {
         microZone: 'cucina_operativa',
         category: 'valve',
         vendor: 'Bosch Radiator Thermostat',
+        boschName: 'Cucina',
         zoneId: 'zn_cucina',
         x: 73.2,
         y: 64.0,
@@ -495,6 +497,7 @@ class SpatialEngine {
         microZone: 'lato_alex',
         category: 'valve',
         vendor: 'Bosch Radiator Thermostat',
+        boschName: 'Camera da letto',
         zoneId: 'zn_camera',
         x: 26.2,
         y: 19.4,
@@ -502,11 +505,12 @@ class SpatialEngine {
       },
       {
         pin: 36,
-        name: 'Termovalvola Cameretta / Studio',
+        name: 'Termovalvola Cameretta',
         room: 'Cameretta',
         microZone: 'studio_focus',
         category: 'valve',
         vendor: 'Bosch Radiator Thermostat',
+        boschName: 'Cameretta',
         zoneId: 'zn_cameretta',
         x: 68.4,
         y: 22.0,
@@ -514,27 +518,68 @@ class SpatialEngine {
       },
       {
         pin: 37,
-        name: 'Termovalvola Bagno Lavanderia',
+        name: 'Termovalvola Bagno Alex',
         room: 'Bagno',
         microZone: 'lavanderia',
         category: 'valve',
         vendor: 'Bosch Radiator Thermostat',
-        zoneId: 'zn_bagno_notte',
+        boschName: 'Bagno Alex',
+        zoneId: 'zn_bagno_alex',
         x: 26.2,
         y: 34.4,
         nearbyPins: [7, 8]
       },
       {
         pin: 38,
-        name: 'Termovalvola Bagno Principale',
+        name: 'Termovalvola Bagno Cinzia',
         room: 'Bagno Principale',
         microZone: 'bagno_doccia',
         category: 'valve',
         vendor: 'Bosch Radiator Thermostat',
-        zoneId: 'zn_bagno_principale',
+        boschName: 'Bagno Cinzia',
+        zoneId: 'zn_bagno_cinzia',
         x: 78.2,
         y: 44.0,
         nearbyPins: [17]
+      },
+      {
+        pin: 39,
+        name: 'Termovalvola Cabina armadio',
+        room: 'Cabina armadio',
+        microZone: 'guardaroba',
+        category: 'valve',
+        vendor: 'Bosch Radiator Thermostat',
+        boschName: 'Cabina armadio',
+        zoneId: 'zn_cabina_armadio',
+        x: 68.0,
+        y: 53.0,
+        nearbyPins: [15]
+      },
+      {
+        pin: 40,
+        name: 'Termovalvola Ingresso',
+        room: 'Corridoio',
+        microZone: 'ingresso',
+        category: 'valve',
+        vendor: 'Bosch Radiator Thermostat',
+        boschName: 'Ingresso',
+        zoneId: 'zn_ingresso',
+        x: 44.0,
+        y: 49.0,
+        nearbyPins: [16, 14]
+      },
+      {
+        pin: 41,
+        name: 'Termovalvola Corridoio 2',
+        room: 'Corridoio',
+        microZone: 'corridoio_notte',
+        category: 'valve',
+        vendor: 'Bosch Radiator Thermostat',
+        boschName: 'Corridoio 2',
+        zoneId: 'zn_corridoio_2',
+        x: 44.0,
+        y: 32.0,
+        nearbyPins: [14, 13]
       }
     ];
 
@@ -891,14 +936,34 @@ class SpatialEngine {
         clone.patrolActive = Boolean(cam.patrolActive);
       } else if (p.category === 'valve') {
         const bosch = homeSnapshot.evClimate?.bosch || {};
-        const zData = bosch.zones?.[p.zoneId] || {};
-        clone.temperature = +(zData.temperature || (p.pin === 37 || p.pin === 38 ? 21.2 : (bosch.actualTemperature || 20.6))).toFixed(1);
-        clone.setpoint = +(zData.setpoint || (p.pin === 37 || p.pin === 38 ? 21.5 : (bosch.manualSetpoint || 20.5))).toFixed(1);
-        clone.valvePercent = zData.valvePercent !== undefined ? zData.valvePercent : (clone.temperature < clone.setpoint ? 75 : 0);
+        const rawZones = bosch.zones;
+        let zData = null;
+        if (Array.isArray(rawZones)) {
+          zData = rawZones.find(z =>
+            (p.zoneId && (z.id === p.zoneId || `zn_${z.id}` === p.zoneId || z.id === p.zoneId.replace('zn_', ''))) ||
+            (p.boschName && z.name && z.name.toLowerCase().includes(p.boschName.toLowerCase())) ||
+            (p.name && z.name && p.name.toLowerCase().includes(z.name.toLowerCase()))
+          );
+        } else if (rawZones && typeof rawZones === 'object') {
+          zData = rawZones[p.zoneId] || rawZones[p.boschName] || null;
+        }
+
+        const zTemp = zData?.tempActual ?? zData?.temperature;
+        const zSet = zData?.tempSetpoint ?? zData?.setpoint;
+        const zValve = zData?.valvePosition ?? zData?.valvePercent;
+        const zBatt = zData?.valve?.battery ?? zData?.batteryPercent;
+
+        const fallbackTemp = (p.pin === 37 || p.pin === 38 ? 21.2 : (p.pin === 39 ? 20.2 : (bosch.actualTemperature || 20.6)));
+        const fallbackSetpoint = (p.pin === 37 || p.pin === 38 ? 21.5 : (p.pin === 39 ? 20.0 : (bosch.manualSetpoint || 20.5)));
+
+        clone.temperature = +(zTemp || fallbackTemp).toFixed(1);
+        clone.setpoint = +(zSet || fallbackSetpoint).toFixed(1);
+        clone.valvePercent = zValve !== undefined && zValve !== null ? Number(zValve) : (clone.temperature < clone.setpoint ? 75 : 0);
         clone.isHeating = clone.valvePercent > 15;
         clone.isOn = clone.valvePercent > 0;
-        clone.batteryPercent = zData.batteryPercent || 92;
-        clone.deviceId = `bosch_trv_${p.pin}`;
+        clone.batteryPercent = zBatt || 92;
+        clone.deviceId = zData?.valve?.id || `bosch_trv_${p.pin}`;
+        clone.zoneId = zData?.id || p.zoneId;
       } else if (p.category === 'sensor') {
         const dMatch = devices.find(d => d.category === 'sensor');
         clone.temperature = dMatch?.extra?.temperature || homeSnapshot.stats?.temperature || 20.9;
