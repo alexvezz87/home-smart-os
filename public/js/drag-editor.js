@@ -19,6 +19,7 @@ class DragEditorEngine {
     this.editMode = !this.editMode;
     const hud = document.getElementById('drag-pin-live-hud');
     const btn = document.getElementById('btn-toggle-edit-mode');
+    const btnFp = document.getElementById('btn-toggle-edit-mode-fp');
 
     if (this.editMode) {
       if (typeof showToast === 'function') {
@@ -33,6 +34,9 @@ class DragEditorEngine {
         btn.classList.remove('bg-slate-800', 'text-slate-300');
         btn.innerHTML = '<i class="fa-solid fa-lock-open mr-1.5"></i>Blocca Piantina';
       }
+      if (btnFp) {
+        btnFp.className = 'p-2 rounded-xl text-xs font-semibold border bg-amber-600 text-white border-amber-500 shadow-md transition-all active:scale-95';
+      }
     } else {
       if (typeof showToast === 'function') {
         showToast('🔒 Posizioni dispositivi salvate e bloccate.', 'info');
@@ -42,6 +46,9 @@ class DragEditorEngine {
         btn.classList.remove('bg-amber-600', 'text-white');
         btn.classList.add('bg-slate-800', 'text-slate-300');
         btn.innerHTML = '<i class="fa-solid fa-pen-ruler mr-1.5"></i>Modifica Piantina';
+      }
+      if (btnFp) {
+        btnFp.className = 'p-2 rounded-xl text-xs font-semibold border bg-slate-800 border-slate-700 text-slate-300 hover:text-white transition-all active:scale-95';
       }
     }
 

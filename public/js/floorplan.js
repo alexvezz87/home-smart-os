@@ -173,7 +173,7 @@ class FloorplanEngine {
     if (layer === 'plugs') return p.category === 'plug' || p.category === 'appliance';
     if (layer === 'speakers') return p.category === 'speaker' || p.category === 'tv';
     if (layer === 'cameras') return p.category === 'camera';
-    if (layer === 'valves') return p.category === 'valve' || p.category === 'thermostat' || p.category === 'climate';
+    if (layer === 'valves') return p.category === 'valve';
     return true;
   }
 
@@ -800,6 +800,12 @@ class FloorplanEngine {
               </button>
               <button onclick="window.floorplan.resetZoom()" class="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-all active:scale-95" title="Centra Vista">
                 <i class="fa-solid fa-compress text-xs"></i>
+              </button>
+              <button onclick="window.dragEditor?.toggleEditMode()"
+                      id="btn-toggle-edit-mode-fp"
+                      class="p-2 rounded-xl text-xs font-semibold border ${window.dragEditor?.editMode ? 'bg-amber-600 text-white border-amber-500 shadow-md' : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'} transition-all active:scale-95"
+                      title="Modifica Posizione Dispositivi sulla Piantina (Drag & Drop)">
+                <i class="fa-solid fa-pen-ruler text-xs"></i>
               </button>
             </div>
           </div>
