@@ -85,12 +85,13 @@ async function loadDashboard() {
   if (icon) icon.classList.add('fa-spin');
 
   try {
-    const res = await fetch('/api/dashboard');
+    const res = await fetch('/api/home');
     if (res.status === 401) {
       showAuthModal();
       return;
     }
-    const data = await res.json();
+    const json = await res.json();
+    const data = json.data || json;
     window.homeData = data;
 
     updateHeaderMetrics(data);
@@ -340,7 +341,7 @@ async function submitKioskPin() {
 
 async function checkAuth() {
   try {
-    const res = await fetch('/api/auth/me');
+    const res = await fetch('/api/auth/status');
     if (res.status === 401) {
       showAuthModal();
       return;
@@ -383,3 +384,4 @@ window.logoutNow = logoutNow;
 window.triggerMasterOff = triggerMasterOff;
 window.cycleSecurityMode = cycleSecurityMode;
 window.sendQuickCommand = sendQuickCommand;
+

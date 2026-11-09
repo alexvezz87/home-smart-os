@@ -603,8 +603,9 @@ class FloorplanEngine {
            class="spatial-pin-item ${isEditMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} transition-transform"
            onmousedown="${isEditMode ? `window.dragEditor.startDrag(${p.pin}, event)` : ''}"
            ontouchstart="${isEditMode ? `window.dragEditor.startDrag(${p.pin}, event)` : ''}"
-           onclick="window.floorplan.handlePinClick(${p.pin}, event)">
-          <title>#${p.pin} ${p.name} (${p.room})</title>
+           onclick="window.floorplan.handlePinClick(${p.pin}, event)"
+           ondblclick="window.floorplan.quickTogglePin(${p.pin}, event)">
+          <title>#${p.pin} ${p.name} (${p.room}) — Click: Controlli · Doppio Click: ON/OFF</title>
           ${isSelected ? `<circle cx="0" cy="0" r="${radius + 9}" fill="none" stroke="#22d3ee" stroke-width="3" opacity="0.95"/>` : ''}
           ${isEditMode ? `<circle cx="0" cy="0" r="${radius + 5}" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-dasharray="3 3" opacity="0.9"/>` : ''}
           ${p.category === 'plug' ? `
@@ -622,6 +623,13 @@ class FloorplanEngine {
         </g>
       `;
     }).join('');
+
+    // Dispositivi filtrati per stanza attiva (o tutta la casa se null)
+    const filteredPins = this.zoomRoom
+      ? pins.filter(p => p.room === this.zoomRoom)
+      : (this.selectedRoom ? pins.filter(p => p.room === this.selectedRoom) : pins);
+
+    const roomLabelDisplay = this.zoomRoom || this.selectedRoom || 'Tutta la Casa';
 
     // HTML Wrapper con Viewport Touch e Controlli Floating
     container.innerHTML = `
@@ -669,7 +677,7 @@ class FloorplanEngine {
       </div>
 
       <!-- Viewport Piantina con Gestione Touch e Pan/Zoom -->
-      <div id="floorplan-touch-viewport" class="relative w-full rounded-3xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl flex items-center justify-center min-h-[580px] sm:min-h-[680px] select-none touch-none cursor-grab active:cursor-grabbing">
+      <div id="floorplan-touch-viewport" class="relative w-full rounded-3xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl flex items-center justify-center min-h-[520px] sm:min-h-[640px] select-none touch-none cursor-grab active:cursor-grabbing">
         
         <!-- Live Drag HUD se in modalità modifica -->
         <div id="drag-pin-live-hud" class="hidden absolute top-4 left-4 right-4 z-20 p-2.5 rounded-xl bg-slate-900/90 border border-amber-500/50 text-xs text-amber-200 text-center shadow-lg backdrop-blur-md"></div>
@@ -779,6 +787,65 @@ class FloorplanEngine {
           </svg>
         </div>
       </div>
+
+      <!-- Dispositivi della Stanza Selezionata -->
+      <div class="glass-card rounded-2xl p-5 border border-slate-800 space-y-3 mt-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-layer-group text-indigo-400"></i>
+            <h3 class="text-xs font-bold text-white flex items-center gap-2">
+              <span>Dispositivi: <strong>${roomLabelDisplay}</strong></span>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300">${filteredPins.length}</span>
+            </h3>
+          </div>
+          <div class="text-[11px] text-slate-400">
+            Tocca una scheda per aprire i controlli o usa l'interruttore rapido
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
+          ${filteredPins.map(p => {
+            const isLight = p.category === 'light' || p.category === 'chandelier';
+            const isPlug = p.category === 'plug';
+            const icon = isLight ? (p.category === 'chandelier' ? 'fa-wand-magic-sparkles text-amber-400' : 'fa-lightbulb text-amber-300') :
+                         isPlug ? 'fa-plug text-sky-400' :
+                         p.category === 'camera' ? 'fa-video text-purple-400' :
+                         p.category === 'speaker' ? 'fa-volume-high text-yellow-400' : 'fa-microchip text-slate-400';
+
+            return `
+              <div class="p-3 rounded-xl bg-slate-900/70 border ${p.isOn ? 'border-amber-500/30 bg-amber-950/10' : 'border-slate-800'} hover:border-indigo-500/50 transition-all flex items-center justify-between gap-2.5 cursor-pointer"
+                   onclick="window.floorplan.handlePinClick(${p.pin}, event)">
+                <div class="flex items-center gap-2.5 overflow-hidden">
+                  <div class="w-8 h-8 rounded-lg ${p.isOn ? 'bg-amber-500/20' : 'bg-slate-800'} flex items-center justify-center shrink-0">
+                    <i class="fa-solid ${icon} text-xs"></i>
+                  </div>
+                  <div class="truncate">
+                    <div class="text-xs font-bold text-white truncate flex items-center gap-1.5">
+                      <span class="text-[10px] text-slate-400 font-mono">#${p.pin}</span>
+                      <span class="truncate">${p.name}</span>
+                    </div>
+                    <div class="text-[10px] text-slate-400 truncate">
+                      ${p.room} ${p.powerW ? `· <strong class="text-amber-300">${p.powerW}W</strong>` : ''} ${p.brightness ? `· ${p.brightness}%` : ''}
+                    </div>
+                  </div>
+                </div>
+
+                ${isLight || isPlug ? `
+                  <button type="button"
+                          onclick="event.stopPropagation(); window.floorplan.quickTogglePin(${p.pin}, event)"
+                          class="px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all shadow-sm shrink-0 active:scale-95 ${p.isOn ? 'bg-amber-500 text-slate-950 hover:bg-amber-400' : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'}">
+                    ${p.isOn ? 'ON' : 'OFF'}
+                  </button>
+                ` : `
+                  <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400 shrink-0">
+                    ${p.category}
+                  </span>
+                `}
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
     `;
 
     this.initPanZoomListeners();
@@ -787,14 +854,33 @@ class FloorplanEngine {
 
   handlePinClick(pinNum, evt) {
     if (window.dragEditor?.editMode) return;
-    evt.stopPropagation();
+    if (evt) evt.stopPropagation();
     this.selectedPin = pinNum;
     const pins = window.homeData?.spatial?.pins || [];
     const p = pins.find(item => item.pin === Number(pinNum));
-    if (p && window.deviceSheet) {
-      window.deviceSheet.open(p);
+    if (p) {
+      if (p.room) this.selectedRoom = p.room;
+      if (window.deviceSheet) {
+        window.deviceSheet.open(p);
+      }
+    }
+  }
+
+  quickTogglePin(pinNum, evt) {
+    if (window.dragEditor?.editMode) return;
+    if (evt) evt.stopPropagation();
+    const pins = window.homeData?.spatial?.pins || [];
+    const p = pins.find(item => item.pin === Number(pinNum));
+    if (!p) return;
+    const nextState = !p.isOn;
+    if (p.category === 'plug' && window.togglePlugPin) {
+      window.togglePlugPin(pinNum, nextState);
+    } else if (window.toggleLightPin) {
+      window.toggleLightPin(pinNum, nextState);
     }
   }
 }
 
 window.floorplan = new FloorplanEngine();
+
+

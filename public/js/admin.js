@@ -272,3 +272,4 @@ class AdminManager {
 }
 
 window.adminManager = new AdminManager();
+

@@ -440,3 +440,241 @@ class DeviceSheetManager {
 
 const deviceSheet = new DeviceSheetManager();
 window.deviceSheet = deviceSheet;
+
+// ============================================================================
+// Azioni Globali di Controllo Dispositivi (invocate dai bottoni del Drawer e Piantina)
+// ============================================================================
+
+async function toggleLightPin(pinNum, turnOn) {
+  const pins = window.homeData?.spatial?.pins || [];
+  const p = pins.find(item => item.pin === Number(pinNum));
+  const targetName = p?.hueNames?.[0] || p?.name || `Pin #${pinNum}`;
+  try {
+    await fetch(`/api/device/${encodeURIComponent(targetName)}/toggle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state: turnOn })
+    });
+    if (p) p.isOn = turnOn;
+    if (window.floorplan) window.floorplan.render();
+    if (window.deviceSheet?.currentPin?.pin === Number(pinNum)) {
+      window.deviceSheet.open(p);
+    }
+    showToast(`${targetName}: ${turnOn ? 'Accesa' : 'Spenta'}`, 'success');
+    if (typeof loadDashboard === 'function') loadDashboard();
+  } catch (e) {
+    showToast('Errore controllo luce: ' + e.message, 'error');
+  }
+}
+
+async function setLightBrightnessPin(pinNum, value) {
+  const pins = window.homeData?.spatial?.pins || [];
+  const p = pins.find(item => item.pin === Number(pinNum));
+  const targetName = p?.hueNames?.[0] || p?.name || `Pin #${pinNum}`;
+  try {
+    await fetch(`/api/device/${encodeURIComponent(targetName)}/brightness`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ brightness: Number(value) })
+    });
+    if (p) {
+      p.brightness = Number(value);
+      p.isOn = Number(value) > 0;
+    }
+    if (window.floorplan) window.floorplan.render();
+  } catch (e) {
+    showToast('Errore luminosità: ' + e.message, 'error');
+  }
+}
+
+async function setLightColorTemperature(pinNum, tempK) {
+  const pins = window.homeData?.spatial?.pins || [];
+  const p = pins.find(item => item.pin === Number(pinNum));
+  const targetName = p?.hueNames?.[0] || p?.name;
+  try {
+    await fetch(`/api/device/${encodeURIComponent(targetName)}/color-temp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kelvin: tempK })
+    });
+    showToast(`Colore luce: ${tempK}K`, 'info');
+  } catch (_) {}
+}
+
+async function setChandelierModeUi(chandelierId, mode, brightness = 85) {
+  try {
+    const res = await fetch('/api/spatial/chandelier', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chandelierId, mode, brightness })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(`Lampadario ${chandelierId}: modalità ${mode}`, 'success');
+      if (typeof loadDashboard === 'function') await loadDashboard();
+      if (window.deviceSheet?.currentPin) {
+        const updatedPin = window.homeData?.spatial?.pins?.find(p => p.pin === window.deviceSheet.currentPin.pin);
+        if (updatedPin) window.deviceSheet.open(updatedPin);
+      }
+    }
+  } catch (e) {
+    showToast('Errore lampadario: ' + e.message, 'error');
+  }
+}
+
+async function togglePlugPin(pinNum, turnOn) {
+  const pins = window.homeData?.spatial?.pins || [];
+  const p = pins.find(item => item.pin === Number(pinNum));
+  const targetName = p?.merossName || p?.name || `Pin #${pinNum}`;
+  try {
+    await fetch(`/api/device/${encodeURIComponent(targetName)}/toggle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state: turnOn })
+    });
+    if (p) p.isOn = turnOn;
+    if (window.floorplan) window.floorplan.render();
+    if (window.deviceSheet?.currentPin?.pin === Number(pinNum)) {
+      window.deviceSheet.open(p);
+    }
+    showToast(`${targetName}: ${turnOn ? 'Accesa' : 'Spenta'}`, 'success');
+    if (typeof loadDashboard === 'function') loadDashboard();
+  } catch (e) {
+    showToast('Errore presa: ' + e.message, 'error');
+  }
+}
+
+async function roomOff(roomName) {
+  try {
+    await fetch(`/api/room/${encodeURIComponent(roomName)}/toggle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state: false })
+    });
+    showToast(`Stanza ${roomName}: spenti tutti i dispositivi`, 'success');
+    window.deviceSheet?.close();
+    if (typeof loadDashboard === 'function') await loadDashboard();
+  } catch (e) {
+    showToast('Errore spegnimento stanza: ' + e.message, 'error');
+  }
+}
+
+async function ptzMove(camId, pan, tilt) {
+  try {
+    await fetch(`/api/camera/${encodeURIComponent(camId)}/ptz`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pan, tilt })
+    });
+  } catch (e) {
+    console.warn('Errore PTZ:', e);
+  }
+}
+
+async function adjustBoilerSetpoint(delta) {
+  try {
+    const cur = window.homeData?.evClimate?.bosch?.manualSetpoint || 20.0;
+    const target = +(cur + delta).toFixed(1);
+    await fetch('/api/ev-climate/bosch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'setpoint', value: target })
+    });
+    showToast(`Setpoint termostato: ${target}°C`, 'success');
+    if (typeof loadDashboard === 'function') await loadDashboard();
+  } catch (e) {
+    showToast('Errore termostato: ' + e.message, 'error');
+  }
+}
+
+async function setBoilerMode(mode) {
+  try {
+    await fetch('/api/ev-climate/bosch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'mode', value: mode })
+    });
+    showToast(`Caldaia Bosch: modalità ${mode}`, 'success');
+    if (typeof loadDashboard === 'function') await loadDashboard();
+  } catch (e) {
+    showToast('Errore modalità caldaia: ' + e.message, 'error');
+  }
+}
+
+async function toggleVolvoLock() {
+  try {
+    const isLocked = window.homeData?.evClimate?.volvo?.isLocked !== false;
+    const action = isLocked ? 'unlock' : 'lock';
+    await fetch('/api/ev-climate/volvo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action })
+    });
+    showToast(`Volvo EX30: comando ${action} inviato`, 'success');
+    if (typeof loadDashboard === 'function') await loadDashboard();
+  } catch (e) {
+    showToast('Errore Volvo: ' + e.message, 'error');
+  }
+}
+
+async function toggleVolvoClimate() {
+  try {
+    const isOn = Boolean(window.homeData?.evClimate?.volvo?.isClimateOn);
+    const action = isOn ? 'climate_stop' : 'climate_start';
+    await fetch('/api/ev-climate/volvo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action })
+    });
+    showToast(`Volvo EX30: clima ${isOn ? 'arrestato' : 'avviato'}`, 'success');
+    if (typeof loadDashboard === 'function') await loadDashboard();
+  } catch (e) {
+    showToast('Errore clima Volvo: ' + e.message, 'error');
+  }
+}
+
+async function toggleWallboxCharging() {
+  try {
+    const isCharging = Boolean(window.homeData?.evClimate?.wallbox?.isCharging);
+    const action = isCharging ? 'stop' : 'start';
+    await fetch('/api/ev-climate/wallbox', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action })
+    });
+    showToast(`Wallbox ABB: ${isCharging ? 'Ricarica arrestata' : 'Ricarica avviata'}`, 'success');
+    if (typeof loadDashboard === 'function') await loadDashboard();
+  } catch (e) {
+    showToast('Errore Wallbox: ' + e.message, 'error');
+  }
+}
+
+async function setWallboxAmps(amps) {
+  try {
+    await fetch('/api/ev-climate/wallbox', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set_current', value: amps })
+    });
+    showToast(`Wallbox ABB: limite ${amps}A impostato`, 'success');
+    if (typeof loadDashboard === 'function') await loadDashboard();
+  } catch (e) {
+    showToast('Errore Wallbox: ' + e.message, 'error');
+  }
+}
+
+window.toggleLightPin = toggleLightPin;
+window.setLightBrightnessPin = setLightBrightnessPin;
+window.setLightColorTemperature = setLightColorTemperature;
+window.setChandelierModeUi = setChandelierModeUi;
+window.togglePlugPin = togglePlugPin;
+window.roomOff = roomOff;
+window.ptzMove = ptzMove;
+window.adjustBoilerSetpoint = adjustBoilerSetpoint;
+window.setBoilerMode = setBoilerMode;
+window.toggleVolvoLock = toggleVolvoLock;
+window.toggleVolvoClimate = toggleVolvoClimate;
+window.toggleWallboxCharging = toggleWallboxCharging;
+window.setWallboxAmps = setWallboxAmps;
+
+

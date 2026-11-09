@@ -381,3 +381,4 @@ class EnergyManager {
 }
 
 window.energyManager = new EnergyManager();
+

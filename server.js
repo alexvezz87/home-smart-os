@@ -67,7 +67,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ============================================================================
 
 // Stato autenticazione sessione corrente
-app.get('/api/auth/status', (req, res) => {
+app.get(['/api/auth/status', '/api/auth/me'], (req, res) => {
   if (!auth.isAuthEnabled()) {
     return res.json({
       success: true,
@@ -168,7 +168,7 @@ app.post('/api/hue/pair', async (req, res) => {
 });
 
 // 1. Snapshot completo casa con arricchimento telemetria Meross, Sicurezza e Mappa Spaziale 32 Pin
-app.get('/api/home', async (req, res) => {
+app.get(['/api/home', '/api/dashboard'], async (req, res) => {
   try {
     const snapshot = await mcp.getHomeSnapshot();
     const enriched = merossEnergy.enrichDevices(snapshot.devices);
