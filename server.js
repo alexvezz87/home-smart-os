@@ -67,7 +67,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ============================================================================
 
 // Stato autenticazione sessione corrente
-app.get('/api/auth/status', (req, res) => {
+app.get(['/api/auth/status', '/api/auth/me'], (req, res) => {
   if (!auth.isAuthEnabled()) {
     return res.json({
       success: true,
@@ -168,7 +168,7 @@ app.post('/api/hue/pair', async (req, res) => {
 });
 
 // 1. Snapshot completo casa con arricchimento telemetria Meross, Sicurezza e Mappa Spaziale 32 Pin
-app.get('/api/home', async (req, res) => {
+app.get(['/api/home', '/api/dashboard'], async (req, res) => {
   try {
     const snapshot = await mcp.getHomeSnapshot();
     const enriched = merossEnergy.enrichDevices(snapshot.devices);
@@ -841,8 +841,12 @@ app.post('/api/history/clear', (req, res) => {
 app.post('/api/device/:id/toggle', async (req, res) => {
   try {
     const { id } = req.params;
-    const { targetState } = req.body;
-    await mcp.toggleDevice(id, Boolean(targetState));
+    const targetState = req.body.targetState !== undefined
+      ? Boolean(req.body.targetState)
+      : req.body.on !== undefined
+      ? Boolean(req.body.on)
+      : Boolean(req.body.state);
+    await mcp.toggleDevice(id, targetState);
     res.json({ success: true, message: `Dispositivo impostato a ${targetState ? 'acceso' : 'spento'}` });
   } catch (error) {
     console.error('[API /api/device/toggle Error]:', error.message);
@@ -867,8 +871,12 @@ app.post('/api/device/:id/brightness', async (req, res) => {
 app.post('/api/room/:roomName/toggle', async (req, res) => {
   try {
     const { roomName } = req.params;
-    const { targetState } = req.body;
-    await mcp.setRoomPower(roomName, Boolean(targetState));
+    const targetState = req.body.targetState !== undefined
+      ? Boolean(req.body.targetState)
+      : req.body.on !== undefined
+      ? Boolean(req.body.on)
+      : Boolean(req.body.state);
+    await mcp.setRoomPower(roomName, targetState);
     res.json({ success: true, message: `Stanza ${roomName} ${targetState ? 'accesa' : 'spenta'}` });
   } catch (error) {
     console.error('[API /api/room/toggle Error]:', error.message);

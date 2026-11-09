@@ -464,7 +464,13 @@ class GoogleHomeMcpClient {
 
   async toggleDevice(deviceId, targetState) {
     const resources = await this.getResources();
-    const dev = resources.find(r => r.id === deviceId);
+    let dev = resources.find(r => r.id === deviceId);
+    if (!dev) {
+      dev = resources.find(r => r.displayName.toLowerCase() === String(deviceId).toLowerCase());
+    }
+    if (!dev) {
+      dev = resources.find(r => (r.displayName || '').toLowerCase().includes(String(deviceId).toLowerCase()));
+    }
     if (!dev) throw new Error(`Dispositivo ${deviceId} non trovato.`);
 
     const stateBool = Boolean(targetState);
@@ -515,7 +521,13 @@ class GoogleHomeMcpClient {
 
   async setDeviceBrightness(deviceId, brightnessPercent) {
     const resources = await this.getResources();
-    const dev = resources.find(r => r.id === deviceId);
+    let dev = resources.find(r => r.id === deviceId);
+    if (!dev) {
+      dev = resources.find(r => r.displayName.toLowerCase() === String(deviceId).toLowerCase());
+    }
+    if (!dev) {
+      dev = resources.find(r => (r.displayName || '').toLowerCase().includes(String(deviceId).toLowerCase()));
+    }
     if (!dev) throw new Error(`Dispositivo ${deviceId} non trovato.`);
 
     const pct = Math.max(0, Math.min(100, Math.round(brightnessPercent)));
@@ -553,7 +565,21 @@ class GoogleHomeMcpClient {
 
   async setRoomBrightness(roomName, brightnessPercent) {
     const snapshot = await this.getHomeSnapshot();
-    const room = snapshot.rooms.find(r => r.name.toLowerCase() === roomName.toLowerCase());
+    const clean = String(roomName || '').toLowerCase().trim();
+    const ROOM_ALIASES = {
+      'camera': 'camera da letto',
+      'matrimoniale': 'camera da letto',
+      'letto': 'camera da letto',
+      'sala': 'salone',
+      'soggiorno': 'salone',
+      'living': 'salone'
+    };
+    const targetRoomName = ROOM_ALIASES[clean] || clean;
+
+    let room = snapshot.rooms.find(r => r.name.toLowerCase() === targetRoomName || r.name.toLowerCase() === clean);
+    if (!room) {
+      room = snapshot.rooms.find(r => r.name.toLowerCase().includes(clean) || clean.includes(r.name.toLowerCase()));
+    }
     if (!room) throw new Error(`Stanza "${roomName}" non trovata.`);
 
     const pct = Math.max(0, Math.min(100, Math.round(brightnessPercent)));
@@ -600,7 +626,21 @@ class GoogleHomeMcpClient {
 
   async setRoomPower(roomName, targetState) {
     const snapshot = await this.getHomeSnapshot();
-    const room = snapshot.rooms.find(r => r.name.toLowerCase() === roomName.toLowerCase());
+    const clean = String(roomName || '').toLowerCase().trim();
+    const ROOM_ALIASES = {
+      'camera': 'camera da letto',
+      'matrimoniale': 'camera da letto',
+      'letto': 'camera da letto',
+      'sala': 'salone',
+      'soggiorno': 'salone',
+      'living': 'salone'
+    };
+    const targetRoomName = ROOM_ALIASES[clean] || clean;
+
+    let room = snapshot.rooms.find(r => r.name.toLowerCase() === targetRoomName || r.name.toLowerCase() === clean);
+    if (!room) {
+      room = snapshot.rooms.find(r => r.name.toLowerCase().includes(clean) || clean.includes(r.name.toLowerCase()));
+    }
     if (!room) throw new Error(`Stanza "${roomName}" non trovata.`);
 
     const stateBool = Boolean(targetState);
