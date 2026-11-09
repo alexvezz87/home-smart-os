@@ -448,19 +448,35 @@ window.deviceSheet = deviceSheet;
 async function toggleLightPin(pinNum, turnOn) {
   const pins = window.homeData?.spatial?.pins || [];
   const p = pins.find(item => item.pin === Number(pinNum));
-  const targetName = p?.hueNames?.[0] || p?.name || `Pin #${pinNum}`;
+  if (!p) return;
+
+  // Gestione Lampadari Multi-Bulbo (Philips Hue Chandelier)
+  if (p.category === 'chandelier' && p.chandelierId) {
+    p.isOn = Boolean(turnOn);
+    if (window.floorplan) window.floorplan.render();
+    await setChandelierModeUi(p.chandelierId, turnOn ? 'full' : 'off', 85);
+    return;
+  }
+
+  const targetName = p.deviceId || p.hueNames?.[0] || p.name || `Pin #${pinNum}`;
   try {
-    await fetch(`/api/device/${encodeURIComponent(targetName)}/toggle`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ state: turnOn })
-    });
-    if (p) p.isOn = turnOn;
+    p.isOn = Boolean(turnOn);
     if (window.floorplan) window.floorplan.render();
     if (window.deviceSheet?.currentPin?.pin === Number(pinNum)) {
       window.deviceSheet.open(p);
     }
-    showToast(`${targetName}: ${turnOn ? 'Accesa' : 'Spenta'}`, 'success');
+
+    const res = await fetch(`/api/device/${encodeURIComponent(targetName)}/toggle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetState: Boolean(turnOn), state: Boolean(turnOn) })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(`${p.name || targetName}: ${turnOn ? 'Accesa' : 'Spenta'}`, 'success');
+    } else {
+      showToast(`Errore: ${json.error || 'Impossibile completare il comando'}`, 'error');
+    }
     if (typeof loadDashboard === 'function') loadDashboard();
   } catch (e) {
     showToast('Errore controllo luce: ' + e.message, 'error');
@@ -470,18 +486,30 @@ async function toggleLightPin(pinNum, turnOn) {
 async function setLightBrightnessPin(pinNum, value) {
   const pins = window.homeData?.spatial?.pins || [];
   const p = pins.find(item => item.pin === Number(pinNum));
-  const targetName = p?.hueNames?.[0] || p?.name || `Pin #${pinNum}`;
+  if (!p) return;
+
+  const bri = Number(value);
+
+  // Gestione Lampadari Multi-Bulbo
+  if (p.category === 'chandelier' && p.chandelierId) {
+    p.brightness = bri;
+    p.isOn = bri > 0;
+    if (window.floorplan) window.floorplan.render();
+    await setChandelierModeUi(p.chandelierId, bri > 0 ? 'full' : 'off', bri);
+    return;
+  }
+
+  const targetName = p.deviceId || p.hueNames?.[0] || p.name || `Pin #${pinNum}`;
   try {
+    p.brightness = bri;
+    p.isOn = bri > 0;
+    if (window.floorplan) window.floorplan.render();
+
     await fetch(`/api/device/${encodeURIComponent(targetName)}/brightness`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ brightness: Number(value) })
+      body: JSON.stringify({ brightness: bri })
     });
-    if (p) {
-      p.brightness = Number(value);
-      p.isOn = Number(value) > 0;
-    }
-    if (window.floorplan) window.floorplan.render();
   } catch (e) {
     showToast('Errore luminosità: ' + e.message, 'error');
   }
@@ -490,7 +518,8 @@ async function setLightBrightnessPin(pinNum, value) {
 async function setLightColorTemperature(pinNum, tempK) {
   const pins = window.homeData?.spatial?.pins || [];
   const p = pins.find(item => item.pin === Number(pinNum));
-  const targetName = p?.hueNames?.[0] || p?.name;
+  const targetName = p?.deviceId || p?.hueNames?.[0] || p?.name;
+  if (!targetName) return;
   try {
     await fetch(`/api/device/${encodeURIComponent(targetName)}/color-temp`, {
       method: 'POST',
@@ -525,19 +554,23 @@ async function setChandelierModeUi(chandelierId, mode, brightness = 85) {
 async function togglePlugPin(pinNum, turnOn) {
   const pins = window.homeData?.spatial?.pins || [];
   const p = pins.find(item => item.pin === Number(pinNum));
-  const targetName = p?.merossName || p?.name || `Pin #${pinNum}`;
+  const targetName = p?.deviceId || p?.merossName || p?.name || `Pin #${pinNum}`;
   try {
-    await fetch(`/api/device/${encodeURIComponent(targetName)}/toggle`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ state: turnOn })
-    });
-    if (p) p.isOn = turnOn;
+    if (p) p.isOn = Boolean(turnOn);
     if (window.floorplan) window.floorplan.render();
     if (window.deviceSheet?.currentPin?.pin === Number(pinNum)) {
       window.deviceSheet.open(p);
     }
-    showToast(`${targetName}: ${turnOn ? 'Accesa' : 'Spenta'}`, 'success');
+
+    const res = await fetch(`/api/device/${encodeURIComponent(targetName)}/toggle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetState: Boolean(turnOn), state: Boolean(turnOn) })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(`${p?.name || targetName}: ${turnOn ? 'Accesa' : 'Spenta'}`, 'success');
+    }
     if (typeof loadDashboard === 'function') loadDashboard();
   } catch (e) {
     showToast('Errore presa: ' + e.message, 'error');
@@ -549,7 +582,7 @@ async function roomOff(roomName) {
     await fetch(`/api/room/${encodeURIComponent(roomName)}/toggle`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ state: false })
+      body: JSON.stringify({ targetState: false, state: false })
     });
     showToast(`Stanza ${roomName}: spenti tutti i dispositivi`, 'success');
     window.deviceSheet?.close();
