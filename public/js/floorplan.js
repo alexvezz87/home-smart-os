@@ -144,6 +144,7 @@ class FloorplanEngine {
   constructor() {
     this.selectedPin = 21;
     this.selectedRoom = null; // null = "Tutta la Casa" (nessuna stanza isolata)
+    this.activeLayer = 'all'; // 'all' | 'lights' | 'plugs' | 'valves' | 'cameras' | 'speakers'
     this.bgStyle = 'luxury'; // 'luxury' | 'cad' | 'light'
     this.showProximity = true;
     this.showFurniture = true;
@@ -159,6 +160,21 @@ class FloorplanEngine {
     this.startClient = { x: 0, y: 0 };
     this.touchStartDist = 0;
     this._windowListenersBound = false;
+  }
+
+  setLayer(layer) {
+    this.activeLayer = layer;
+    this.render();
+  }
+
+  isPinInLayer(p, layer) {
+    if (!layer || layer === 'all') return true;
+    if (layer === 'lights') return p.category === 'light' || p.category === 'chandelier';
+    if (layer === 'plugs') return p.category === 'plug' || p.category === 'appliance';
+    if (layer === 'speakers') return p.category === 'speaker' || p.category === 'tv';
+    if (layer === 'cameras') return p.category === 'camera';
+    if (layer === 'valves') return p.category === 'valve' || p.category === 'thermostat' || p.category === 'climate';
+    return true;
   }
 
   setBgStyle(style) {
@@ -597,8 +613,9 @@ class FloorplanEngine {
       }).join('');
     }
 
-    // Glow luci accese
-    const lightGlowsSvg = pins
+    // Glow luci accese (visibili solo nel layer 'all' o 'lights')
+    const showGlows = this.activeLayer === 'all' || this.activeLayer === 'lights';
+    const lightGlowsSvg = showGlows ? pins
       .filter(p => (p.category === 'light' || p.category === 'chandelier') && p.isOn)
       .map(p => {
         const cx = +(p.x * 10).toFixed(1);
@@ -608,7 +625,10 @@ class FloorplanEngine {
         const r = Math.round((p.lightRadius || 14) * 9.2 * (0.55 + 0.45 * ratio) * bulbRatio);
         const gradId = p.pin === 23 || p.pin === 25 ? 'glowPurple' : p.pin === 3 ? 'glowSky' : 'glowWarm';
         return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#${gradId})" opacity="${(0.45 + 0.45 * ratio).toFixed(2)}" pointer-events="none"/>`;
-      }).join('');
+      }).join('') : '';
+
+    // Radar telecamere (visibili solo nel layer 'all' o 'cameras')
+    const showCameras = this.activeLayer === 'all' || this.activeLayer === 'cameras';
 
     // Heatmap Energetica
     let heatmapSvg = '';
@@ -649,6 +669,12 @@ class FloorplanEngine {
         fill = p.powerW > 15 ? '#2563eb' : (p.isOn ? '#1d4ed8' : '#0f172a');
         stroke = isSelected ? '#22d3ee' : (p.powerW > 15 ? '#38bdf8' : '#60a5fa');
         subBadge = `${p.powerW || 0}W`;
+      } else if (p.category === 'valve') {
+        const isHeating = p.isHeating || (Number(p.valvePercent) > 15);
+        fill = isHeating ? '#ea580c' : '#334155';
+        stroke = isSelected ? '#22d3ee' : (isHeating ? '#fdba74' : '#64748b');
+        textCol = '#ffffff';
+        subBadge = `${p.temperature || 20.5}°/${p.setpoint || 20.5}°`;
       } else if (p.category === 'camera') {
         fill = p.privacyMode ? '#475569' : '#d946ef';
         stroke = isSelected ? '#22d3ee' : '#f5d0fe';
@@ -665,13 +691,18 @@ class FloorplanEngine {
 
       const radius = p.category === 'chandelier' ? 20 : 15.5;
       const isPinInSelectedRoom = !hasRoomSelection || p.room === this.selectedRoom;
-      const pinOpacity = isPinInSelectedRoom ? '1' : '0.22';
+      const isPinInActiveLayer = this.isPinInLayer(p, this.activeLayer);
+      const pinOpacity = (isPinInSelectedRoom && isPinInActiveLayer)
+        ? '1'
+        : (!isPinInActiveLayer ? '0.10' : '0.22');
+      const pointerEvents = isPinInActiveLayer ? 'auto' : 'none';
 
       return `
         <g id="spatial-pin-group-${p.pin}"
            data-pin="${p.pin}"
            transform="translate(${cx}, ${cy})"
            opacity="${pinOpacity}"
+           pointer-events="${pointerEvents}"
            class="spatial-pin-item transition-all duration-300 ${isEditMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}"
            onmousedown="${isEditMode ? `window.dragEditor.startDrag(${p.pin}, event)` : ''}"
            ontouchstart="${isEditMode ? `window.dragEditor.startDrag(${p.pin}, event)` : ''}"
@@ -682,71 +713,96 @@ class FloorplanEngine {
           ${isEditMode ? `<circle cx="0" cy="0" r="${radius + 5}" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-dasharray="3 3" opacity="0.9"/>` : ''}
           ${p.category === 'plug' ? `
             <rect x="-18" y="-13" width="36" height="26" rx="6" fill="${fill}" stroke="${stroke}" stroke-width="${isSelected ? 3.5 : 2.2}"/>
+          ` : p.category === 'valve' ? `
+            <rect x="-17" y="-14" width="34" height="28" rx="8" fill="${fill}" stroke="${stroke}" stroke-width="${isSelected ? 3.5 : 2.2}"/>
           ` : `
             <circle cx="0" cy="0" r="${radius}" fill="${fill}" stroke="${stroke}" stroke-width="${isSelected ? 3.5 : 2.2}"/>
           `}
-          <text x="0" y="4.5" text-anchor="middle" fill="${textCol}" font-size="12.5" font-weight="900" font-family="Inter, sans-serif">${p.pin}</text>
+          <text x="0" y="4.5" text-anchor="middle" fill="${textCol}" font-size="${p.category === 'valve' ? '11' : '12.5'}" font-weight="900" font-family="Inter, sans-serif">${p.category === 'valve' ? '♨️' + p.pin : p.pin}</text>
           ${subBadge ? `
             <g transform="translate(0, ${radius + 11})">
-              <rect x="-23" y="-8.5" width="46" height="14" rx="4" fill="rgba(2, 6, 23, 0.92)" stroke="${stroke}" stroke-width="1"/>
-              <text x="0" y="2" text-anchor="middle" fill="#f8fafc" font-size="9" font-weight="bold" font-family="monospace">${subBadge}</text>
+              <rect x="-24" y="-8.5" width="48" height="14" rx="4" fill="rgba(2, 6, 23, 0.92)" stroke="${stroke}" stroke-width="1"/>
+              <text x="0" y="2" text-anchor="middle" fill="#f8fafc" font-size="8.5" font-weight="bold" font-family="monospace">${subBadge}</text>
             </g>
           ` : ''}
         </g>
       `;
     }).join('');
 
-    // Dispositivi filtrati per stanza attiva (o tutta la casa se null)
-    const filteredPins = this.selectedRoom
-      ? pins.filter(p => p.room === this.selectedRoom)
-      : pins;
+    // Definizione dei 6 Layer Domotici
+    const LAYERS = [
+      { id: 'all', label: 'Tutti', icon: 'fa-layer-group' },
+      { id: 'lights', label: 'Luci', icon: 'fa-lightbulb' },
+      { id: 'plugs', label: 'Prese', icon: 'fa-plug' },
+      { id: 'valves', label: 'Termovalvole', icon: 'fa-temperature-arrow-up' },
+      { id: 'cameras', label: 'Camere', icon: 'fa-video' },
+      { id: 'speakers', label: 'Nest & AV', icon: 'fa-volume-high' }
+    ];
+
+    const activeLayerObj = LAYERS.find(l => l.id === this.activeLayer) || LAYERS[0];
+    const activeLayerLabel = activeLayerObj.label;
+
+    // Dispositivi filtrati per stanza attiva e per layer attivo
+    const filteredPins = pins.filter(p => {
+      const matchRoom = !this.selectedRoom || p.room === this.selectedRoom;
+      const matchLayer = this.isPinInLayer(p, this.activeLayer);
+      return matchRoom && matchLayer;
+    });
 
     const roomLabelDisplay = this.selectedRoom || 'Tutta la Casa';
 
-    // HTML Wrapper con Viewport Fissa e Controlli Floating
+    // HTML Wrapper con Layout Desktop a 2 Colonne (Split-Screen)
     container.innerHTML = `
-      <!-- Toolbar rapida superiore della Piantina -->
-      <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
-        <!-- Room Selector Pills: Evidenziazione Stanza (Spotlight) -->
-        <div class="flex items-center gap-1.5 overflow-x-auto pb-1 max-w-full">
-          <button onclick="window.floorplan.selectRoom(null)" class="px-2.5 py-1 rounded-xl text-xs font-semibold ${!this.selectedRoom ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800 text-slate-400 hover:text-white'} transition-all whitespace-nowrap">
-            <i class="fa-solid fa-house-chimney mr-1"></i>Tutta la Casa
-          </button>
-          ${ARCHITECTURAL_ROOMS.filter(r => r.interactive).map(r => `
-            <button onclick="window.floorplan.selectRoom('${r.id}')" class="px-2.5 py-1 rounded-xl text-xs font-semibold ${this.selectedRoom === r.id ? 'bg-indigo-600 text-white shadow-md ring-1 ring-cyan-400' : 'bg-slate-800 text-slate-400 hover:text-white'} transition-all whitespace-nowrap">
-              <i class="fa-solid ${r.icon} mr-1"></i>${r.label.split(' ')[0]}
-            </button>
-          `).join('')}
-        </div>
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        
+        <!-- COLONNA SINISTRA: Toolbar Superiore + Viewport Piantina Desktop Estesa -->
+        <div class="lg:col-span-7 xl:col-span-8 flex flex-col gap-3 min-w-0">
+          
+          <!-- Toolbar Superiore: Selettore Layer a 6 Livelli + Controlli Mappa -->
+          <div class="flex items-center justify-between flex-wrap gap-2.5 bg-slate-900/85 p-2.5 rounded-2xl border border-slate-800 backdrop-blur-md shadow-lg">
+            
+            <!-- Menu Stratificazione a Livelli (Layer Selector) -->
+            <div class="flex items-center gap-1.5 overflow-x-auto pb-0.5 max-w-full">
+              ${LAYERS.map(l => {
+                const isActive = this.activeLayer === l.id;
+                const count = l.id === 'all'
+                  ? pins.length
+                  : pins.filter(p => this.isPinInLayer(p, l.id)).length;
+                return `
+                  <button onclick="window.floorplan.setLayer('${l.id}')"
+                          class="px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap active:scale-95 ${isActive ? 'bg-indigo-600 text-white shadow-md ring-1 ring-cyan-400' : 'bg-slate-800 text-slate-400 hover:text-white'}">
+                    <i class="fa-solid ${l.icon} text-xs"></i>
+                    <span>${l.label}</span>
+                    <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono ${isActive ? 'bg-indigo-900/80 text-cyan-200' : 'bg-slate-900 text-slate-500'}">${count}</span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
 
-        <!-- Floating Controls Toolbar -->
-        <div class="flex items-center gap-1.5 ml-auto">
-          <!-- Heatmap Toggle -->
-          <button onclick="window.floorplan.toggleHeatmap()" class="p-2 rounded-xl text-xs font-semibold border ${this.heatMapActive ? 'bg-amber-500/20 border-amber-500 text-amber-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'} transition-all" title="Attiva/Disattiva Heatmap Energetica">
-            <i class="fa-solid fa-fire-flame-simple"></i>
-          </button>
-          <!-- Mobili Toggle -->
-          <button onclick="window.floorplan.toggleFurniture()" class="p-2 rounded-xl text-xs font-semibold border ${this.showFurniture ? 'bg-indigo-500/20 border-indigo-500 text-indigo-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'} transition-all" title="Mostra/Nascondi Arredi">
-            <i class="fa-solid fa-couch"></i>
-          </button>
-          <!-- Style Toggle (Luxury / CAD / Light) -->
-          <div class="inline-flex rounded-xl bg-slate-800 p-0.5 border border-slate-700">
-            <button onclick="window.floorplan.setBgStyle('luxury')" class="px-2 py-1 rounded-lg text-[10px] font-bold ${this.bgStyle === 'luxury' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}">Dark</button>
-            <button onclick="window.floorplan.setBgStyle('cad')" class="px-2 py-1 rounded-lg text-[10px] font-bold ${this.bgStyle === 'cad' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'}">CAD</button>
-            <button onclick="window.floorplan.setBgStyle('light')" class="px-2 py-1 rounded-lg text-[10px] font-bold ${this.bgStyle === 'light' ? 'bg-slate-200 text-slate-900' : 'text-slate-400 hover:text-white'}">Light</button>
+            <!-- Floating Controls Toolbar Mappa -->
+            <div class="flex items-center gap-1.5 ml-auto">
+              <button onclick="window.floorplan.toggleHeatmap()" class="p-2 rounded-xl text-xs font-semibold border ${this.heatMapActive ? 'bg-amber-500/20 border-amber-500 text-amber-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'} transition-all" title="Attiva/Disattiva Heatmap Energetica">
+                <i class="fa-solid fa-fire-flame-simple"></i>
+              </button>
+              <button onclick="window.floorplan.toggleFurniture()" class="p-2 rounded-xl text-xs font-semibold border ${this.showFurniture ? 'bg-indigo-500/20 border-indigo-500 text-indigo-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'} transition-all" title="Mostra/Nascondi Arredi">
+                <i class="fa-solid fa-couch"></i>
+              </button>
+              <div class="inline-flex rounded-xl bg-slate-800 p-0.5 border border-slate-700">
+                <button onclick="window.floorplan.setBgStyle('luxury')" class="px-2 py-1 rounded-lg text-[10px] font-bold ${this.bgStyle === 'luxury' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}">Dark</button>
+                <button onclick="window.floorplan.setBgStyle('cad')" class="px-2 py-1 rounded-lg text-[10px] font-bold ${this.bgStyle === 'cad' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'}">CAD</button>
+                <button onclick="window.floorplan.setBgStyle('light')" class="px-2 py-1 rounded-lg text-[10px] font-bold ${this.bgStyle === 'light' ? 'bg-slate-200 text-slate-900' : 'text-slate-400 hover:text-white'}">Light</button>
+              </div>
+              <button onclick="window.floorplan.zoomIn()" class="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-all active:scale-95" title="Ingrandisci Piantina">
+                <i class="fa-solid fa-plus text-xs"></i>
+              </button>
+              <button onclick="window.floorplan.zoomOut()" class="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-all active:scale-95" title="Rimpicciolisci Piantina">
+                <i class="fa-solid fa-minus text-xs"></i>
+              </button>
+              <button onclick="window.floorplan.resetZoom()" class="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-all active:scale-95" title="Centra Vista">
+                <i class="fa-solid fa-compress text-xs"></i>
+              </button>
+            </div>
           </div>
-          <!-- Zoom Controls (Manuali) -->
-          <button onclick="window.floorplan.zoomIn()" class="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-all active:scale-95" title="Ingrandisci Piantina">
-            <i class="fa-solid fa-plus text-xs"></i>
-          </button>
-          <button onclick="window.floorplan.zoomOut()" class="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-all active:scale-95" title="Rimpicciolisci Piantina">
-            <i class="fa-solid fa-minus text-xs"></i>
-          </button>
-          <button onclick="window.floorplan.resetZoom()" class="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-all active:scale-95" title="Centra Vista">
-            <i class="fa-solid fa-compress text-xs"></i>
-          </button>
-        </div>
-      </div>
 
       <!-- Viewport Piantina Fissa Vettoriale (Scrolling fluido del browser, pan e zoom dedicati) -->
       <div id="floorplan-touch-viewport" class="relative w-full rounded-3xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl flex items-center justify-center min-h-[640px] md:min-h-[760px] lg:min-h-[860px] xl:min-h-[900px] select-none cursor-default">
@@ -859,36 +915,180 @@ class FloorplanEngine {
           </svg>
         </div>
       </div>
+    </div>
 
-      <!-- Dispositivi della Stanza Selezionata -->
-      <div class="glass-card rounded-2xl p-5 border border-slate-800 space-y-3 mt-4">
+    <!-- COLONNA DESTRA: Hub Dispositivi con Scroll Indipendente -->
+    <div class="lg:col-span-5 xl:col-span-4 flex flex-col gap-3 lg:max-h-[calc(100vh-140px)] lg:overflow-y-auto pr-1">
+      
+      <!-- Selettore Stanze a Pills Orizzontali -->
+      <div class="glass-card rounded-2xl p-3.5 border border-slate-800 shadow-lg space-y-2.5">
+        <div class="flex items-center justify-between text-xs">
+          <span class="font-bold text-slate-300 flex items-center gap-1.5">
+            <i class="fa-solid fa-location-dot text-indigo-400"></i>
+            Filtro Stanza
+          </span>
+          <span class="text-[10px] text-cyan-300 font-mono font-bold">${roomLabelDisplay}</span>
+        </div>
+        <div class="flex items-center gap-1.5 overflow-x-auto pb-1 max-w-full">
+          <button onclick="window.floorplan.selectRoom(null)" class="px-2.5 py-1 rounded-xl text-xs font-semibold ${!this.selectedRoom ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800 text-slate-400 hover:text-white'} transition-all whitespace-nowrap">
+            <i class="fa-solid fa-house-chimney mr-1"></i>Tutta la Casa
+          </button>
+          ${ARCHITECTURAL_ROOMS.filter(r => r.interactive).map(r => `
+            <button onclick="window.floorplan.selectRoom('${r.id}')" class="px-2.5 py-1 rounded-xl text-xs font-semibold ${this.selectedRoom === r.id ? 'bg-indigo-600 text-white shadow-md ring-1 ring-cyan-400' : 'bg-slate-800 text-slate-400 hover:text-white'} transition-all whitespace-nowrap">
+              <i class="fa-solid ${r.icon} mr-1"></i>${r.label.split(' ')[0]}
+            </button>
+          `).join('')}
+        </div>
+      </div>
+
+      <!-- Hub Dispositivi della Stanza Selezionata e Layer Attivo -->
+      <div class="glass-card rounded-2xl p-4 border border-slate-800 space-y-3 shadow-lg">
         <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
           <div class="flex items-center gap-2">
-            <i class="fa-solid fa-layer-group text-indigo-400"></i>
+            <i class="fa-solid fa-sliders text-indigo-400"></i>
             <h3 class="text-xs font-bold text-white flex items-center gap-2">
               <span>Dispositivi: <strong>${roomLabelDisplay}</strong></span>
               <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300">${filteredPins.length}</span>
             </h3>
           </div>
-          <div class="text-[11px] text-slate-400">
-            Tocca una scheda per aprire i controlli o usa l'interruttore rapido
+          <div class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">
+            Layer: <span class="text-cyan-300">${activeLayerLabel}</span>
           </div>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
-          ${filteredPins.map(p => {
+        <div class="space-y-2.5">
+          ${filteredPins.length === 0 ? `
+            <div class="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 text-center space-y-2">
+              <div class="w-10 h-10 rounded-full bg-indigo-500/10 text-indigo-400 flex items-center justify-center mx-auto text-lg">
+                <i class="fa-solid fa-filter"></i>
+              </div>
+              <div class="text-xs font-semibold text-slate-300">Nessun componente per questo filtro</div>
+              <div class="text-[11px] text-slate-400">Nessun dispositivo corrisponde a "<strong>${activeLayerLabel}</strong>" in <strong>${roomLabelDisplay}</strong>.</div>
+              <button onclick="window.floorplan.setLayer('all')" class="mt-2 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition-all">
+                Mostra tutti i componenti
+              </button>
+            </div>
+          ` : filteredPins.map(p => {
             const isLight = p.category === 'light' || p.category === 'chandelier';
             const isPlug = p.category === 'plug';
-            const icon = isLight ? (p.category === 'chandelier' ? 'fa-wand-magic-sparkles text-amber-400' : 'fa-lightbulb text-amber-300') :
-                         isPlug ? 'fa-plug text-sky-400' :
-                         p.category === 'camera' ? 'fa-video text-purple-400' :
-                         p.category === 'speaker' ? 'fa-volume-high text-yellow-400' : 'fa-microchip text-slate-400';
+            const isValve = p.category === 'valve';
+            const isCam = p.category === 'camera';
+
+            // SCHEDA TERMOVALVOLA BOSCH
+            if (isValve) {
+              const isHeating = p.isHeating || p.valvePercent > 15;
+              return `
+                <div class="p-3.5 rounded-xl bg-slate-900/70 border ${isHeating ? 'border-orange-500/40 bg-orange-950/15' : 'border-slate-800'} hover:border-orange-500/60 transition-all cursor-pointer space-y-2 shadow-sm"
+                     onclick="window.floorplan.handlePinClick(${p.pin}, event)">
+                  <div class="flex items-center justify-between gap-2.5">
+                    <div class="flex items-center gap-2.5 overflow-hidden">
+                      <div class="w-8 h-8 rounded-lg ${isHeating ? 'bg-orange-500/20 text-orange-400' : 'bg-slate-800 text-slate-400'} flex items-center justify-center shrink-0">
+                        <i class="fa-solid fa-temperature-arrow-up text-xs"></i>
+                      </div>
+                      <div class="truncate">
+                        <div class="text-xs font-bold text-white truncate flex items-center gap-1.5">
+                          <span class="text-[10px] text-slate-400 font-mono">#${p.pin}</span>
+                          <span class="truncate">${p.name}</span>
+                        </div>
+                        <div class="text-[10px] text-slate-400 truncate">
+                          ${p.room} · <strong class="text-white">${p.temperature || 20.5}°C</strong> rilevati
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Pulsanti Rapidi Regolazione Setpoint -->
+                    <div class="flex items-center gap-1.5 shrink-0" onclick="event.stopPropagation()">
+                      <button onclick="window.adjustValveSetpoint(${p.pin}, -0.5)" class="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-bold text-xs flex items-center justify-center border border-slate-700 transition-all">
+                        <i class="fa-solid fa-minus text-[10px]"></i>
+                      </button>
+                      <span class="font-mono text-xs font-bold text-amber-300 min-w-[42px] text-center">${(p.setpoint || 20.5).toFixed(1)}°</span>
+                      <button onclick="window.adjustValveSetpoint(${p.pin}, 0.5)" class="w-7 h-7 rounded-lg bg-orange-600 hover:bg-orange-500 active:scale-95 text-white font-bold text-xs flex items-center justify-center shadow-sm transition-all">
+                        <i class="fa-solid fa-plus text-[10px]"></i>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-800/80">
+                    <span class="flex items-center gap-1.5">
+                      <i class="fa-solid fa-fire ${isHeating ? 'text-orange-400' : 'text-slate-600'}"></i>
+                      Valvola: <strong class="${isHeating ? 'text-orange-300 font-bold' : 'text-slate-300'}">${p.valvePercent || 0}%</strong>
+                    </span>
+                    <span class="text-emerald-400 font-mono text-[9.5px]">🔋 ${p.batteryPercent || 92}%</span>
+                  </div>
+                </div>
+              `;
+            }
+
+            // SCHEDA LUCE O LAMPADARIO
+            if (isLight) {
+              return `
+                <div class="p-3.5 rounded-xl bg-slate-900/70 border ${p.isOn ? 'border-amber-500/30 bg-amber-950/10' : 'border-slate-800'} hover:border-indigo-500/50 transition-all flex items-center justify-between gap-2.5 cursor-pointer shadow-sm"
+                     onclick="window.floorplan.handlePinClick(${p.pin}, event)">
+                  <div class="flex items-center gap-2.5 overflow-hidden">
+                    <div class="w-8 h-8 rounded-lg ${p.isOn ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-400'} flex items-center justify-center shrink-0">
+                      <i class="fa-solid ${p.category === 'chandelier' ? 'fa-wand-magic-sparkles text-amber-400' : 'fa-lightbulb text-amber-300'} text-xs"></i>
+                    </div>
+                    <div class="truncate">
+                      <div class="text-xs font-bold text-white truncate flex items-center gap-1.5">
+                        <span class="text-[10px] text-slate-400 font-mono">#${p.pin}</span>
+                        <span class="truncate">${p.name}</span>
+                      </div>
+                      <div class="text-[10px] text-slate-400 truncate">
+                        ${p.room} ${p.isOn ? `· <strong class="text-amber-300 font-medium">${p.brightness || 80}%</strong>` : '· Spenta'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button type="button"
+                          onclick="event.stopPropagation(); window.floorplan.quickTogglePin(${p.pin}, event)"
+                          class="px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all shadow-sm shrink-0 active:scale-95 ${p.isOn ? 'bg-amber-500 text-slate-950 hover:bg-amber-400' : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'}">
+                    ${p.isOn ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+              `;
+            }
+
+            // SCHEDA PRESA MEROSS
+            if (isPlug) {
+              const w = Number(p.powerW) || 0;
+              return `
+                <div class="p-3.5 rounded-xl bg-slate-900/70 border ${p.isOn ? 'border-sky-500/30 bg-sky-950/10' : 'border-slate-800'} hover:border-indigo-500/50 transition-all flex items-center justify-between gap-2.5 cursor-pointer shadow-sm"
+                     onclick="window.floorplan.handlePinClick(${p.pin}, event)">
+                  <div class="flex items-center gap-2.5 overflow-hidden">
+                    <div class="w-8 h-8 rounded-lg ${p.isOn ? 'bg-sky-500/20 text-sky-400' : 'bg-slate-800 text-slate-400'} flex items-center justify-center shrink-0">
+                      <i class="fa-solid fa-plug text-xs"></i>
+                    </div>
+                    <div class="truncate">
+                      <div class="text-xs font-bold text-white truncate flex items-center gap-1.5">
+                        <span class="text-[10px] text-slate-400 font-mono">#${p.pin}</span>
+                        <span class="truncate">${p.name}</span>
+                      </div>
+                      <div class="text-[10px] text-slate-400 truncate">
+                        ${p.room} ${w > 0 ? `· <strong class="text-sky-300 font-bold">${w.toFixed(0)}W</strong>` : '· 0W'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button type="button"
+                          onclick="event.stopPropagation(); window.floorplan.quickTogglePin(${p.pin}, event)"
+                          class="px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all shadow-sm shrink-0 active:scale-95 ${p.isOn ? 'bg-sky-500 text-slate-950 hover:bg-sky-400' : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'}">
+                    ${p.isOn ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+              `;
+            }
+
+            // ALTRE SCHEDE (CAMERE, NEST, SENSORI, APPLIANCE)
+            const icon = isCam ? 'fa-video text-purple-400' :
+                         p.category === 'speaker' ? 'fa-volume-high text-yellow-400' :
+                         p.category === 'tv' ? 'fa-tv text-purple-400' :
+                         p.category === 'sensor' ? 'fa-temperature-half text-sky-400' : 'fa-microchip text-slate-400';
 
             return `
-              <div class="p-3 rounded-xl bg-slate-900/70 border ${p.isOn ? 'border-amber-500/30 bg-amber-950/10' : 'border-slate-800'} hover:border-indigo-500/50 transition-all flex items-center justify-between gap-2.5 cursor-pointer"
+              <div class="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 hover:border-indigo-500/50 transition-all flex items-center justify-between gap-2.5 cursor-pointer shadow-sm"
                    onclick="window.floorplan.handlePinClick(${p.pin}, event)">
                 <div class="flex items-center gap-2.5 overflow-hidden">
-                  <div class="w-8 h-8 rounded-lg ${p.isOn ? 'bg-amber-500/20' : 'bg-slate-800'} flex items-center justify-center shrink-0">
+                  <div class="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center shrink-0">
                     <i class="fa-solid ${icon} text-xs"></i>
                   </div>
                   <div class="truncate">
@@ -897,27 +1097,31 @@ class FloorplanEngine {
                       <span class="truncate">${p.name}</span>
                     </div>
                     <div class="text-[10px] text-slate-400 truncate">
-                      ${p.room} ${p.powerW ? `· <strong class="text-amber-300">${p.powerW}W</strong>` : ''} ${p.brightness ? `· ${p.brightness}%` : ''}
+                      ${p.room} ${p.temperature ? `· ${p.temperature}°C` : ''}
                     </div>
                   </div>
                 </div>
 
-                ${isLight || isPlug ? `
-                  <button type="button"
-                          onclick="event.stopPropagation(); window.floorplan.quickTogglePin(${p.pin}, event)"
-                          class="px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all shadow-sm shrink-0 active:scale-95 ${p.isOn ? 'bg-amber-500 text-slate-950 hover:bg-amber-400' : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'}">
-                    ${p.isOn ? 'ON' : 'OFF'}
-                  </button>
-                ` : `
-                  <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400 shrink-0">
-                    ${p.category}
-                  </span>
-                `}
+                <span class="px-2 py-0.5 rounded text-[10px] font-medium ${isCam ? (p.privacyMode ? 'bg-slate-800 text-slate-400' : 'bg-purple-900/40 text-purple-300') : 'bg-slate-800 text-slate-400'} shrink-0">
+                  ${isCam ? (p.privacyMode ? 'PRIVACY' : 'LIVE') : (p.category || 'Dispositivo')}
+                </span>
               </div>
             `;
           }).join('')}
         </div>
+
+        <!-- Footer rapido Spegni Stanza -->
+        ${this.selectedRoom ? `
+          <div class="pt-3 border-t border-slate-800 flex items-center justify-between">
+            <span class="text-[11px] text-slate-400 font-medium">Stanza selezionata: <strong class="text-white">${roomLabelDisplay}</strong></span>
+            <button onclick="window.roomOff('${this.selectedRoom}')" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-950/60 hover:text-rose-300 border border-slate-700/60 text-xs font-semibold text-slate-300 transition-colors">
+              <i class="fa-solid fa-power-off mr-1.5 text-rose-400"></i>Spegni ${roomLabelDisplay}
+            </button>
+          </div>
+        ` : ''}
       </div>
+    </div>
+  </div>
     `;
 
     this.initPanZoomListeners();
