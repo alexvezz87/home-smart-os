@@ -711,7 +711,7 @@ class FloorplanEngine {
           fill = '#0f172a';
           stroke = isSelected ? '#22d3ee' : '#334155';
         }
-        subBadge = `${p.setpoint || p.temperature || 20.5}°`;
+        subBadge = (p.temperature && p.setpoint) ? `${p.temperature}°/${p.setpoint}°` : `${p.setpoint || p.temperature || 20.5}°`;
       } else if (p.category === 'camera') {
         if (p.privacyMode) {
           iconGlyph = '&#xf070;'; // fa-eye-slash
