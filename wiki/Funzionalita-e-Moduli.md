@@ -60,15 +60,35 @@ Per garantire scalabilità, pulizia del codice e massima reattività su Smartpho
 - **Analisi Metano Caldaia Bosch CT200**: Grafici interattivi Chart.js (orari e giornalieri) con calcolo costi basato su tariffa Dolomiti Energia (0.87 €/m³).
 - **Confronto Ricarica EV Volvo EX30 / Wallbox ABB**: Calcolo risparmio economico rispetto ai veicoli termici tradizionali (~72% di risparmio medio).
 
-### C. ⚙️ Amministrazione & Hub (Gestione & Diagnostica)
-- **Modalità "Modifica Piantina" (Drag & Drop Editor)**: Blocco/sblocco protetto per riposizionare i dispositivi sulla planimetria. Trascinando un pin tra le stanze, l'assegnazione spaziale e il grafo di prossimità vengono ricalcolati istantaneamente.
-- **Cassetto "Dispositivi non collocati"**: Elenco dinamico dei dispositivi smart rilevati senza coordinate sulla mappa con collocamento a 1-click.
-- **Persistenza su TiDB Cloud**: Le coordinate percentuali `(x%, y%)` e le stanze vengono salvate sia su file locale `spatial-custom-layout.json` che sul database cloud `db_home_os` (tabella `kv_store`).
-- **Cruscotto Stato Integrazioni**: Diagnostica in tempo reale per Google Home MCP, TiDB, Bosch, Volvo, ABB, Hue LAN, Meross e Tapo.
-- **Notifiche & Sicurezza Impianto Caldaia**: Monitoraggio continuo della pressione circuito riscaldamento (< 1.0 bar allerta critica rubinetto di carico, > 2.5 bar allerta sfiato), monitoraggio batterie delle 9 termovalvole con allerta preventiva sostituzione pile AA, verifica bruciatore/displayCode e allerta comfort per temperature anomale.
-- **Profilo Smart Clima "Cinzia & Francesco" (Comfort Neonato & Risparmio Gas)**: Algoritmo di programmazione oraria modulante per garantire 20-21°C stabili negli ambienti vissuti (Salone 21.0°C di giorno, Camera 20.5°C di notte per il sonno salubre del neonato, Bagno Cinzia 21.8°C orari bagnetto, Cucina 20.8°C pasti) mantenendo in modalità ECO (17.5°C / valvola a riposo 0%) la Cabina armadio e il Bagno secondario Alex, evitando ripartenze a piena potenza della caldaia a condensazione e riducendo il consumo di gas.
-- **Pannello Dedicato Caldaia Bosch EasyControl CT200 & Smart Radiators**: Diagnostica telemetrica in tempo reale (stato bruciatore/fiamma, pressione impianto bar con soglia ottimale 1.0-2.0 bar, temperatura di mandata, sonda esterna e ACS), quadro sinottico delle 9 termovalvole smart (con regolazione immediata `+`/`-` 0.5°C, percentuali di apertura, setpoint, temperature e diagnostica batterie), e procedura di **Autenticazione 1-Click via Browser Capture / Wizard SingleKey ID**.
-- **Registro Eventi & Audit Log**: Consultazione eventi operativi da `activity_logs` con filtri e svuotamento rapido.
+### C. ⚙️ Amministrazione & Hub (Gestione Modulare per Servizi & Diagnostica)
+Riorganizzata con un'architettura **modulare a schede (Tab Switcher)** con persistenza in `localStorage ('admin_active_tab')`. Ciascun servizio dispone di una scheda dedicata minimale ed intuitiva con impostazioni di login, configurazione hardware e telemetria isolata:
+1. 🔥 **Clima & Caldaia (Bosch EasyControl CT200)**:
+   - Diagnostica telemetrica in tempo reale (stato bruciatore/fiamma, pressione circuito riscaldamento in bar con range 1.0-2.0, temperatura mandata, sonda esterna, ACS).
+   - Controllo rapido e telemetria delle 9 termovalvole smart (setpoint, apertura %, temperatura letta, stato batteria AA).
+   - Wizard di autenticazione SingleKey ID con apertura browser 1-click o modale manuale.
+   - Sincronizzazione permanente dei 7 programmi settimanali cloud (`pg1`..`pg7`) per profilo termico ottimizzato neonati "Cinzia & Francesco".
+   - Notifiche & allerte diagnostiche preventive (pressione bassa/alta, anomalie combustione, batterie scariche).
+2. 💡 **Luci & Hue (Philips Hue Bridge LAN)**:
+   - Connessione locale REST Clip v2 su IP fisso `192.168.1.18` con latenza ultra-bassa (< 15ms).
+   - Pulsante di accoppiamento bridge fisico (Link Button pairing).
+   - Gestione lampadari multi-bulbo sincronizzati: *Lampadario Salotto* (3 bulbi) e *Lampadario Camera* (4 bulbi).
+3. ⚡ **Prese & Carichi (Meross Smart Plugs & Energy)**:
+   - Monitoraggio carichi elettrici in tempo reale (Watt, Volt, Ampere) e potenza totale assorbita.
+   - Focus dedicato e isolamento linee **Presa Cucina (Pin #32)**: alimenta esclusivamente l'angolo colazione/snack (tostapane, bollitore, microonde, friggitrice ad aria), escludendo forno e piano a induzione cablati su linee di potenza separate da 16A/25A.
+4. 🚗 **Mobilità EV (Volvo EX30 & Wallbox ABB Terra AC)**:
+   - Telemetria veicolo via Volvo Cars Connected API v2: percentuale batteria (SOC), autonomia stimata in km, blocco/sblocco portiere e preriscaldamento/climatizzazione abitacolo.
+   - Stazione di ricarica ABB Terra AC via ChargerSync Cloud: potenza istantanea erogata, selezione corrente (6-32A) e dynamic load balancing con anti-distacco contatore 3 kW.
+5. 📹 **Sicurezza & Cam (Tapo C210 & go2rtc WebRTC)**:
+   - Streaming video HD WebRTC/MSE a latenza zero tramite go2rtc server (porta 1984).
+   - Telecamere Tapo C210 Salone (`192.168.1.74`) e Camera da letto (`192.168.1.161`): stream RTSP, credenziali ONVIF (porta 2020) e comandi motorizzati PTZ.
+6. 🗺️ **Editor Piantina (Digital Twin Blueprint Editor)**:
+   - Blocco/sblocco interattivo Drag & Drop della mappa planimetrica con ricalcolo immediato dell'assegnazione spaziale alle stanze e grafo di prossimità.
+   - Cassetto dinamico dispositivi non collocati e pulsante di ripristino coordinate di fabbrica.
+   - Sincronizzazione bidirezionale su TiDB Cloud (`kv_store`).
+7. 🛡️ **Sistema, Database TiDB & Audit Log**:
+   - Connessione distribuita TiDB Cloud Serverless (`gateway01.eu-central-1.prod.aws.tidbcloud.com:4000`) con cifratura SSL/TLS.
+   - Gestione credenziali Kiosk PIN tablet (validità 90 giorni) e whitelist Google OAuth2.
+   - Registro eventi operativo (`activity_logs`) con filtri per categoria e svuotamento audit trail.
 
 ### Struttura Modulare (`public/js/`)
 | File | Scopo & Funzionalità |
