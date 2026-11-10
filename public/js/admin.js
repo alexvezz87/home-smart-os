@@ -1010,6 +1010,58 @@ class AdminManager {
           `}
         </div>
 
+        <!-- Modulo Gemini Vision Multimodale (Scene Understanding) -->
+        <div class="p-5 rounded-2xl bg-gradient-to-br from-purple-950/30 to-slate-900 border border-purple-500/30 space-y-4 shadow-sm">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div class="flex items-center gap-2.5">
+              <div class="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-300 flex items-center justify-center text-sm shadow-inner">
+                <i class="fa-solid fa-brain"></i>
+              </div>
+              <div>
+                <span class="text-xs font-bold text-white block">Google Gemini Vision (Scene Understanding)</span>
+                <span class="text-[10px] text-slate-400">Analisi semantica contestuale On-Demand delle telecamere Tapo</span>
+              </div>
+            </div>
+            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/15 text-purple-300 border border-purple-500/30">
+              Gemini 1.5 Flash Multimodal
+            </span>
+          </div>
+
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Abilita l'Assistente AI e il Maxi-Player a interpretare cosa sta succedendo (presenza persone, se il piccolo Francesco riposa tranquillo, illuminazione, posture e anomalie).
+          </p>
+
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+            <input
+              type="password"
+              id="cfg-gemini-key"
+              placeholder="Incolla GEMINI_API_KEY (Google AI Studio)..."
+              class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+            />
+            <button onclick="window.saveGeminiApiKey()" class="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 active:scale-95 text-white font-bold text-xs transition-all shadow-md flex items-center justify-center gap-1.5">
+              <i class="fa-solid fa-key text-[10px]"></i>
+              <span>Salva Chiave</span>
+            </button>
+            <button onclick="window.testGeminiVision('salone')" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 border border-slate-700 text-xs font-semibold transition-all flex items-center justify-center gap-1.5" title="Testa analisi su Salone">
+              <i class="fa-solid fa-wand-magic-sparkles text-amber-300 text-[10px]"></i>
+              <span>Test Salone</span>
+            </button>
+            <button onclick="window.testGeminiVision('letto')" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 border border-slate-700 text-xs font-semibold transition-all flex items-center justify-center gap-1.5" title="Testa analisi su Camera da letto">
+              <i class="fa-solid fa-wand-magic-sparkles text-indigo-300 text-[10px]"></i>
+              <span>Test Camera</span>
+            </button>
+          </div>
+
+          <!-- Box Risultato Test Gemini in Admin -->
+          <div id="admin-gemini-result-box" class="hidden p-3.5 rounded-xl bg-slate-950/80 border border-purple-500/30 text-xs space-y-1.5">
+            <div class="flex items-center justify-between text-[11px] font-bold text-purple-300">
+              <span id="admin-gemini-title">Esito Analisi Gemini</span>
+              <span id="admin-gemini-time" class="text-[10px] text-slate-500 font-mono"></span>
+            </div>
+            <p id="admin-gemini-text" class="text-slate-200 leading-relaxed"></p>
+          </div>
+        </div>
+
       </div>
     `;
   }
@@ -1571,3 +1623,66 @@ class AdminManager {
 }
 
 window.adminManager = new AdminManager();
+
+// ============================================================================
+// Azioni Globali Gemini Vision (Admin)
+// ============================================================================
+window.saveGeminiApiKey = async function() {
+  const input = document.getElementById('cfg-gemini-key');
+  const key = input ? input.value.trim() : '';
+  if (!key) {
+    if (typeof showToast === 'function') showToast('Inserisci una chiave API valida', 'warning');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/vision/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey: key })
+    });
+    const json = await res.json();
+    if (json.success) {
+      if (typeof showToast === 'function') showToast('✅ Chiave GEMINI_API_KEY salvata con successo!', 'success');
+      if (input) input.value = '';
+    } else {
+      throw new Error(json.error || 'Errore salvataggio');
+    }
+  } catch (err) {
+    if (typeof showToast === 'function') showToast('Errore salvataggio: ' + err.message, 'error');
+  }
+};
+
+window.testGeminiVision = async function(camId) {
+  const resultBox = document.getElementById('admin-gemini-result-box');
+  const titleEl = document.getElementById('admin-gemini-title');
+  const timeEl = document.getElementById('admin-gemini-time');
+  const textEl = document.getElementById('admin-gemini-text');
+
+  if (resultBox) resultBox.classList.remove('hidden');
+  if (titleEl) titleEl.textContent = `Analisi Gemini in corso per ${camId === 'salone' ? 'Salone' : 'Camera da letto'}...`;
+  if (textEl) textEl.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-1.5 text-purple-400"></i> Acquisizione fotogramma e analisi multimodale...';
+  if (timeEl) timeEl.textContent = '';
+
+  try {
+    const res = await fetch(`/api/camera/${encodeURIComponent(camId)}/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: 'Descrivi cosa c\'è nella stanza, le persone e l\'illuminazione.' })
+    });
+    const json = await res.json();
+
+    if (!json.success) {
+      if (textEl) textEl.innerHTML = `<span class="text-rose-400"><i class="fa-solid fa-circle-exclamation mr-1"></i> ${json.message || json.error || 'Errore analisi'}</span>`;
+      return;
+    }
+
+    if (titleEl) titleEl.textContent = `Esito Analisi ${json.camera || camId} (${json.model || 'Gemini 1.5 Flash'})`;
+    if (timeEl) timeEl.textContent = new Date(json.timestamp).toLocaleTimeString('it-IT');
+    if (textEl) textEl.textContent = json.analysis;
+    if (typeof showToast === 'function') showToast('✅ Analisi Gemini completata!', 'success');
+
+  } catch (err) {
+    if (textEl) textEl.innerHTML = `<span class="text-rose-400">Errore: ${err.message}</span>`;
+  }
+};

@@ -19,6 +19,7 @@ Il backend di **Home Smart OS** è strutturato in moduli indipendenti all'intern
 | **Philips Hue Local** | `src/hue-local.js` | Controllo diretto del Bridge Philips Hue per 25 luci e stanze senza latenza cloud. |
 | **Google Home MCP** | `src/google-home-mcp.js` | Client JSON-RPC per il server MCP di Google Home con caching e sincronizzazione stato. |
 | **Assistente Naturale** | `src/assistant.js` | Interprete di comandi vocali e testuali in lingua italiana per il controllo rapido della casa. |
+| **Gemini Vision Engine** | `src/gemini-vision.js` | Scene understanding semantico con Google Gemini Multimodal Vision (Gemini 1.5/2.0 Flash) su fotogrammi telecamere. |
 | **Event Logger** | `src/event-logger.js` | Registrazione centralizzata degli eventi operativi, sicurezza ed energia. |
 
 ---
@@ -80,7 +81,8 @@ Riorganizzata con un'architettura **modulare a schede (Tab Switcher)** con persi
    - Stazione di ricarica ABB Terra AC via ChargerSync Cloud: potenza istantanea erogata, selezione corrente (6-32A) e dynamic load balancing con anti-distacco contatore 3 kW.
 5. 📹 **Sicurezza & Cam (Tapo C210 & go2rtc WebRTC)**:
    - Streaming video HD WebRTC/MSE a latenza ultra-bassa (< 0.3s) tramite server go2rtc integrato (porta 1984) e fallback JSMpeg WebSocket.
-   - **Modal Teatro / Maxi-Player (`public/js/camera-theater.js`)**: visualizzazione ad alta definizione a tutto schermo richiamabile con 1-click dalla planimetria, dal drawer laterale o dall'hub Amministrazione.
+   - **Scene Understanding con Gemini Multimodal Vision (`src/gemini-vision.js`)**: Analisi semantica contestuale dell'ambiente (*"Cosa succede in camera?"*, *"Francesco dorme?"*, *"Chi c'è in salone?"*) con prompt specializzato per comprendere postura delle persone, bambini nel lettino, illuminazione e anomalie.
+   - **Modal Teatro / Maxi-Player (`public/js/camera-theater.js`)**: visualizzazione ad alta definizione a tutto schermo richiamabile con 1-click dalla planimetria, dal drawer laterale o dall'hub Amministrazione, comprensivo di tasto rapido *"Analisi AI"* con box descrittivo istantaneo.
    - Overlay HUD trasparente con badge LIVE/REC, orologio dinamico, coordinate Pan/Tilt e toggle Fullscreen nativo.
    - Controlli motorizzati PTZ con D-Pad ONVIF a 5 vie, preset rapidi di puntamento (*Salone / Divano / Ingresso / Letto*), salvataggio inquadratura al volo (*"Salva Posizione"*), modalità Privacy hardware con schermata protetta, scatto Snapshot HD istantaneo con galleria fotografica e ronda automatica ciclica.
    - Telecamere Tapo C200/C210 Salone (`192.168.1.74`) e Camera da letto (`192.168.1.161`): porta ONVIF 2020 e stream RTSP standard `:554/stream1`.
