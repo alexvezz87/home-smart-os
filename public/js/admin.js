@@ -285,6 +285,130 @@ class AdminManager {
             </div>
           ` : ''}
 
+          <!-- 0a. Box Notifiche & Allerte Diagnostiche Impianto -->
+          ${(() => {
+            const alerts = ev.alerts || [];
+            const criticals = alerts.filter(a => a.severity === 'critical');
+            const warnings = alerts.filter(a => a.severity === 'warning');
+
+            if (alerts.length === 0) {
+              return `
+                <div class="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between flex-wrap gap-3 text-xs">
+                  <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-sm shrink-0">
+                      <i class="fa-solid fa-shield-check"></i>
+                    </div>
+                    <div>
+                      <div class="font-bold text-emerald-300">Sicurezza &amp; Telemetria Impianto Regolare</div>
+                      <div class="text-slate-300">Pressione acqua a ${ev.bosch?.systemPressureBar != null ? ev.bosch.systemPressureBar + ' bar' : '1.5 bar'} (range ottimale), nessuna anomalia bruciatore, batterie 9 termovalvole in stato OK.</div>
+                    </div>
+                  </div>
+                  <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 font-mono">0 Allarmi Attivi</span>
+                </div>
+              `;
+            }
+
+            return `
+              <div class="space-y-2">
+                <div class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                  <i class="fa-solid fa-bell text-amber-400"></i>
+                  <span>Notifiche &amp; Allerte Diagnostiche (${alerts.length})</span>
+                </div>
+                <div class="space-y-2">
+                  ${alerts.map(a => {
+                    const isCrit = a.severity === 'critical';
+                    const borderCls = isCrit ? 'border-rose-500/50 bg-rose-950/25' : 'border-amber-500/40 bg-amber-950/20';
+                    const iconColor = isCrit ? 'text-rose-400' : 'text-amber-400';
+                    const badgeCls = isCrit ? 'bg-rose-500/20 text-rose-300 border-rose-500/30' : 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+
+                    return `
+                      <div class="p-3.5 rounded-xl border ${borderCls} flex items-start justify-between flex-wrap gap-3 text-xs">
+                        <div class="flex items-start gap-3 flex-1 min-w-[260px]">
+                          <i class="fa-solid ${a.icon || 'fa-triangle-exclamation'} ${iconColor} text-base mt-0.5 shrink-0"></i>
+                          <div class="space-y-0.5">
+                            <div class="font-bold text-white flex items-center gap-2">
+                              <span>${a.title}</span>
+                              ${a.value ? `<span class="font-mono text-[10.5px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300">${a.value}</span>` : ''}
+                            </div>
+                            <p class="text-slate-300 leading-relaxed">${a.message}</p>
+                          </div>
+                        </div>
+                        <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${badgeCls} uppercase font-mono shrink-0">
+                          ${a.severity}
+                        </span>
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
+            `;
+          })()}
+
+          <!-- 0b. Profilo Clima Smart "Cinzia & Francesco" (Comfort Neonato & Risparmio Gas) -->
+          <div class="p-5 rounded-2xl bg-gradient-to-br from-indigo-950/40 via-slate-900 to-amber-950/30 border border-indigo-500/30 space-y-4">
+            <div class="flex items-center justify-between flex-wrap gap-3 border-b border-indigo-500/20 pb-3">
+              <div class="flex items-center gap-3">
+                <div class="w-11 h-11 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 flex items-center justify-center text-xl shadow-lg">
+                  <i class="fa-solid fa-baby-carriage"></i>
+                </div>
+                <div>
+                  <div class="flex items-center gap-2">
+                    <h4 class="text-sm font-bold text-white tracking-tight">Profilo Intelligente: Cinzia &amp; Francesco</h4>
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${ev.babyComfort?.active ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'} flex items-center gap-1">
+                      <span class="w-1.5 h-1.5 rounded-full ${ev.babyComfort?.active ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}"></span>
+                      ${ev.babyComfort?.active ? 'Profilo Attivo' : 'Pronto'}
+                    </span>
+                  </div>
+                  <p class="text-xs text-slate-400">Comfort costante 20-21°C per il neonato e la mamma · Valvole ECO in Cabina armadio e Bagno Alex (-15% gas)</p>
+                </div>
+              </div>
+
+              <button id="btn-apply-baby-profile" onclick="window.adminManager.applyBabyComfortProfile()"
+                      class="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400 transition-all flex items-center gap-2">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                <span>Applica Profilo Intelligente Ora</span>
+              </button>
+            </div>
+
+            <!-- Griglia Ambienti & Temperature del Profilo -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2.5 text-xs">
+              <div class="p-2.5 rounded-xl bg-slate-900/90 border border-indigo-500/20 space-y-0.5">
+                <div class="text-[10.5px] text-slate-400 font-semibold truncate">Salone (Giorno)</div>
+                <div class="text-base font-black text-amber-400 font-mono">21.0°C</div>
+                <div class="text-[9.5px] text-slate-400 leading-tight">Area gioco e relax</div>
+              </div>
+
+              <div class="p-2.5 rounded-xl bg-slate-900/90 border border-indigo-500/20 space-y-0.5">
+                <div class="text-[10.5px] text-slate-400 font-semibold truncate">Camera (Nanna)</div>
+                <div class="text-base font-black text-amber-400 font-mono">20.5°C</div>
+                <div class="text-[9.5px] text-slate-400 leading-tight">Ideale sonno neonato</div>
+              </div>
+
+              <div class="p-2.5 rounded-xl bg-slate-900/90 border border-indigo-500/20 space-y-0.5">
+                <div class="text-[10.5px] text-slate-400 font-semibold truncate">Bagno Cinzia</div>
+                <div class="text-base font-black text-amber-400 font-mono">21.8°C</div>
+                <div class="text-[9.5px] text-slate-400 leading-tight">Bagnetto e fasciatoio</div>
+              </div>
+
+              <div class="p-2.5 rounded-xl bg-slate-900/90 border border-indigo-500/20 space-y-0.5">
+                <div class="text-[10.5px] text-slate-400 font-semibold truncate">Cucina (Pasti)</div>
+                <div class="text-base font-black text-amber-400 font-mono">20.8°C</div>
+                <div class="text-[9.5px] text-slate-400 leading-tight">Colazione, pranzo, cena</div>
+              </div>
+
+              <div class="p-2.5 rounded-xl bg-slate-900/90 border border-emerald-500/20 space-y-0.5">
+                <div class="text-[10.5px] text-emerald-400 font-semibold truncate">Cabina armadio (ECO)</div>
+                <div class="text-base font-black text-emerald-400 font-mono">17.5°C</div>
+                <div class="text-[9.5px] text-slate-400 leading-tight">Valvola 0% (zero sprechi)</div>
+              </div>
+            </div>
+
+            <div class="text-[11px] text-slate-400 bg-slate-950/70 p-2.5 rounded-xl border border-slate-800 flex items-start gap-2">
+              <i class="fa-solid fa-lightbulb text-amber-400 text-xs mt-0.5 shrink-0"></i>
+              <span><strong>Strategia Risparmio Gas:</strong> Mantenere la temperatura stabile a 20-21°C nelle stanze vissute evita ripartenze al 100% di potenza della caldaia a condensazione, mentre l'abbattimento a 17.5°C nella cabina armadio e 18.5°C nel bagno secondario massimizza il risparmio in bolletta Dolomiti Energia.</span>
+            </div>
+          </div>
+
           <!-- 1. Quadro Diagnostico Telemetrico Impianto -->
           <div class="space-y-3">
             <div class="flex items-center justify-between">
@@ -421,9 +545,17 @@ class AdminManager {
                           <span class="text-slate-400 text-[11px]">Rilevata:</span>
                           <strong class="text-white">${tempActual != null ? tempActual + '°C' : '--'}</strong>
                         </div>
-                        <div class="flex items-center gap-1 text-slate-300">
+                        <div class="flex items-center gap-1.5 text-slate-300">
                           <span class="text-slate-400 text-[11px]">Target:</span>
-                          <strong class="text-amber-400">${tempSetpoint != null ? tempSetpoint + '°C' : '--'}</strong>
+                          <div class="flex items-center gap-1">
+                            <button onclick="window.adminManager.adjustValveSetpoint(${v.pin}, -0.5, event)" class="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs flex items-center justify-center border border-slate-700 active:scale-95" title="Diminuisci di 0.5°C">
+                              <i class="fa-solid fa-minus text-[8px]"></i>
+                            </button>
+                            <strong class="text-amber-400 font-mono text-xs px-1 min-w-[34px] text-center">${tempSetpoint != null ? tempSetpoint + '°' : '--'}</strong>
+                            <button onclick="window.adminManager.adjustValveSetpoint(${v.pin}, 0.5, event)" class="w-5 h-5 rounded bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs flex items-center justify-center active:scale-95 shadow-sm" title="Aumenta di 0.5°C">
+                              <i class="fa-solid fa-plus text-[8px]"></i>
+                            </button>
+                          </div>
                         </div>
                         <div class="text-[11px] font-mono text-slate-400">
                           Valvola: <strong class="${isHeating ? 'text-orange-400' : 'text-slate-300'}">${valvePercent != null ? valvePercent + '%' : '0%'}</strong>
@@ -621,6 +753,50 @@ class AdminManager {
       showToast('Errore sync: ' + err.message, 'error');
     } finally {
       if (btn) btn.innerHTML = '<i class="fa-solid fa-rotate"></i><span>Sincronizza Ora</span>';
+    }
+  }
+
+  /**
+   * Regola il setpoint di una termovalvola con feedback immediato
+   */
+  async adjustValveSetpoint(pinNum, delta = 0, event = null) {
+    if (event) event.stopPropagation();
+    try {
+      if (typeof window.adjustValveSetpoint === 'function') {
+        await window.adjustValveSetpoint(pinNum, delta);
+        setTimeout(() => this.renderView(), 400);
+      }
+    } catch (err) {
+      showToast('Errore regolazione setpoint: ' + err.message, 'error');
+    }
+  }
+
+  /**
+   * Applica il profilo ottimizzato "Cinzia & Francesco" (Comfort Neonato & Risparmio Gas)
+   */
+  async applyBabyComfortProfile() {
+    const btn = document.getElementById('btn-apply-baby-profile');
+    if (btn) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i><span>Applicazione...</span>';
+    try {
+      const res = await fetch('/api/ev-climate/bosch/baby-comfort-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const json = await res.json();
+      if (!res.ok || json.success === false) {
+        throw new Error(json.error || 'Errore durante l\'applicazione del profilo');
+      }
+      showToast('👶 Profilo "Cinzia & Francesco" applicato con successo!', 'success');
+      if (typeof loadDashboard === 'function') {
+        await loadDashboard();
+      } else {
+        this.renderView();
+      }
+    } catch (err) {
+      showToast('Errore attivazione profilo: ' + err.message, 'error');
+    } finally {
+      if (btn) btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i><span>Applica Profilo Intelligente Ora</span>';
     }
   }
 

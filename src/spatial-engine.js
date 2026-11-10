@@ -458,6 +458,8 @@ class SpatialEngine {
         category: 'plug',
         vendor: 'Meross Smart Plug',
         merossName: 'Presa cucina',
+        appliancesSummary: 'Angolo snack & colazione (tostapane, bollitore, microonde, friggitrice ad aria)',
+        appliancesList: ['Tostapane', 'Bollitore elettrico', 'Forno a microonde', 'Friggitrice ad aria'],
         x: 71.6,
         y: 70.4,
         nearbyPins: [29, 31, 30]
@@ -472,7 +474,7 @@ class SpatialEngine {
         category: 'valve',
         vendor: 'Bosch Radiator Thermostat',
         boschName: 'Salone',
-        zoneId: 'zn_salone',
+        zoneId: 'zn10',
         x: 30.0,
         y: 79.2,
         nearbyPins: [26, 21, 20]
@@ -485,7 +487,7 @@ class SpatialEngine {
         category: 'valve',
         vendor: 'Bosch Radiator Thermostat',
         boschName: 'Cucina',
-        zoneId: 'zn_cucina',
+        zoneId: 'zn9',
         x: 73.2,
         y: 64.0,
         nearbyPins: [31, 32, 29]
@@ -498,7 +500,7 @@ class SpatialEngine {
         category: 'valve',
         vendor: 'Bosch Radiator Thermostat',
         boschName: 'Camera da letto',
-        zoneId: 'zn_camera',
+        zoneId: 'zn7',
         x: 26.2,
         y: 19.4,
         nearbyPins: [4, 6, 1]
@@ -511,7 +513,7 @@ class SpatialEngine {
         category: 'valve',
         vendor: 'Bosch Radiator Thermostat',
         boschName: 'Cameretta',
-        zoneId: 'zn_cameretta',
+        zoneId: 'zn3',
         x: 68.4,
         y: 22.0,
         nearbyPins: [10, 11, 12]
@@ -524,7 +526,7 @@ class SpatialEngine {
         category: 'valve',
         vendor: 'Bosch Radiator Thermostat',
         boschName: 'Bagno Alex',
-        zoneId: 'zn_bagno_alex',
+        zoneId: 'zn6',
         x: 26.2,
         y: 34.4,
         nearbyPins: [7, 8]
@@ -537,7 +539,7 @@ class SpatialEngine {
         category: 'valve',
         vendor: 'Bosch Radiator Thermostat',
         boschName: 'Bagno Cinzia',
-        zoneId: 'zn_bagno_cinzia',
+        zoneId: 'zn4',
         x: 78.2,
         y: 44.0,
         nearbyPins: [17]
@@ -550,7 +552,7 @@ class SpatialEngine {
         category: 'valve',
         vendor: 'Bosch Radiator Thermostat',
         boschName: 'Cabina armadio',
-        zoneId: 'zn_cabina_armadio',
+        zoneId: 'zn5',
         x: 68.0,
         y: 53.0,
         nearbyPins: [15]
@@ -563,7 +565,7 @@ class SpatialEngine {
         category: 'valve',
         vendor: 'Bosch Radiator Thermostat',
         boschName: 'Ingresso',
-        zoneId: 'zn_ingresso',
+        zoneId: 'zn8',
         x: 44.0,
         y: 49.0,
         nearbyPins: [16, 14]
@@ -576,7 +578,7 @@ class SpatialEngine {
         category: 'valve',
         vendor: 'Bosch Radiator Thermostat',
         boschName: 'Corridoio 2',
-        zoneId: 'zn_corridoio_2',
+        zoneId: 'zn2',
         x: 44.0,
         y: 32.0,
         nearbyPins: [14, 13]

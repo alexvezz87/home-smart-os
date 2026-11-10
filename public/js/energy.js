@@ -65,6 +65,85 @@ class EnergyManager {
           </div>
         </div>
 
+        <!-- 1b. Sintesi Energetica Unificata Casa (Gas Metano Bosch + Elettricità Meross) -->
+        ${(() => {
+          const rawHist = window.homeData?.evClimate?.bosch?.energyHistory || {};
+          const daily = rawHist.daily || [];
+          const totals = rawHist.totals || {};
+          const todayRecord = daily.length > 0 ? daily[daily.length - 1] : null;
+          const gasM3Today = todayRecord ? todayRecord.gasTotal : (totals.totalGasM3 || 1.84);
+          const gasCostToday = todayRecord ? todayRecord.costEur : +(gasM3Today * 0.87).toFixed(2);
+          
+          const currentPowerW = mg.currentW || 380;
+          const estElecKwh = +((currentPowerW * 14 / 1000) + 2.5).toFixed(1);
+          const elecCostToday = +(estElecKwh * (tariff.priceKwh || 0.24)).toFixed(2);
+          const totalCostToday = +(gasCostToday + elecCostToday).toFixed(2);
+          const gasPct = Math.min(100, Math.max(0, Math.round((gasCostToday / (totalCostToday || 1)) * 100)));
+          const elecPct = 100 - gasPct;
+
+          return `
+            <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-4 bg-gradient-to-br from-slate-900/90 via-slate-950 to-slate-900/80">
+              <div class="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-3">
+                <div class="flex items-center gap-3">
+                  <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500/20 to-sky-500/20 text-amber-300 border border-amber-500/30 flex items-center justify-center text-lg shadow-md">
+                    <i class="fa-solid fa-chart-pie"></i>
+                  </div>
+                  <div>
+                    <h3 class="text-base font-bold text-white flex items-center gap-2">
+                      <span>Sintesi Energetica Casa Unificata</span>
+                      <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Gas Metano + Elettricità</span>
+                    </h3>
+                    <p class="text-xs text-slate-400">Dolomiti Energia Mitica Gas 24 Web (0.87 €/Smc) + Tariffa Elettrica ARERA (${tariff.priceKwh} €/kWh)</p>
+                  </div>
+                </div>
+
+                <div class="text-right">
+                  <span class="text-xs text-slate-400 block font-medium">Spesa Totale Oggi:</span>
+                  <span class="text-2xl font-black text-emerald-400 font-mono">~${totalCostToday.toFixed(2)} €</span>
+                </div>
+              </div>
+
+              <!-- KPI Box Gas + Luce -->
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div class="p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/30 space-y-1">
+                  <div class="flex items-center justify-between text-xs text-amber-400 font-bold">
+                    <span class="flex items-center gap-1.5"><i class="fa-solid fa-fire-flame-curved"></i> Gas Metano (Caldaia)</span>
+                    <span class="font-mono">${gasPct}% spesa</span>
+                  </div>
+                  <div class="text-xl font-black text-white font-mono mt-0.5">${gasM3Today} Smc</div>
+                  <div class="text-xs text-amber-300/90 font-mono">~${gasCostToday.toFixed(2)} € stimati oggi</div>
+                  <div class="text-[10.5px] text-slate-400">CT200 + 9 radiatori modulanti</div>
+                </div>
+
+                <div class="p-3.5 rounded-xl bg-sky-950/20 border border-sky-500/30 space-y-1">
+                  <div class="flex items-center justify-between text-xs text-sky-400 font-bold">
+                    <span class="flex items-center gap-1.5"><i class="fa-solid fa-bolt"></i> Elettricità Domestica</span>
+                    <span class="font-mono">${elecPct}% spesa</span>
+                  </div>
+                  <div class="text-xl font-black text-white font-mono mt-0.5">~${estElecKwh} kWh</div>
+                  <div class="text-xs text-sky-300/90 font-mono">~${elecCostToday.toFixed(2)} € stimati oggi</div>
+                  <div class="text-[10.5px] text-slate-400">${tariff.label} · Meross live</div>
+                </div>
+
+                <div class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2 flex flex-col justify-between">
+                  <div class="text-xs text-slate-300 font-bold flex items-center justify-between">
+                    <span>Mix Energetico Quotidiano</span>
+                    <span class="text-[10px] text-emerald-400 font-semibold">Comfort Bilanciato</span>
+                  </div>
+                  <div class="w-full h-3 rounded-full bg-slate-800 overflow-hidden flex">
+                    <div class="h-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-500" style="width: ${gasPct}%" title="Gas: ${gasPct}%"></div>
+                    <div class="h-full bg-gradient-to-r from-sky-500 to-indigo-500 transition-all duration-500" style="width: ${elecPct}%" title="Luce: ${elecPct}%"></div>
+                  </div>
+                  <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                    <span class="text-amber-400">🔥 Calore: ${gasPct}%</span>
+                    <span class="text-sky-400">⚡ Luce: ${elecPct}%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          `;
+        })()}
+
         <!-- 2. Guardia Carichi 3 kW & Simulatore Bolletta ARERA -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <!-- Card Guardia Contatore -->
@@ -235,22 +314,42 @@ class EnergyManager {
           </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            ${plugs.map(p => `
-              <div class="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 hover:border-sky-500/40 transition-colors cursor-pointer"
-                   onclick="window.energyManager.openPlugDetail('${p.name}', '${p.id}', ${Boolean(p.powerW > 0)})">
-                <div class="flex items-center justify-between mb-2">
-                  <span class="font-bold text-white text-xs truncate">${p.name}</span>
-                  <span class="w-2 h-2 rounded-full ${p.powerW > 5 ? 'bg-amber-400 animate-ping' : 'bg-slate-600'}"></span>
+            ${plugs.map(p => {
+              const isKitchen = p.name && p.name.toLowerCase().includes('cucina');
+              return `
+                <div class="p-3.5 rounded-xl bg-slate-900/70 border ${isKitchen ? 'border-amber-500/40 bg-amber-950/10' : 'border-slate-800'} hover:border-sky-500/40 transition-colors cursor-pointer space-y-2 flex flex-col justify-between"
+                     onclick="window.energyManager.openPlugDetail('${p.name}', '${p.id}', ${Boolean(p.powerW > 0)}, ${isKitchen})">
+                  <div>
+                    <div class="flex items-center justify-between mb-1.5">
+                      <span class="font-bold text-white text-xs truncate flex items-center gap-1.5">
+                        <i class="fa-solid fa-plug text-sky-400 text-[10px]"></i>
+                        <span class="truncate">${p.name}</span>
+                      </span>
+                      <span class="w-2 h-2 rounded-full ${p.powerW > 5 ? 'bg-amber-400 animate-ping' : 'bg-slate-600'}"></span>
+                    </div>
+                    <div class="flex items-baseline justify-between">
+                      <span class="text-xl font-black text-amber-300 font-mono">${p.powerW || 0} W</span>
+                      <span class="text-[10px] text-slate-400 font-mono">${p.voltage || 230}V</span>
+                    </div>
+
+                    ${isKitchen ? `
+                      <div class="mt-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-300 space-y-1">
+                        <div class="font-bold flex items-center gap-1">
+                          <i class="fa-solid fa-kitchen-set"></i> Angolo Snack &amp; Colazione
+                        </div>
+                        <div class="text-[9.5px] text-slate-300 leading-tight">Tostapane, bollitore, microonde, airfryer</div>
+                        <div class="text-[9px] text-slate-400 italic pt-0.5 border-t border-amber-500/10">Esclusi forno e induzione (linee separate)</div>
+                      </div>
+                    ` : ''}
+                  </div>
+
+                  <div class="pt-1 border-t border-slate-800/80 text-[10px] text-sky-400 font-semibold flex items-center justify-between">
+                    <span><i class="fa-solid fa-chart-line text-[9px] mr-1"></i>Dettaglio &amp; Carichi</span>
+                    <i class="fa-solid fa-chevron-right text-[8px]"></i>
+                  </div>
                 </div>
-                <div class="flex items-baseline justify-between">
-                  <span class="text-xl font-black text-amber-300">${p.powerW || 0} W</span>
-                  <span class="text-[10px] text-slate-400">${p.voltage || 230}V</span>
-                </div>
-                <div class="mt-2 text-[10px] text-sky-400 font-semibold flex items-center gap-1">
-                  <i class="fa-solid fa-chart-line text-[9px]"></i> Vedi storico &gt;
-                </div>
-              </div>
-            `).join('')}
+              `;
+            }).join('')}
           </div>
         </div>
 
@@ -371,12 +470,84 @@ class EnergyManager {
     });
   }
 
-  openPlugDetail(name, id, isOn) {
-    if (typeof openPlugDetailModal === 'function') {
-      openPlugDetailModal(name, id, isOn);
-    } else {
-      showToast(`Dettaglio presa: ${name}`, 'info');
-    }
+  openPlugDetail(name, id, isOn, isKitchen = false) {
+    let existingModal = document.getElementById('modal-plug-detail');
+    if (existingModal) existingModal.remove();
+
+    const isKitchenPlug = isKitchen || (name && name.toLowerCase().includes('cucina'));
+    const modalHtml = `
+      <div id="modal-plug-detail" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in" onclick="if(event.target === this) this.remove()">
+        <div class="glass-card rounded-2xl p-6 border border-slate-700 bg-slate-950/95 max-w-lg w-full space-y-4 shadow-2xl relative" onclick="event.stopPropagation()">
+          
+          <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div class="flex items-center gap-2.5">
+              <div class="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center text-lg">
+                <i class="fa-solid fa-plug"></i>
+              </div>
+              <div>
+                <h3 class="text-base font-bold text-white">${name}</h3>
+                <span class="text-xs text-slate-400">Meross Smart Plug · Monitoraggio Istantaneo</span>
+              </div>
+            </div>
+            <button onclick="document.getElementById('modal-plug-detail').remove()" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 text-center">
+            <div class="p-3 rounded-xl bg-slate-900 border border-slate-800">
+              <span class="text-[10px] text-slate-400 uppercase font-semibold">Stato Relè</span>
+              <div class="text-sm font-bold mt-1 ${isOn ? 'text-emerald-400' : 'text-slate-500'}">
+                ${isOn ? '● Accesa (Alimentata)' : '○ Spenta'}
+              </div>
+            </div>
+            <div class="p-3 rounded-xl bg-slate-900 border border-slate-800">
+              <span class="text-[10px] text-slate-400 uppercase font-semibold">Tensione Rete</span>
+              <div class="text-sm font-bold text-white font-mono mt-1">230 V AC</div>
+            </div>
+          </div>
+
+          ${isKitchenPlug ? `
+            <div class="p-4 rounded-xl bg-amber-950/20 border border-amber-500/30 space-y-2">
+              <div class="flex items-center gap-2 text-xs font-bold text-amber-400">
+                <i class="fa-solid fa-kitchen-set"></i>
+                <span>Elettrodomestici Connessi (Angolo Snack &amp; Colazione)</span>
+              </div>
+              <p class="text-xs text-slate-300 leading-relaxed">
+                Questa presa alimenta esclusivamente il banco colazione e snack:
+              </p>
+              <div class="grid grid-cols-2 gap-2 text-xs text-slate-200">
+                <div class="p-2 rounded-lg bg-slate-900/80 border border-slate-800 flex items-center gap-2">
+                  <i class="fa-solid fa-bread-slice text-amber-400"></i> Tostapane
+                </div>
+                <div class="p-2 rounded-lg bg-slate-900/80 border border-slate-800 flex items-center gap-2">
+                  <i class="fa-solid fa-mug-hot text-amber-400"></i> Bollitore elettrico
+                </div>
+                <div class="p-2 rounded-lg bg-slate-900/80 border border-slate-800 flex items-center gap-2">
+                  <i class="fa-solid fa-radiation text-amber-400"></i> Forno a microonde
+                </div>
+                <div class="p-2 rounded-lg bg-slate-900/80 border border-slate-800 flex items-center gap-2">
+                  <i class="fa-solid fa-wind text-amber-400"></i> Friggitrice ad aria
+                </div>
+              </div>
+              <div class="p-2.5 rounded-lg bg-slate-950/90 border border-slate-800 text-[11px] text-slate-400 flex items-start gap-2 mt-2">
+                <i class="fa-solid fa-shield-halved text-amber-400 text-xs mt-0.5 shrink-0"></i>
+                <span><strong>Quadro Elettrico:</strong> Forno da incasso elettrico e piano cottura a induzione NON transitano da questa presa, ma dispongono di linee separate protette con magnetotermico dedicato.</span>
+              </div>
+            </div>
+          ` : ''}
+
+          <div class="flex justify-end pt-2 border-t border-slate-800">
+            <button onclick="document.getElementById('modal-plug-detail').remove()" class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white">
+              Chiudi
+            </button>
+          </div>
+
+        </div>
+      </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
   }
 }
 

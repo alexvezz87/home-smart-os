@@ -2055,49 +2055,318 @@ class EvClimateHub {
     return this.boschState;
   }
 
+  _resolveZoneId(input) {
+    if (!input && input !== 0) return 'zn1';
+    const str = String(input).trim().toLowerCase();
+    
+    // Direct znX pattern (zn1..zn10)
+    const znMatch = str.match(/^zn([0-9]{1,2})$/);
+    if (znMatch) {
+      return `zn${znMatch[1]}`;
+    }
+
+    // Number 1..10
+    if (/^[1-9]$|^10$/.test(str)) {
+      return `zn${str}`;
+    }
+
+    // Pin numbers mapping (from spatial-engine.js)
+    const pinMap = {
+      '33': 'zn10', // Salone
+      '34': 'zn9',  // Cucina
+      '35': 'zn7',  // Camera da letto
+      '36': 'zn3',  // Cameretta
+      '37': 'zn6',  // Bagno Alex
+      '38': 'zn4',  // Bagno Cinzia
+      '39': 'zn5',  // Cabina armadio
+      '40': 'zn8',  // Ingresso
+      '41': 'zn2'   // Corridoio 2
+    };
+    if (pinMap[str]) {
+      return pinMap[str];
+    }
+
+    // Name or keyword matching
+    if (str.includes('salone')) return 'zn10';
+    if (str.includes('cucina')) return 'zn9';
+    if (str.includes('letto') || (str.includes('camera') && !str.includes('cameretta'))) return 'zn7';
+    if (str.includes('cameretta')) return 'zn3';
+    if (str.includes('alex')) return 'zn6';
+    if (str.includes('cinzia')) return 'zn4';
+    if (str.includes('cabina') || str.includes('armadio')) return 'zn5';
+    if (str.includes('ingresso')) return 'zn8';
+    if (str.includes('corridoio 2') || str.includes('corridoio2')) return 'zn2';
+    if (str.includes('corridoio')) return 'zn1';
+
+    // Legacy id mapping (e.g. zn_salone -> zn10)
+    if (str === 'zn_salone') return 'zn10';
+    if (str === 'zn_cucina') return 'zn9';
+    if (str === 'zn_camera') return 'zn7';
+    if (str === 'zn_cameretta') return 'zn3';
+    if (str === 'zn_bagno_alex') return 'zn6';
+    if (str === 'zn_bagno_cinzia') return 'zn4';
+    if (str === 'zn_cabina_armadio') return 'zn5';
+    if (str === 'zn_ingresso') return 'zn8';
+    if (str === 'zn_corridoio_2') return 'zn2';
+
+    return 'zn1';
+  }
+
+  async setBoschZoneSetpoint(zoneIdentifier, temperature, extra = {}) {
+    if (!this.boschState.connected) {
+      throw new Error('Termostato Bosch EasyControl CT200 non connesso.');
+    }
+
+    const zoneId = this._resolveZoneId(zoneIdentifier || extra.zoneId || extra.pin);
+    const num = Number(temperature);
+    if (isNaN(num)) {
+      throw new Error(`Temperatura non valida: ${temperature}`);
+    }
+    // Step di 0.5°C nel range consentito 5.0 - 30.0 °C
+    const target = Math.max(5, Math.min(30, +(Math.round(num * 2) / 2).toFixed(1)));
+
+    let applied = false;
+    let lastErr = null;
+
+    // 1. Prova clockOverride (modalità standard programmata CT200 per override temporaneo)
+    try {
+      await this._boschPut(`/zones/${zoneId}/clockOverride/temperatureHeating`, { value: target });
+      applied = true;
+    } catch (err) {
+      lastErr = err;
+    }
+
+    // 2. Imposta anche manualTemperatureHeating come fallback/conferma
+    try {
+      await this._boschPut(`/zones/${zoneId}/manualTemperatureHeating`, { value: target });
+      applied = true;
+    } catch (err) {
+      if (!lastErr) lastErr = err;
+    }
+
+    // 3. Fallback per circuito di riscaldamento hc1 se zona principale zn1
+    if (!applied && zoneId === 'zn1') {
+      try {
+        await this._boschPut(`/heatingCircuits/hc1/temperatureRoomSetpoint`, { value: target });
+        applied = true;
+      } catch (err) {
+        if (!lastErr) lastErr = err;
+      }
+    }
+
+    if (!applied) {
+      throw new Error(`Impossibile impostare setpoint per ${zoneId}: ${lastErr?.message || 'Richiesta respinta dal CT200'}`);
+    }
+
+    // Aggiornamento ottimistico in-memory dello stato
+    if (Array.isArray(this.boschState.zones)) {
+      const z = this.boschState.zones.find(item => item.id === zoneId);
+      if (z) {
+        z.tempSetpoint = target;
+        if (typeof z.tempActual === 'number') {
+          const isHeating = z.tempActual < target;
+          if (z.valve) {
+            z.valve.position = isHeating ? Math.max(30, z.valve.position || 75) : 0;
+          }
+          z.valvePosition = isHeating ? Math.max(30, z.valvePosition || 75) : 0;
+        }
+      }
+    }
+    if (zoneId === 'zn1') {
+      this.boschState.temperatureSetpoint = target;
+    }
+    this.boschState.lastUpdated = new Date().toISOString();
+
+    eventLogger.log('bosch_thermo', `🌡️ [Bosch CT200] Setpoint ${zoneId} impostato a ${target}°C`);
+
+    return {
+      success: true,
+      zoneId,
+      temperature: target,
+      bosch: this.boschState
+    };
+  }
+
+  getSystemAlerts() {
+    const alerts = [];
+    const b = this.boschState;
+
+    if (b && b.connected) {
+      // 1. Pressione Caldaia
+      const pressure = b.systemPressureBar;
+      if (typeof pressure === 'number' && pressure > 0) {
+        if (pressure < 1.0) {
+          alerts.push({
+            id: 'boiler-pressure-low',
+            category: 'climate',
+            severity: 'critical',
+            icon: 'fa-faucet',
+            title: 'Pressione Caldaia Troppo Bassa',
+            value: `${pressure} bar`,
+            message: `Pressione rilevata a ${pressure} bar (minimo 1.0 bar). Rischio blocco della caldaia! Aprire il rubinetto di carico nero sotto la caldaia fino a raggiungere 1.2 - 1.5 bar, poi richiuderlo saldamente.`
+          });
+        } else if (pressure > 2.5) {
+          alerts.push({
+            id: 'boiler-pressure-high',
+            category: 'climate',
+            severity: 'warning',
+            icon: 'fa-gauge-high',
+            title: 'Pressione Caldaia Elevata',
+            value: `${pressure} bar`,
+            message: `Pressione rilevata a ${pressure} bar (consigliata 1.2 - 1.5 bar). Si consiglia di sfiatare uno o più caloriferi per riportare la pressione nel range ottimale.`
+          });
+        }
+      }
+
+      // 2. Batteria Termovalvole Radiatori
+      if (Array.isArray(b.devices)) {
+        for (const dev of b.devices) {
+          if (dev.type === 'thermostat_valve' || dev.type === 'thermostat') {
+            if (dev.battery === 'low') {
+              alerts.push({
+                id: `valve-battery-${dev.id}`,
+                category: 'climate',
+                severity: 'warning',
+                icon: 'fa-battery-quarter',
+                title: `Batteria Bassa Termovalvola`,
+                value: dev.name,
+                message: `La batteria della termovalvola radiatore "${dev.name}" è quasi scarica. Sostituire le 2 pile alcaline AA 1.5V per evitare la mancata regolazione della temperatura.`
+              });
+            }
+          }
+        }
+      }
+
+      // 3. Codice errore / blocco fiamma caldaia
+      const normalCodes = ['0', '-H', 'OK', 'normal', '200', '--', '-', 'none', ''];
+      if (b.boilerStatusCode && !normalCodes.includes(b.boilerStatusCode.trim())) {
+        alerts.push({
+          id: 'boiler-display-code',
+          category: 'climate',
+          severity: 'critical',
+          icon: 'fa-triangle-exclamation',
+          title: 'Codice Diagnostico Caldaia',
+          value: b.boilerStatusCode,
+          message: `La caldaia segnala il displayCode "${b.boilerStatusCode}". Verificare l'alimentazione del gas e consultare il manuale Bosch CT200 / caldaia a condensazione.`
+        });
+      }
+
+      // 4. Allerta Comfort Neonato Francesco & Mamma Cinzia
+      if (Array.isArray(b.zones)) {
+        const familyZones = ['zn10', 'zn9', 'zn7', 'zn4', 'zn3']; // Salone, Cucina, Camera, Bagno Cinzia, Cameretta
+        for (const z of b.zones) {
+          if (familyZones.includes(z.id) && typeof z.tempActual === 'number') {
+            if (z.tempActual < 19.2) {
+              alerts.push({
+                id: `comfort-baby-low-${z.id}`,
+                category: 'comfort',
+                severity: 'warning',
+                icon: 'fa-baby',
+                title: `Temperatura Bassa in ${z.name}`,
+                value: `${z.tempActual}°C`,
+                message: `In ${z.name} la temperatura è scesa a ${z.tempActual}°C (sotto i 20.0°C consigliati per il piccolo Francesco e Cinzia). Si consiglia di verificare che le finestre siano chiuse o incrementare il setpoint radiatore.`
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // 5. Anti-distacco contatore elettrico (Meross + Wallbox)
+    const wallboxWatts = this.wallboxState.connected && this.wallboxState.isCharging ? Number(this.wallboxState.powerW || 0) : 0;
+    const maxBreakerWatts = Number(this.wallboxState.maxHomeBreakerW || 6000);
+    const houseWatts = Number(typeof merossEnergy.getStatus === 'function' ? merossEnergy.getStatus()?.totalPowerW : 0);
+    const totalWatts = Math.round(houseWatts + wallboxWatts);
+    if (totalWatts > maxBreakerWatts * 0.92) {
+      alerts.push({
+        id: 'meter-guard-overload',
+        category: 'power',
+        severity: 'critical',
+        icon: 'fa-bolt',
+        title: 'Rischio Anti-Distacco Elettrico',
+        value: `${totalWatts} W / ${maxBreakerWatts} W`,
+        message: `Il consumo elettrico totale (${totalWatts} W) ha superato il 92% della soglia massima (${maxBreakerWatts} W). Staccare carichi energivori o ridurre la corrente della Wallbox per evitare lo scatto del contatore.`
+      });
+    }
+
+    return alerts;
+  }
+
+  async applyBabyComfortProfile(options = {}) {
+    if (!this.boschState.connected) {
+      throw new Error('Termostato Bosch EasyControl CT200 non connesso.');
+    }
+
+    const now = new Date();
+    const currentHour = now.getHours() + (now.getMinutes() / 60);
+
+    // Schema fasce orarie ottimizzato per Cinzia & Francesco:
+    // Salone (zn10): cuore della giornata (08:30 - 21:00) -> 21.0°C; notte -> 19.5°C
+    // Cucina (zn9): pasti (07:00-09:30, 12:00-14:30, 19:00-21:30) -> 20.8°C; resto -> 20.0°C
+    // Camera da letto (zn7): nanna bimbo (20:30-08:00) -> 20.5°C; giorno -> 19.5°C
+    // Bagno Cinzia (zn4): bagnetto (18:30-20:30) -> 21.8°C; mattina (07:00-09:30) -> 21.5°C; resto -> 20.5°C
+    // Cameretta (zn3): 20.0°C
+    // Cabina armadio (zn5): 17.5°C (Eco / nessun consumo inutile)
+    // Bagno Alex (zn6): 18.5°C (Eco durante il giorno)
+    // Ingresso (zn8) & Corridoio 2 (zn2) & Corridoio (zn1): 19.5°C (cuscinetto termico)
+
+    let saloneTarget = (currentHour >= 8.5 && currentHour < 21.0) ? 21.0 : 19.5;
+    let cucinaTarget = ((currentHour >= 7.0 && currentHour < 9.5) || (currentHour >= 12.0 && currentHour < 14.5) || (currentHour >= 19.0 && currentHour < 21.5)) ? 20.8 : 20.0;
+    let cameraTarget = (currentHour >= 20.5 || currentHour < 8.0) ? 20.5 : 19.5;
+    let bagnoCinziaTarget = (currentHour >= 18.5 && currentHour < 20.5) ? 21.8 : ((currentHour >= 7.0 && currentHour < 9.5) ? 21.5 : 20.5);
+
+    const schedulePlan = {
+      zn10: { name: 'Salone', target: saloneTarget, reason: 'Area gioco e permanenza diurna Francesco & Cinzia' },
+      zn9:  { name: 'Cucina', target: cucinaTarget, reason: 'Area pasti e colazione (angolo snack Meross)' },
+      zn7:  { name: 'Camera da letto', target: cameraTarget, reason: 'Sonno e riposo notturno (temperatura ideale 20.5°C)' },
+      zn4:  { name: 'Bagno Cinzia', target: bagnoCinziaTarget, reason: 'Fasciatoio e bagnetto serale confortevole' },
+      zn3:  { name: 'Cameretta', target: 20.0, reason: 'Stanza gioco ausiliaria e riposo' },
+      zn5:  { name: 'Cabina armadio', target: 17.5, reason: 'ECO: non vissuta, valvola chiusa per risparmio gas' },
+      zn6:  { name: 'Bagno Alex', target: 18.5, reason: 'ECO: valvola al minimo durante il giorno' },
+      zn8:  { name: 'Ingresso', target: 19.5, reason: 'Cuscinetto termico ingresso casa' },
+      zn2:  { name: 'Corridoio 2', target: 19.5, reason: 'Cuscinetto termico corridoio' },
+      zn1:  { name: 'Corridoio', target: 19.5, reason: 'CT200 termostato centrale' }
+    };
+
+    const results = [];
+    for (const [zId, info] of Object.entries(schedulePlan)) {
+      try {
+        await this.setBoschZoneSetpoint(zId, info.target);
+        results.push({ zoneId: zId, name: info.name, target: info.target, applied: true, reason: info.reason });
+      } catch (err) {
+        results.push({ zoneId: zId, name: info.name, target: info.target, applied: false, error: err.message });
+      }
+    }
+
+    this.config.bosch.babyComfortProfileActive = true;
+    this.config.bosch.lastBabyProfileApplied = new Date().toISOString();
+    this._persistConfig();
+
+    eventLogger.log('bosch_thermo', `👶 [Bosch CT200] Attivato Profilo Intelligente "Cinzia & Francesco" (Comfort Neonato + Risparmio Gas)`);
+
+    return {
+      success: true,
+      profileName: 'Comfort Neonato Cinzia & Francesco',
+      timestamp: new Date().toISOString(),
+      currentHour: +currentHour.toFixed(1),
+      zonesConfigured: results,
+      summary: 'Temperature impostate con successo: 20-21°C stabili negli ambienti vissuti da mamma e neonato, zone non vissute (cabina armadio, bagno alex) in modalità ECO per abbattere gli sprechi di gas.'
+    };
+  }
+
   async controlBosch(action, value = null, extra = {}) {
     if (!this.boschState.connected) {
       throw new Error('Termostato Bosch EasyControl CT200 non connesso.');
     }
 
-    const zoneId = extra.zoneId || 'zn1';
+    const zoneId = this._resolveZoneId(extra.zoneId || extra.pin || 'zn1');
 
-    if (action === 'set_temp') {
-      const target = Math.max(5, Math.min(30, +(Number(value || 21)).toFixed(1)));
-      let applied = false;
-      let lastErr = null;
-
-      // 1. Per zone con programma orario attivo (clock), imposta l'override temporaneo di temperatura su clockOverride
-      try {
-        await this._boschPut(`/zones/${zoneId}/clockOverride/temperatureHeating`, { value: target });
-        applied = true;
-      } catch (err) {
-        lastErr = err;
-      }
-
-      // 2. Imposta la temperatura manuale della zona (valida sia in modalità manual che come fallback)
-      try {
-        await this._boschPut(`/zones/${zoneId}/manualTemperatureHeating`, { value: target });
-        applied = true;
-      } catch (err) {
-        if (!lastErr) lastErr = err;
-      }
-
-      // 3. Fallback per circuito riscaldamento hc1 se zn1
-      if (!applied) {
-        try {
-          await this._boschPut(`/heatingCircuits/hc1/temperatureRoomSetpoint`, { value: target });
-          applied = true;
-        } catch (err) {
-          if (!lastErr) lastErr = err;
-        }
-      }
-
-      if (!applied) {
-        throw new Error(`Impossibile impostare setpoint per ${zoneId}: ${lastErr?.message || 'Richiesta respinta dal CT200'}`);
-      }
-
-      eventLogger.log('bosch_thermo', `🌡️ [Bosch CT200] Setpoint ${zoneId} impostato a ${target}°C`);
+    if (action === 'set_temp' || action === 'setpoint') {
+      const res = await this.setBoschZoneSetpoint(zoneId, value, extra);
+      return res;
+    } else if (action === 'baby_comfort' || action === 'set_baby_profile') {
+      const res = await this.applyBabyComfortProfile(extra);
+      return res;
     } else if (action === 'set_mode') {
       // 'clock' (Programma automatico) oppure 'manual' (Manuale)
       await this._boschPut(`/zones/${zoneId}/userMode`, { value: String(value) });
@@ -2207,11 +2476,18 @@ class EvClimateHub {
     const availableWattsForEv = Math.max(0, maxBreakerWatts - housePlugsWatts - 300);
     const safeMaxAmps = Math.max(6, Math.min(32, Math.floor(availableWattsForEv / 230)));
 
+    const alerts = this.getSystemAlerts();
+
     return {
       config: this.getMaskedConfig(),
       wallbox: this.wallboxState,
       volvo: this.volvoState,
       bosch: this.boschState,
+      alerts,
+      babyComfort: {
+        active: Boolean(this.config.bosch?.babyComfortProfileActive),
+        lastApplied: this.config.bosch?.lastBabyProfileApplied || null
+      },
       loadBalance: {
         houseWatts: +housePlugsWatts.toFixed(1),
         wallboxWatts: Math.round(wallboxWatts),

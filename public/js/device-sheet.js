@@ -475,6 +475,10 @@ class DeviceSheetManager {
     const powerW = p.powerW || 0;
     const voltageV = p.voltageV || 230;
 
+    const isKitchenPlug = p.pin === 32 || (p.merossName && p.merossName.toLowerCase().includes('cucina'));
+    const appliancesSummary = p.appliancesSummary || (isKitchenPlug ? 'Angolo snack & colazione (tostapane, bollitore, microonde, friggitrice ad aria)' : null);
+    const appliancesList = p.appliancesList || (isKitchenPlug ? ['Tostapane', 'Bollitore elettrico', 'Forno a microonde', 'Friggitrice ad aria'] : []);
+
     return `
       <!-- Interruttore & Potenza -->
       <div class="p-4 rounded-2xl bg-gradient-to-br from-amber-950/40 to-slate-900 border border-amber-500/30 flex items-center justify-between">
@@ -487,6 +491,24 @@ class DeviceSheetManager {
           ${p.isOn ? 'Spegni' : 'Accendi'}
         </button>
       </div>
+
+      ${appliancesSummary ? `
+        <!-- Dettaglio Elettrodomestici Collegati -->
+        <div class="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2">
+          <div class="flex items-center gap-2 text-xs font-bold text-amber-400">
+            <i class="fa-solid fa-kitchen-set"></i>
+            <span>Dispositivi Connessi a Questa Presa</span>
+          </div>
+          <p class="text-xs text-slate-300 leading-relaxed">${appliancesSummary}</p>
+          <div class="flex flex-wrap gap-1.5 pt-1">
+            ${appliancesList.map(a => `<span class="px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-300 border border-amber-500/20 text-[10px] font-medium">${a}</span>`).join('')}
+          </div>
+          <div class="p-2 rounded-xl bg-slate-950/80 border border-slate-800/80 text-[10.5px] text-slate-400 flex items-start gap-1.5 mt-1">
+            <i class="fa-solid fa-circle-info text-amber-400/80 text-xs mt-0.5 shrink-0"></i>
+            <span><strong>Nota linea elettrica:</strong> Forno da incasso e piano a induzione sono esclusi da questa presa e alimentati da linee dedicate separate nel quadro.</span>
+          </div>
+        </div>
+      ` : ''}
     `;
   }
 
@@ -796,11 +818,14 @@ async function adjustValveSetpoint(pinNum, delta = 0, directValue = null) {
       window.deviceSheet.open(p);
     }
 
-    await fetch('/api/ev-climate/bosch', {
+    const res = await fetch('/api/ev-climate/bosch/setpoint', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'setpoint', value: target, zoneId: p.zoneId })
+      body: JSON.stringify({ zoneId: p.zoneId, pin: p.pin, temperature: target })
     });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Errore salvataggio setpoint');
+
     showToast(`${p.name}: setpoint impostato a ${target}°C`, 'success');
   } catch (e) {
     showToast('Errore termovalvola: ' + e.message, 'error');

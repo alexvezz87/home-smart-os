@@ -489,11 +489,49 @@ app.get('/callback', async (req, res) => {
 
 app.post('/api/ev-climate/bosch', async (req, res) => {
   try {
-    const { action, value, zoneId } = req.body;
-    const result = await evClimateHub.controlBosch(action, value, { zoneId });
+    const { action, value, zoneId, pin } = req.body;
+    const result = await evClimateHub.controlBosch(action, value, { zoneId, pin });
     res.json(result);
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/bosch/setpoint', async (req, res) => {
+  try {
+    const { zoneId, temperature, pin, mode } = req.body || {};
+    const result = await evClimateHub.setBoschZoneSetpoint(zoneId, temperature, { pin, mode });
+    const snapshot = await mcp.getHomeSnapshot().catch(() => null);
+    res.json({
+      success: true,
+      ...result,
+      data: evClimateHub.getUnifiedStatus(snapshot)
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/bosch/baby-comfort-profile', async (req, res) => {
+  try {
+    const result = await evClimateHub.applyBabyComfortProfile(req.body || {});
+    const snapshot = await mcp.getHomeSnapshot().catch(() => null);
+    res.json({
+      success: true,
+      ...result,
+      data: evClimateHub.getUnifiedStatus(snapshot)
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/ev-climate/alerts', (req, res) => {
+  try {
+    const alerts = evClimateHub.getSystemAlerts();
+    res.json({ success: true, alerts });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
