@@ -7,10 +7,13 @@
  * - Gestione sessioni e sicurezza PIN Kiosk
  */
 
+const BOSCH_DEFAULT_OAUTH_URL = 'https://singlekey-id.com/auth/connect/authorize?redirect_uri=com.bosch.tt.dashtt.pointt%3A%2F%2Fapp%2Flogin&client_id=762162C0-FA2D-4540-AE66-6489F189FADC&response_type=code&prompt=login&state=_yUmSV3AjUTXfn6DSZQZ-g&nonce=5iiIvx5_9goDrYwxxUEorQ&scope=openid%20email%20profile%20offline_access%20pointt.gateway.claiming%20pointt.gateway.removal%20pointt.gateway.list%20pointt.gateway.users%20pointt.gateway.resource.dashapp%20pointt.castt.flow.token-exchange%20bacon&code_challenge=tRRnezyg6FCI4Lgso5WkSVUh68W0n6g9pflEmXLNWGA&code_challenge_method=S256&style_id=tt_bsch&suppressed_prompt=login';
+
 class AdminManager {
   constructor() {
     this.historyCategory = 'all';
     this.isCapturingBosch = false;
+    this.currentBoschOAuthUrl = BOSCH_DEFAULT_OAUTH_URL;
   }
 
   async renderView() {
@@ -631,102 +634,131 @@ class AdminManager {
   }
 
   /**
+   * Copia l'URL di autenticazione Bosch SingleKey ID negli appunti
+   */
+  copyBoschOAuthUrl() {
+    const input = document.getElementById('bosch-oauth-url-input');
+    const url = (input && input.value) || this.currentBoschOAuthUrl || BOSCH_DEFAULT_OAUTH_URL;
+    if (!url) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url)
+        .then(() => showToast('Link di login Bosch copiato negli appunti!', 'success'))
+        .catch(() => {
+          if (input) { input.select(); document.execCommand('copy'); showToast('Link copiato!', 'success'); }
+        });
+    } else if (input) {
+      input.select();
+      document.execCommand('copy');
+      showToast('Link copiato negli appunti!', 'success');
+    }
+  }
+
+  /**
    * Apre la finestra modale per l'accesso guidato con apertura diretta link SingleKey ID e inserimento codice
    */
   async openBoschManualAuthModal() {
+    let oauthUrl = BOSCH_DEFAULT_OAUTH_URL;
     try {
       const res = await fetch('/api/ev-climate/bosch/oauth-url');
-      const json = await res.json();
-      const oauthUrl = json.url || '';
-
-      let modal = document.getElementById('bosch-manual-modal');
-      if (!modal) {
-        modal = document.createElement('div');
-        modal.id = 'bosch-manual-modal';
-        document.body.appendChild(modal);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.url) oauthUrl = json.url;
       }
-      modal.className = 'fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto';
-      modal.innerHTML = `
-        <div class="glass-card max-w-xl w-full rounded-2xl p-6 border border-slate-800 space-y-5 shadow-2xl relative my-auto">
-          <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div class="flex items-center gap-2.5">
-              <div class="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center text-lg">
-                <i class="fa-solid fa-key"></i>
-              </div>
-              <div>
-                <h3 class="text-base font-bold text-white">Connessione Caldaia Bosch EasyControl</h3>
-                <p class="text-[11px] text-slate-400">Autenticazione Cloud PointT con SingleKey ID</p>
-              </div>
-            </div>
-            <button onclick="document.getElementById('bosch-manual-modal').remove()" class="text-slate-400 hover:text-white p-1 text-sm rounded-lg hover:bg-slate-800">
-              <i class="fa-solid fa-xmark text-base"></i>
-            </button>
-          </div>
+    } catch (e) {
+      console.warn('Uso URL predefinito Bosch SingleKey ID:', e);
+    }
+    this.currentBoschOAuthUrl = oauthUrl;
 
-          <!-- Passaggio 1 -->
-          <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
-            <div class="flex items-center gap-2">
-              <span class="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 font-bold text-xs flex items-center justify-center shrink-0">1</span>
-              <h4 class="text-xs font-bold text-white uppercase tracking-wider">Apri la pagina di login ufficiale Bosch</h4>
+    let modal = document.getElementById('bosch-manual-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'bosch-manual-modal';
+      document.body.appendChild(modal);
+    }
+    modal.className = 'fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto';
+    modal.innerHTML = `
+      <div class="glass-card max-w-xl w-full rounded-2xl p-6 border border-slate-800 space-y-5 shadow-2xl relative my-auto">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div class="flex items-center gap-2.5">
+            <div class="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center text-lg">
+              <i class="fa-solid fa-key"></i>
             </div>
-            <p class="text-xs text-slate-300 leading-relaxed pl-8">
-              Clicca sul pulsante arancione qui sotto per aprire la schermata di login sul sito ufficiale Bosch nel tuo browser normale ed effettua l'accesso con la tua email e password di EasyControl:
-            </p>
-            <div class="flex items-center gap-2.5 pl-8 pt-1 flex-wrap">
-              <button onclick="window.open('${oauthUrl}', '_blank')" class="px-4 py-2.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-600/20 flex items-center gap-2 active:scale-95">
+            <div>
+              <h3 class="text-base font-bold text-white">Connessione Caldaia Bosch EasyControl</h3>
+              <p class="text-[11px] text-slate-400">Autenticazione Cloud PointT con SingleKey ID</p>
+            </div>
+          </div>
+          <button onclick="document.getElementById('bosch-manual-modal').remove()" class="text-slate-400 hover:text-white p-1 text-sm rounded-lg hover:bg-slate-800">
+            <i class="fa-solid fa-xmark text-base"></i>
+          </button>
+        </div>
+
+        <!-- Passaggio 1 -->
+        <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
+          <div class="flex items-center gap-2">
+            <span class="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 font-bold text-xs flex items-center justify-center shrink-0">1</span>
+            <h4 class="text-xs font-bold text-white uppercase tracking-wider">Apri la pagina di login ufficiale Bosch</h4>
+          </div>
+          <p class="text-xs text-slate-300 leading-relaxed pl-8">
+            Clicca sul pulsante arancione qui sotto per aprire la schermata di login sul sito ufficiale Bosch nel tuo browser ed effettua l'accesso con la tua email e password di EasyControl:
+          </p>
+          <div class="pl-8 space-y-2.5">
+            <div class="flex items-center gap-2.5 flex-wrap">
+              <a href="${oauthUrl}" target="_blank" rel="noopener noreferrer" class="px-4 py-2.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-600/20 flex items-center gap-2 active:scale-95 no-underline cursor-pointer">
                 <i class="fa-solid fa-arrow-up-right-from-square"></i>
                 <span>1. Clicca qui per aprire la pagina di login Bosch</span>
-              </button>
-              <button onclick="navigator.clipboard.writeText('${oauthUrl}').then(() => showToast('Link di login copiato negli appunti!', 'success'))" class="px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1.5 active:scale-95">
+              </a>
+              <button onclick="window.adminManager.copyBoschOAuthUrl()" class="px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1.5 active:scale-95">
                 <i class="fa-solid fa-copy"></i> Copia Link
               </button>
             </div>
-          </div>
-
-          <!-- Passaggio 2 -->
-          <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
-            <div class="flex items-center gap-2">
-              <span class="w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-400 font-bold text-xs flex items-center justify-center shrink-0">2</span>
-              <h4 class="text-xs font-bold text-white uppercase tracking-wider">Copia l'indirizzo finale dalla barra del browser</h4>
+            <div>
+              <input id="bosch-oauth-url-input" type="text" readonly value="${oauthUrl}" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-[11px] text-amber-300 font-mono select-all focus:outline-none focus:border-amber-500/60" onclick="this.select()" />
             </div>
-            <div class="text-xs text-slate-300 leading-relaxed pl-8 space-y-2">
-              <p>
-                Al termine del login, la pagina proverà a tornare all'applicazione mobile aprendo un indirizzo che inizia con:
-              </p>
-              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono text-amber-400 break-all select-all">
-                com.bosch.tt.dashtt.pointt://app/login?code=...
-              </div>
-              <p class="text-slate-400 text-[11px]">
-                💡 <em>Nota:</em> Sul computer il browser potrebbe dire <em>"Impossibile aprire questa pagina"</em> perché non è un sito web: è del tutto normale! Copia semplicemente l'intero indirizzo presente nella barra in alto del browser e incollalo qui sotto.
-              </p>
-            </div>
-          </div>
-
-          <!-- Passaggio 3 -->
-          <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
-            <div class="flex items-center gap-2">
-              <span class="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-xs flex items-center justify-center shrink-0">3</span>
-              <h4 class="text-xs font-bold text-white uppercase tracking-wider">Incolla l'indirizzo per connettere la caldaia</h4>
-            </div>
-            <div class="pl-8 space-y-2">
-              <textarea id="bosch-callback-input" rows="3" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-500 font-mono focus:border-amber-500 focus:outline-none" placeholder="Incolla qui l'URL (es: com.bosch.tt.dashtt.pointt://app/login?code=...)"></textarea>
-            </div>
-          </div>
-
-          <div class="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
-            <button onclick="document.getElementById('bosch-manual-modal').remove()" class="px-4 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300">
-              Annulla
-            </button>
-            <button id="btn-submit-bosch-callback" onclick="window.adminManager.submitBoschManualCallback()" class="px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 flex items-center gap-2 active:scale-95">
-              <i class="fa-solid fa-check"></i>
-              <span>2. Verifica &amp; Connetti Caldaia</span>
-            </button>
           </div>
         </div>
-      `;
-    } catch (err) {
-      showToast('Errore recupero URL login: ' + err.message, 'error');
-    }
+
+        <!-- Passaggio 2 -->
+        <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
+          <div class="flex items-center gap-2">
+            <span class="w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-400 font-bold text-xs flex items-center justify-center shrink-0">2</span>
+            <h4 class="text-xs font-bold text-white uppercase tracking-wider">Copia l'indirizzo finale dalla barra del browser</h4>
+          </div>
+          <div class="text-xs text-slate-300 leading-relaxed pl-8 space-y-2">
+            <p>
+              Al termine del login, la pagina proverà a tornare all'applicazione mobile aprendo un indirizzo che inizia con:
+            </p>
+            <div class="p-2 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono text-amber-400 break-all select-all">
+              com.bosch.tt.dashtt.pointt://app/login?code=...
+            </div>
+            <p class="text-slate-400 text-[11px]">
+              💡 <em>Nota:</em> Sul computer il browser potrebbe dire <em>"Impossibile aprire questa pagina"</em> perché non è un sito web: è del tutto normale! Copia semplicemente l'intero indirizzo presente nella barra in alto del browser e incollalo qui sotto.
+            </p>
+          </div>
+        </div>
+
+        <!-- Passaggio 3 -->
+        <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
+          <div class="flex items-center gap-2">
+            <span class="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-xs flex items-center justify-center shrink-0">3</span>
+            <h4 class="text-xs font-bold text-white uppercase tracking-wider">Incolla l'indirizzo per connettere la caldaia</h4>
+          </div>
+          <div class="pl-8 space-y-2">
+            <textarea id="bosch-callback-input" rows="3" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-500 font-mono focus:border-amber-500 focus:outline-none" placeholder="Incolla qui l'URL (es: com.bosch.tt.dashtt.pointt://app/login?code=...)"></textarea>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+          <button onclick="document.getElementById('bosch-manual-modal').remove()" class="px-4 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300">
+            Annulla
+          </button>
+          <button id="btn-submit-bosch-callback" onclick="window.adminManager.submitBoschManualCallback()" class="px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 flex items-center gap-2 active:scale-95">
+            <i class="fa-solid fa-check"></i>
+            <span>2. Verifica &amp; Connetti Caldaia</span>
+          </button>
+        </div>
+      </div>
+    `;
   }
 
   /**

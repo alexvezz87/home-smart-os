@@ -11,6 +11,14 @@ const cookieParser = require('cookie-parser');
 const db = require('./src/db');
 const auth = require('./src/auth');
 
+// Protezione globale contro eccezioni o rejection non gestite in driver terzi o websocket
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ [Process uncaughtException]:', err.message, err.stack);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('⚠️ [Process unhandledRejection]:', reason);
+});
+
 // Riferimenti ai moduli di dominio (caricati ordinatamente dopo l'idratazione da TiDB Cloud)
 let mcp = null;
 let processAssistantCommand = null;
@@ -148,6 +156,17 @@ app.get('/api/auth/google/callback', async (req, res) => {
 app.post('/api/auth/logout', (req, res) => {
   auth.clearSessionCookie(res);
   res.json({ success: true, message: 'Logout effettuato con successo' });
+});
+
+// Endpoint pubblici di generazione link OAuth2 esterni (non espongono segreti)
+app.get('/api/ev-climate/bosch/oauth-url', (req, res) => {
+  try {
+    const hub = evClimateHub || require('./src/ev-climate-hub');
+    const url = hub.getBoschOAuthUrl();
+    res.json({ success: true, url });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
 });
 
 // Protezione obbligatoria per tutte le altre API (/api/*)
@@ -488,15 +507,6 @@ app.post('/api/ev-climate/bosch/raw', async (req, res) => {
     const { endpoint, method, payload } = req.body || {};
     const result = await evClimateHub.queryBoschRawEndpoint(endpoint, method, payload);
     res.json(result);
-  } catch (error) {
-    res.status(400).json({ success: false, error: error.message });
-  }
-});
-
-app.get('/api/ev-climate/bosch/oauth-url', (req, res) => {
-  try {
-    const url = evClimateHub.getBoschOAuthUrl();
-    res.json({ success: true, url });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
   }
