@@ -1148,6 +1148,7 @@ class EvClimateHub {
     const chromeCandidates = [
       'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
       'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
       'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
     ];
     const chromePath = chromeCandidates.find(p => fs.existsSync(p));
@@ -1738,12 +1739,25 @@ class EvClimateHub {
         let b = {};
         try {
           b = await this._boschPointtBulk(bulkPaths);
-        } catch (_) {
+        } catch (bulkErr) {
+          if (bulkErr.message && (bulkErr.message.includes('SingleKey') || bulkErr.message.includes('Token Bosch') || bulkErr.message.includes('invalid_grant'))) {
+            throw bulkErr;
+          }
           // Fallback a GET singolo se bulk non risponde
-          const fw = await this._boschPointtGet('/gateway/versionFirmware').catch(() => null);
-          const z1t = await this._boschPointtGet('/zones/zn1/temperatureActual').catch(() => null);
+          const fw = await this._boschPointtGet('/gateway/versionFirmware').catch((e) => {
+            if (e.message && (e.message.includes('SingleKey') || e.message.includes('Token Bosch') || e.message.includes('invalid_grant'))) throw e;
+            return null;
+          });
+          const z1t = await this._boschPointtGet('/zones/zn1/temperatureActual').catch((e) => {
+            if (e.message && (e.message.includes('SingleKey') || e.message.includes('Token Bosch') || e.message.includes('invalid_grant'))) throw e;
+            return null;
+          });
           if (fw) b['/gateway/versionFirmware'] = fw;
           if (z1t) b['/zones/zn1/temperatureActual'] = z1t;
+        }
+
+        if (Object.keys(b).length === 0) {
+          throw new Error('Nessun dato telemetrico ricevuto dai server PointT Cloud API.');
         }
 
         const zn1Temp = b['/zones/zn1/temperatureActual'] || b['/heatingCircuits/hc1/roomtemperature'];
@@ -1897,6 +1911,13 @@ class EvClimateHub {
         this.boschState.connected = false;
         this.boschState.connectedMode = 'auth_error';
         this.boschState.lastError = `Errore Bosch PointT Cloud API: ${err.message}`;
+        this.boschState.lastUpdated = new Date().toISOString();
+        if (!this.boschState.energyHistory?.hourly?.length) {
+          try {
+            const h = await this.fetchBoschFullEnergyHistory(false).catch(() => null);
+            if (h) this.boschState.energyHistory = h;
+          } catch (_) {}
+        }
         return this.boschState;
       }
     }

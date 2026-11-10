@@ -7,9 +7,9 @@
 
 ---
 
-## 2. Caldaia Bosch EasyControl CT200: Errore Password XMPP su Firmware 05.04+
-- **Causa**: Sui termostati CT200 aggiornati al firmware `05.04.00` (HW10), Bosch ha disabilitato la password personale XMPP AES-256 a favore delle API **PointT Cloud** autenticate con **SingleKey ID**.
-- **Soluzione**: Utilizzare il pannello **SingleKey ID / PointT Cloud** nella sezione Caldaia Bosch della dashboard; una volta acquisito il codice OAuth2 (`com.bosch.tt.dashtt.pointt://app/login?code=...`), il refresh token con scope `offline_access` mantiene la connessione attiva per mesi.
+## 2. Caldaia Bosch EasyControl CT200: Errore Password XMPP su Firmware 05.04+ / Token Scaduto `invalid_grant`
+- **Causa**: Sui termostati CT200 aggiornati al firmware `05.04.00+` (HW10), Bosch ha disabilitato la password personale XMPP AES-256 a favore delle API **PointT Cloud** autenticate con **SingleKey ID**. Se il server rimane inattivo a lungo o la sessione scade, il rinnovo cloud può restituire `invalid_grant`.
+- **Soluzione**: Accedere all'area **Amministrazione** e cliccare sul pulsante **"Accedi con SingleKey ID (1-Click)"** all'interno del pannello di controllo Caldaia Bosch. Il sistema avvia una finestra dedicata di Chrome/Edge, intercetta automaticamente il codice OAuth2 (`com.bosch.tt.dashtt.pointt://app/login?code=...`) e rigenera i token salvandoli su TiDB Cloud / configurazione persistente. In alternativa è disponibile il pulsante **"Accesso Manuale"** per copiare il link e incollare l'URL finale.
 
 ---
 

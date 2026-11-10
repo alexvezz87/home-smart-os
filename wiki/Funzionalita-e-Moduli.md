@@ -63,6 +63,7 @@ Per garantire scalabilità, pulizia del codice e massima reattività su Smartpho
 - **Cassetto "Dispositivi non collocati"**: Elenco dinamico dei dispositivi smart rilevati senza coordinate sulla mappa con collocamento a 1-click.
 - **Persistenza su TiDB Cloud**: Le coordinate percentuali `(x%, y%)` e le stanze vengono salvate sia su file locale `spatial-custom-layout.json` che sul database cloud `db_home_os` (tabella `kv_store`).
 - **Cruscotto Stato Integrazioni**: Diagnostica in tempo reale per Google Home MCP, TiDB, Bosch, Volvo, ABB, Hue LAN, Meross e Tapo.
+- **Pannello Dedicato Caldaia Bosch EasyControl CT200 & Smart Radiators**: Diagnostica telemetrica in tempo reale (stato bruciatore/fiamma, pressione impianto bar con soglia ottimale 1.0-2.0 bar, temperatura di mandata, sonda esterna e ACS), quadro sinottico delle 9 termovalvole smart (con percentuali di apertura, setpoint, temperature e diagnostica batterie), e procedura di **Autenticazione 1-Click via Browser Capture** (con fallback su link OAuth manuale e ricarica forzata storico consumi gas).
 - **Registro Eventi & Audit Log**: Consultazione eventi operativi da `activity_logs` con filtri e svuotamento rapido.
 
 ### Struttura Modulare (`public/js/`)
