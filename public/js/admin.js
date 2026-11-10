@@ -213,12 +213,11 @@ class AdminManager {
 
             <!-- Toolbar Azioni Rapide -->
             <div class="flex items-center gap-2 flex-wrap">
-              <button id="btn-bosch-browser-capture" onclick="window.adminManager.launchBoschBrowserCapture()"
-                      class="px-4 py-2 rounded-xl text-xs font-bold ${this.isCapturingBosch ? 'bg-amber-600/50 cursor-not-allowed text-white' : 'bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-600/20 active:scale-95'} border border-amber-500 transition-all flex items-center gap-2"
-                      ${this.isCapturingBosch ? 'disabled' : ''}
-                      title="Avvia una finestra Chrome/Edge dedicata per catturare in automatico il token SingleKey ID">
-                <i class="fa-solid ${this.isCapturingBosch ? 'fa-circle-notch fa-spin' : 'fa-key'}"></i>
-                <span>${this.isCapturingBosch ? 'Cattura in corso...' : 'Accedi con SingleKey ID (1-Click)'}</span>
+              <button onclick="window.adminManager.openBoschManualAuthModal()"
+                      class="px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-600/20 border border-amber-500 transition-all flex items-center gap-2 active:scale-95"
+                      title="Apri la schermata di login Bosch SingleKey ID e inserisci il codice di conferma">
+                <i class="fa-solid fa-key"></i>
+                <span>Connetti con SingleKey ID</span>
               </button>
               
               <button id="btn-bosch-sync" onclick="window.adminManager.syncBoschNow()"
@@ -228,11 +227,12 @@ class AdminManager {
                 <span>Sincronizza Ora</span>
               </button>
 
-              <button onclick="window.adminManager.openBoschManualAuthModal()"
-                      class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5 active:scale-95"
-                      title="Apri il link di login e inserisci manualmente l'URL di reindirizzamento">
-                <i class="fa-solid fa-link"></i>
-                <span>Accesso Manuale</span>
+              <button id="btn-bosch-browser-capture" onclick="window.adminManager.launchBoschBrowserCapture()"
+                      class="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all flex items-center gap-1.5 active:scale-95"
+                      ${this.isCapturingBosch ? 'disabled' : ''}
+                      title="Tentativo automatico da processo Chrome locale (opzionale)">
+                <i class="fa-solid ${this.isCapturingBosch ? 'fa-circle-notch fa-spin' : 'fa-laptop-code'}"></i>
+                <span>${this.isCapturingBosch ? 'Cattura in corso...' : 'Cattura Automatica'}</span>
               </button>
 
               <button onclick="window.adminManager.refreshBoschEnergyHistory()"
@@ -246,28 +246,39 @@ class AdminManager {
 
           <!-- Banner di avviso se disconnesso o token scaduto -->
           ${!ev.bosch?.connected ? `
-            <div class="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-start gap-3 text-xs">
-              <i class="fa-solid fa-triangle-exclamation text-amber-400 text-base mt-0.5 shrink-0"></i>
-              <div class="flex-1 space-y-1">
-                <div class="font-bold text-amber-300">Autenticazione Cloud Richiesta</div>
-                <p class="text-slate-300 leading-relaxed">
-                  ${ev.bosch?.lastError || 'Il token di accesso Bosch SingleKey ID è scaduto o non valido. Clicca su <strong>"Accedi con SingleKey ID (1-Click)"</strong> per aprire la schermata di login e ricollegare la caldaia in automatico.'}
-                </p>
+            <div class="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-start justify-between flex-wrap gap-3 text-xs">
+              <div class="flex items-start gap-3 flex-1 min-w-[260px]">
+                <i class="fa-solid fa-triangle-exclamation text-amber-400 text-base mt-0.5 shrink-0"></i>
+                <div class="space-y-1">
+                  <div class="font-bold text-amber-300">Autenticazione Cloud Richiesta</div>
+                  <p class="text-slate-300 leading-relaxed">
+                    ${ev.bosch?.lastError || 'Il token di accesso Bosch SingleKey ID è scaduto o non valido.'} Clicca su <strong>"Connetti Ora"</strong> per aprire la procedura di login guidato ed effettuare l'accesso sicuro con il tuo account Bosch.
+                  </p>
+                </div>
               </div>
+              <button onclick="window.adminManager.openBoschManualAuthModal()"
+                      class="px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white shadow-md shadow-amber-600/20 flex items-center gap-1.5 active:scale-95 shrink-0">
+                <i class="fa-solid fa-key"></i> Connetti Ora
+              </button>
             </div>
           ` : ''}
 
           <!-- Banner di progresso se browser capture è attiva -->
           ${this.isCapturingBosch ? `
-            <div class="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-start gap-3 text-xs">
-              <i class="fa-solid fa-circle-notch fa-spin text-indigo-400 text-base mt-0.5 shrink-0"></i>
-              <div class="space-y-1 flex-1">
-                <div class="font-bold text-indigo-300">Finestra browser dedicata aperta per il login Bosch</div>
-                <p class="text-slate-300">
-                  Accedi con le tue credenziali Bosch (email e password). Il server intercetta automaticamente il redirect e chiude la finestra al termine.
-                </p>
-                <div id="bosch-capture-timer" class="font-mono text-[11px] text-indigo-400 mt-1">In ascolto del redirect...</div>
+            <div class="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-start justify-between flex-wrap gap-3 text-xs">
+              <div class="flex items-start gap-3 flex-1">
+                <i class="fa-solid fa-circle-notch fa-spin text-indigo-400 text-base mt-0.5 shrink-0"></i>
+                <div class="space-y-1">
+                  <div class="font-bold text-indigo-300">Tentativo di cattura da processo locale in corso</div>
+                  <p class="text-slate-300">
+                    Se non vedi comparire la finestra o preferisci accedere direttamente dal tuo browser personale, puoi annullare e cliccare su <strong>"Connetti con SingleKey ID"</strong>.
+                  </p>
+                  <div id="bosch-capture-timer" class="font-mono text-[11px] text-indigo-400 mt-1">In ascolto del redirect...</div>
+                </div>
               </div>
+              <button onclick="window.adminManager.cancelBoschCapture()" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 shrink-0">
+                <i class="fa-solid fa-xmark mr-1"></i>Annulla
+              </button>
             </div>
           ` : ''}
 
@@ -611,7 +622,16 @@ class AdminManager {
   }
 
   /**
-   * Apre la finestra modale per l'accesso manuale con copia URL SingleKey ID e inserimento codice
+   * Annulla il tentativo di cattura automatica
+   */
+  cancelBoschCapture() {
+    this.isCapturingBosch = false;
+    showToast('Cattura automatica annullata.', 'info');
+    this.renderView();
+  }
+
+  /**
+   * Apre la finestra modale per l'accesso guidato con apertura diretta link SingleKey ID e inserimento codice
    */
   async openBoschManualAuthModal() {
     try {
@@ -625,48 +645,81 @@ class AdminManager {
         modal.id = 'bosch-manual-modal';
         document.body.appendChild(modal);
       }
-      modal.className = 'fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4';
+      modal.className = 'fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto';
       modal.innerHTML = `
-        <div class="glass-card max-w-lg w-full rounded-2xl p-6 border border-slate-800 space-y-4 shadow-2xl relative">
+        <div class="glass-card max-w-xl w-full rounded-2xl p-6 border border-slate-800 space-y-5 shadow-2xl relative my-auto">
           <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h3 class="text-base font-bold text-white flex items-center gap-2">
-              <i class="fa-solid fa-key text-amber-400"></i>
-              <span>Accesso Manuale Bosch SingleKey ID</span>
-            </h3>
-            <button onclick="document.getElementById('bosch-manual-modal').remove()" class="text-slate-400 hover:text-white p-1 text-sm">
-              <i class="fa-solid fa-xmark"></i>
+            <div class="flex items-center gap-2.5">
+              <div class="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center text-lg">
+                <i class="fa-solid fa-key"></i>
+              </div>
+              <div>
+                <h3 class="text-base font-bold text-white">Connessione Caldaia Bosch EasyControl</h3>
+                <p class="text-[11px] text-slate-400">Autenticazione Cloud PointT con SingleKey ID</p>
+              </div>
+            </div>
+            <button onclick="document.getElementById('bosch-manual-modal').remove()" class="text-slate-400 hover:text-white p-1 text-sm rounded-lg hover:bg-slate-800">
+              <i class="fa-solid fa-xmark text-base"></i>
             </button>
           </div>
 
-          <div class="space-y-3 text-xs text-slate-300">
-            <p>Se la procedura automatica non può avviare il browser locale, puoi completare l'accesso in 3 passaggi:</p>
-            <ol class="list-decimal pl-4 space-y-1.5 text-slate-400">
-              <li>Apri la pagina di login cliccando il pulsante o copiando il link.</li>
-              <li>Accedi con l'account SingleKey ID associato all'app EasyControl.</li>
-              <li>Al termine, verrai reindirizzato a un URL vuoto tipo <code class="text-amber-400 font-mono text-[11px]">com.bosch.tt.dashtt.pointt://app/login?code=...</code>. Copia l'indirizzo e incollalo qui sotto.</li>
-            </ol>
+          <!-- Passaggio 1 -->
+          <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
+            <div class="flex items-center gap-2">
+              <span class="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 font-bold text-xs flex items-center justify-center shrink-0">1</span>
+              <h4 class="text-xs font-bold text-white uppercase tracking-wider">Apri la pagina di login ufficiale Bosch</h4>
+            </div>
+            <p class="text-xs text-slate-300 leading-relaxed pl-8">
+              Clicca sul pulsante arancione qui sotto per aprire la schermata di login sul sito ufficiale Bosch nel tuo browser normale ed effettua l'accesso con la tua email e password di EasyControl:
+            </p>
+            <div class="flex items-center gap-2.5 pl-8 pt-1 flex-wrap">
+              <button onclick="window.open('${oauthUrl}', '_blank')" class="px-4 py-2.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-600/20 flex items-center gap-2 active:scale-95">
+                <i class="fa-solid fa-arrow-up-right-from-square"></i>
+                <span>1. Clicca qui per aprire la pagina di login Bosch</span>
+              </button>
+              <button onclick="navigator.clipboard.writeText('${oauthUrl}').then(() => showToast('Link di login copiato negli appunti!', 'success'))" class="px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1.5 active:scale-95">
+                <i class="fa-solid fa-copy"></i> Copia Link
+              </button>
+            </div>
           </div>
 
-          <div class="flex items-center gap-2 pt-1 flex-wrap">
-            <a href="${oauthUrl}" target="_blank" rel="noopener" class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white flex items-center gap-1.5 shadow-md">
-              <i class="fa-solid fa-arrow-up-right-from-square"></i> Apri Pagina Login Bosch
-            </a>
-            <button onclick="navigator.clipboard.writeText('${oauthUrl}').then(() => showToast('Link SingleKey ID copiato negli appunti!', 'success'))" class="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1.5">
-              <i class="fa-solid fa-copy"></i> Copia Link
-            </button>
+          <!-- Passaggio 2 -->
+          <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
+            <div class="flex items-center gap-2">
+              <span class="w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-400 font-bold text-xs flex items-center justify-center shrink-0">2</span>
+              <h4 class="text-xs font-bold text-white uppercase tracking-wider">Copia l'indirizzo finale dalla barra del browser</h4>
+            </div>
+            <div class="text-xs text-slate-300 leading-relaxed pl-8 space-y-2">
+              <p>
+                Al termine del login, la pagina proverà a tornare all'applicazione mobile aprendo un indirizzo che inizia con:
+              </p>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono text-amber-400 break-all select-all">
+                com.bosch.tt.dashtt.pointt://app/login?code=...
+              </div>
+              <p class="text-slate-400 text-[11px]">
+                💡 <em>Nota:</em> Sul computer il browser potrebbe dire <em>"Impossibile aprire questa pagina"</em> perché non è un sito web: è del tutto normale! Copia semplicemente l'intero indirizzo presente nella barra in alto del browser e incollalo qui sotto.
+              </p>
+            </div>
           </div>
 
-          <div class="space-y-1.5 pt-2">
-            <label class="text-[11px] font-semibold text-slate-300">Incolla qui l'URL di reindirizzamento finale (o parametro code):</label>
-            <textarea id="bosch-callback-input" rows="3" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white placeholder-slate-500 font-mono focus:border-amber-500 focus:outline-none" placeholder="com.bosch.tt.dashtt.pointt://app/login?code=..."></textarea>
+          <!-- Passaggio 3 -->
+          <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
+            <div class="flex items-center gap-2">
+              <span class="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-xs flex items-center justify-center shrink-0">3</span>
+              <h4 class="text-xs font-bold text-white uppercase tracking-wider">Incolla l'indirizzo per connettere la caldaia</h4>
+            </div>
+            <div class="pl-8 space-y-2">
+              <textarea id="bosch-callback-input" rows="3" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-500 font-mono focus:border-amber-500 focus:outline-none" placeholder="Incolla qui l'URL (es: com.bosch.tt.dashtt.pointt://app/login?code=...)"></textarea>
+            </div>
           </div>
 
-          <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
-            <button onclick="document.getElementById('bosch-manual-modal').remove()" class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300">
+          <div class="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+            <button onclick="document.getElementById('bosch-manual-modal').remove()" class="px-4 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300">
               Annulla
             </button>
-            <button id="btn-submit-bosch-callback" onclick="window.adminManager.submitBoschManualCallback()" class="px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white shadow-md shadow-amber-600/20">
-              Verifica &amp; Connetti
+            <button id="btn-submit-bosch-callback" onclick="window.adminManager.submitBoschManualCallback()" class="px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 flex items-center gap-2 active:scale-95">
+              <i class="fa-solid fa-check"></i>
+              <span>2. Verifica &amp; Connetti Caldaia</span>
             </button>
           </div>
         </div>
