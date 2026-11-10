@@ -1069,6 +1069,11 @@ class EvClimateHub {
       throw new Error('Inserisci l\'URL di callback (com.bosch.tt.dashtt.pointt://app/login?code=...) o il parametro code.');
     }
 
+    // Controllo preventivo se l'utente ha incollato per errore il link di apertura login invece del redirect
+    if ((trimmed.includes('singlekey-id.com') && (trimmed.includes('/authorize') || trimmed.includes('response_type='))) || trimmed.includes('/connect/authorize')) {
+      throw new Error('Hai incollato il link iniziale di SingleKey ID! Devi prima aprirlo nel browser, accedere con la tua email e password Bosch, e poi copiare l\'indirizzo finale che compare nella barra del browser (inizia con com.bosch.tt.dashtt.pointt://app/login?code=...).');
+    }
+
     // Estrai il parametro 'code' se l'utente ha incollato l'intero URL di redirect o una query string
     let code = trimmed;
     const codeMatch = trimmed.match(/[?&]code=([^&#\s]+)/i) || trimmed.match(/^code=([^&#\s]+)/i);
