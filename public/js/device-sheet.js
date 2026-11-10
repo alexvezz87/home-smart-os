@@ -444,31 +444,58 @@ class DeviceSheetManager {
    * Controlli Telecamera Tapo
    */
   renderCameraControls(p) {
-    const camId = p.cameraId || 'salone';
+    const camId = p.cameraId || (p.name?.toLowerCase().includes('letto') ? 'letto' : 'salone');
     return `
+      <!-- Tasto Espansione Modalità Teatro -->
+      <button onclick="window.cameraTheater.open('${camId}')" class="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-purple-600/30 flex items-center justify-center gap-2 transition-all active:scale-95 mb-3">
+        <i class="fa-solid fa-expand text-sm"></i>
+        <span>Apri in Modalità Teatro / Maxi-Player</span>
+      </button>
+
       <!-- Video Player Stream Live -->
-      <div class="rounded-2xl overflow-hidden bg-black border border-slate-800 relative aspect-video flex items-center justify-center">
+      <div class="rounded-2xl overflow-hidden bg-black border border-slate-800 relative aspect-video flex items-center justify-center cursor-pointer group" onclick="window.cameraTheater.open('${camId}')" title="Clicca per aprire in Modalità Teatro">
         <canvas id="camera-stream-canvas" class="w-full h-full object-contain"></canvas>
         <div id="camera-stream-loading" class="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/80 text-xs text-slate-400 gap-2">
           <i class="fa-solid fa-circle-notch fa-spin text-indigo-400 text-xl"></i>
           <span>Connessione stream RTSP...</span>
         </div>
+        <!-- Badge Hover Ingrandisci -->
+        <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity backdrop-blur-xs">
+          <span class="px-3 py-1.5 rounded-xl bg-purple-600/90 text-white font-bold text-xs shadow-lg flex items-center gap-1.5">
+            <i class="fa-solid fa-expand"></i> Ingrandisci a Tutto Schermo
+          </span>
+        </div>
+      </div>
+
+      <!-- Barra Azioni Rapide -->
+      <div class="grid grid-cols-2 gap-2 pt-1">
+        <button onclick="if(window.cameraTheater) { window.cameraTheater.currentCamId = '${camId}'; window.cameraTheater.captureSnapshot(); }" class="py-2 px-2.5 rounded-xl bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95">
+          <i class="fa-solid fa-camera"></i>
+          <span>Scatta Foto HD</span>
+        </button>
+        <button onclick="window.cameraTheater.open('${camId}')" class="py-2 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95">
+          <i class="fa-solid fa-gamepad text-purple-400"></i>
+          <span>Preset &amp; PTZ</span>
+        </button>
       </div>
 
       <!-- Comandi PTZ -->
       <div class="p-3 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2">
-        <div class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-          <i class="fa-solid fa-arrows-up-down-left-right text-indigo-400"></i> Controllo Brandeggio (PTZ)
+        <div class="text-xs font-bold text-slate-300 flex items-center justify-between">
+          <span class="flex items-center gap-1.5">
+            <i class="fa-solid fa-arrows-up-down-left-right text-indigo-400"></i> Controllo Brandeggio (PTZ)
+          </span>
+          <span class="text-[10px] text-slate-500 font-mono">ONVIF Precision</span>
         </div>
         <div class="grid grid-cols-3 gap-2 max-w-[180px] mx-auto text-xs">
           <div></div>
-          <button onclick="ptzMove('${camId}', 0, 1)" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white"><i class="fa-solid fa-arrow-up"></i></button>
+          <button onclick="ptzMove('${camId}', 'up')" class="p-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-90 text-white flex items-center justify-center transition-all" title="Su"><i class="fa-solid fa-arrow-up"></i></button>
           <div></div>
-          <button onclick="ptzMove('${camId}', -1, 0)" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white"><i class="fa-solid fa-arrow-left"></i></button>
-          <button onclick="ptzMove('${camId}', 0, 0)" class="p-2 rounded-lg bg-indigo-600 text-white font-bold"><i class="fa-solid fa-house"></i></button>
-          <button onclick="ptzMove('${camId}', 1, 0)" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white"><i class="fa-solid fa-arrow-right"></i></button>
+          <button onclick="ptzMove('${camId}', 'left')" class="p-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-90 text-white flex items-center justify-center transition-all" title="Sinistra"><i class="fa-solid fa-arrow-left"></i></button>
+          <button onclick="ptzMove('${camId}', 'center')" class="p-2.5 rounded-lg bg-purple-600 hover:bg-purple-500 active:scale-90 text-white font-bold flex items-center justify-center shadow transition-all" title="Ricentra"><i class="fa-solid fa-house"></i></button>
+          <button onclick="ptzMove('${camId}', 'right')" class="p-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-90 text-white flex items-center justify-center transition-all" title="Destra"><i class="fa-solid fa-arrow-right"></i></button>
           <div></div>
-          <button onclick="ptzMove('${camId}', 0, -1)" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white"><i class="fa-solid fa-arrow-down"></i></button>
+          <button onclick="ptzMove('${camId}', 'down')" class="p-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-90 text-white flex items-center justify-center transition-all" title="Giù"><i class="fa-solid fa-arrow-down"></i></button>
           <div></div>
         </div>
       </div>
@@ -702,13 +729,34 @@ async function roomOff(roomName) {
   }
 }
 
-async function ptzMove(camId, pan, tilt) {
+async function ptzMove(camId, directionOrPan, tilt) {
   try {
-    await fetch(`/api/camera/${encodeURIComponent(camId)}/ptz`, {
+    let direction = directionOrPan;
+    // Compatibilità legacy se passati numeri (pan, tilt)
+    if (typeof directionOrPan === 'number') {
+      const dx = directionOrPan;
+      const dy = typeof tilt === 'number' ? tilt : 0;
+      if (dx === 0 && dy === 0) direction = 'center';
+      else if (dx > 0) direction = 'right';
+      else if (dx < 0) direction = 'left';
+      else if (dy > 0) direction = 'up';
+      else if (dy < 0) direction = 'down';
+    }
+
+    let targetId = camId;
+    if (camId === 'letto' || camId === 'camera') targetId = 'device@7a20d851-543b-4ae8-845c-edca07903c30';
+    else if (camId === 'salone') targetId = 'device@1ca73bcd-1f86-4082-b16d-5a4aa6d40ec3';
+
+    const res = await fetch(`/api/camera/${encodeURIComponent(targetId)}/ptz`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pan, tilt })
+      body: JSON.stringify({ direction: direction || 'center' })
     });
+    const json = await res.json();
+    if (json.success && json.ptz && window.homeData?.spatial?.pins) {
+      const pin = window.homeData.spatial.pins.find(p => p.pin === (targetId.includes('1ca73bcd') ? 17 : 6));
+      if (pin) pin.pan = json.ptz.pan;
+    }
   } catch (e) {
     console.warn('Errore PTZ:', e);
   }

@@ -79,8 +79,11 @@ Riorganizzata con un'architettura **modulare a schede (Tab Switcher)** con persi
    - Telemetria veicolo via Volvo Cars Connected API v2: percentuale batteria (SOC), autonomia stimata in km, blocco/sblocco portiere e preriscaldamento/climatizzazione abitacolo.
    - Stazione di ricarica ABB Terra AC via ChargerSync Cloud: potenza istantanea erogata, selezione corrente (6-32A) e dynamic load balancing con anti-distacco contatore 3 kW.
 5. 📹 **Sicurezza & Cam (Tapo C210 & go2rtc WebRTC)**:
-   - Streaming video HD WebRTC/MSE a latenza zero tramite go2rtc server (porta 1984).
-   - Telecamere Tapo C210 Salone (`192.168.1.74`) e Camera da letto (`192.168.1.161`): stream RTSP, credenziali ONVIF (porta 2020) e comandi motorizzati PTZ.
+   - Streaming video HD WebRTC/MSE a latenza ultra-bassa (< 0.3s) tramite server go2rtc integrato (porta 1984) e fallback JSMpeg WebSocket.
+   - **Modal Teatro / Maxi-Player (`public/js/camera-theater.js`)**: visualizzazione ad alta definizione a tutto schermo richiamabile con 1-click dalla planimetria, dal drawer laterale o dall'hub Amministrazione.
+   - Overlay HUD trasparente con badge LIVE/REC, orologio dinamico, coordinate Pan/Tilt e toggle Fullscreen nativo.
+   - Controlli motorizzati PTZ con D-Pad ONVIF a 5 vie, preset rapidi di puntamento (*Salone / Divano / Ingresso / Letto*), salvataggio inquadratura al volo (*"Salva Posizione"*), modalità Privacy hardware con schermata protetta, scatto Snapshot HD istantaneo con galleria fotografica e ronda automatica ciclica.
+   - Telecamere Tapo C200/C210 Salone (`192.168.1.74`) e Camera da letto (`192.168.1.161`): porta ONVIF 2020 e stream RTSP standard `:554/stream1`.
 6. 🗺️ **Editor Piantina (Digital Twin Blueprint Editor)**:
    - Blocco/sblocco interattivo Drag & Drop della mappa planimetrica con ricalcolo immediato dell'assegnazione spaziale alle stanze e grafo di prossimità.
    - Cassetto dinamico dispositivi non collocati e pulsante di ripristino coordinate di fabbrica.
@@ -96,6 +99,7 @@ Riorganizzata con un'architettura **modulare a schede (Tab Switcher)** con persi
 | `public/index.html` | Template scheletro snello (~260 righe) con viewport mobile, topbar, bottom nav e modali. |
 | `public/js/app.js` | Router delle 3 macro-aree, gestione sessione/PIN Kiosk, polling dashboard e toast notifications. |
 | `public/js/floorplan.js` | Geometria stanze `ARCHITECTURAL_ROOMS`, pan & zoom engine, rendering SVG e layer heatmap. |
+| `public/js/camera-theater.js` | Modal Teatro / Maxi-Player a schermo intero per telecamere Tapo (WebRTC go2rtc, D-Pad PTZ, preset, snapshot e privacy). |
 | `public/js/device-sheet.js` | Rendering drawer/bottom sheet per tutti i dispositivi supportati e player streaming JSMpeg. |
 | `public/js/drag-editor.js` | Logica drag & drop mouse/touch, rilevamento coordinate SVG, cassetto non collocati e persistenza. |
 | `public/js/energy.js` | Cruscotto energetico, grafici Chart.js per Bosch e simulatori di risparmio ARERA/EV. |
