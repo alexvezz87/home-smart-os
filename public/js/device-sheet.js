@@ -350,6 +350,13 @@ class DeviceSheetManager {
           <span class="text-[11px]">Warm 22°</span>
         </button>
       </div>
+
+      <!-- Accesso Rapido al Piano Orario 24h Cinzia & Francesco -->
+      <button onclick="if(window.adminManager?.openBabyScheduleModal) window.adminManager.openBabyScheduleModal(); else showToast('Piano orario attivo 20-21°C', 'info');"
+              class="w-full py-2.5 px-3 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-semibold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm">
+        <i class="fa-solid fa-calendar-days text-indigo-400"></i>
+        <span>Visualizza Piano Orario 24h Completo</span>
+      </button>
     `;
   }
 

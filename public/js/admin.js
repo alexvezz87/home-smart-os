@@ -363,11 +363,18 @@ class AdminManager {
                 </div>
               </div>
 
-              <button id="btn-apply-baby-profile" onclick="window.adminManager.applyBabyComfortProfile()"
-                      class="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400 transition-all flex items-center gap-2">
-                <i class="fa-solid fa-wand-magic-sparkles"></i>
-                <span>Applica Profilo Intelligente Ora</span>
-              </button>
+              <div class="flex items-center gap-2 flex-wrap">
+                <button onclick="window.adminManager.openBabyScheduleModal()"
+                        class="px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-500/20 hover:bg-indigo-500/30 active:scale-95 text-indigo-300 border border-indigo-500/40 transition-all flex items-center gap-2 shadow-sm">
+                  <i class="fa-solid fa-calendar-days"></i>
+                  <span>Visualizza Tabella Oraria 24h</span>
+                </button>
+                <button id="btn-apply-baby-profile" onclick="window.adminManager.applyBabyComfortProfile()"
+                        class="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400 transition-all flex items-center gap-2">
+                  <i class="fa-solid fa-wand-magic-sparkles"></i>
+                  <span>Applica Ora</span>
+                </button>
+              </div>
             </div>
 
             <!-- Griglia Ambienti & Temperature del Profilo -->
@@ -801,9 +808,168 @@ class AdminManager {
   }
 
   /**
-   * Annulla il tentativo di cattura automatica
+   * Apre la finestra modale con il piano orario 24h completo e interattivo per Cinzia & Francesco
    */
-  cancelBoschCapture() {
+  openBabyScheduleModal() {
+    let modal = document.getElementById('modal-baby-schedule');
+    if (modal) modal.remove();
+
+    const now = new Date();
+    const currentHour = now.getHours() + (now.getMinutes() / 60);
+
+    // Identificazione slot orario attivo in tempo reale
+    let activeSlotIndex = 0; // 0: Notte, 1: Mattina, 2: Giorno, 3: Bagnetto/Cena, 4: Nanna
+    let activeSlotLabel = '';
+    if (currentHour >= 0 && currentHour < 6.5) {
+      activeSlotIndex = 0;
+      activeSlotLabel = '🌙 Notte (00:00 - 06:30)';
+    } else if (currentHour >= 6.5 && currentHour < 9.5) {
+      activeSlotIndex = 1;
+      activeSlotLabel = '🌅 Risveglio & Colazione (06:30 - 09:30)';
+    } else if (currentHour >= 9.5 && currentHour < 18.5) {
+      activeSlotIndex = 2;
+      activeSlotLabel = '☀️ Attività Diurna & Gioco (09:30 - 18:30)';
+    } else if (currentHour >= 18.5 && currentHour < 20.5) {
+      activeSlotIndex = 3;
+      activeSlotLabel = '🛁 Bagnetto Neonato & Cena (18:30 - 20:30)';
+    } else {
+      activeSlotIndex = 4;
+      activeSlotLabel = '🛌 Nanna Serale (20:30 - 24:00)';
+    }
+
+    const slots = [
+      { id: 0, label: 'Notte', time: '00:00 - 06:30', icon: 'fa-moon' },
+      { id: 1, label: 'Colazione', time: '06:30 - 09:30', icon: 'fa-mug-saucer' },
+      { id: 2, label: 'Giorno', time: '09:30 - 18:30', icon: 'fa-sun' },
+      { id: 3, label: 'Bagnetto / Cena', time: '18:30 - 20:30', icon: 'fa-bath' },
+      { id: 4, label: 'Nanna', time: '20:30 - 24:00', icon: 'fa-bed' }
+    ];
+
+    const scheduleData = [
+      { name: 'Salone', icon: 'fa-couch', temps: ['19.5°', '20.5°', '21.0°', '20.8°', '20.0°'], note: 'Area gioco principale' },
+      { name: 'Camera da letto', icon: 'fa-bed', temps: ['20.5°', '19.5°', '19.5°', '19.5°', '20.5°'], note: 'Sonno confortevole Francesco' },
+      { name: 'Bagno Cinzia', icon: 'fa-bath', temps: ['20.0°', '21.5°', '20.5°', '21.8°', '20.5°'], note: 'Fasciatoio e bagnetto caldo' },
+      { name: 'Cucina', icon: 'fa-kitchen-set', temps: ['19.5°', '20.8°', '20.5°', '20.8°', '19.5°'], note: 'Angolo snack & pasti' },
+      { name: 'Cameretta', icon: 'fa-shapes', temps: ['20.0°', '20.0°', '20.0°', '20.0°', '20.0°'], note: 'Ambiente stabile' },
+      { name: 'Cabina armadio', icon: 'fa-door-closed', temps: ['17.5°', '17.5°', '17.5°', '17.5°', '17.5°'], isEco: true, note: 'Valvola 0% (zero sprechi)' },
+      { name: 'Bagno Alex', icon: 'fa-shower', temps: ['18.5°', '18.5°', '18.5°', '19.0°', '18.5°'], isEco: true, note: 'Valvola a riposo diurno' },
+      { name: 'Corridoi & Ingresso', icon: 'fa-arrow-right-to-bracket', temps: ['19.5°', '19.5°', '19.5°', '19.5°', '19.5°'], note: 'Cuscinetto termico stabile' }
+    ];
+
+    const modalHtml = `
+      <div id="modal-baby-schedule" class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/80 backdrop-blur-md animate-fade-in" onclick="if(event.target === this) this.remove()">
+        <div class="glass-card rounded-2xl p-5 sm:p-6 border border-indigo-500/40 bg-slate-950/95 max-w-4xl w-full max-h-[90vh] overflow-y-auto space-y-4 shadow-2xl relative" onclick="event.stopPropagation()">
+          
+          <!-- Header -->
+          <div class="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
+            <div class="flex items-center gap-3">
+              <div class="w-11 h-11 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 flex items-center justify-center text-xl shadow-lg">
+                <i class="fa-solid fa-calendar-days"></i>
+              </div>
+              <div>
+                <h3 class="text-base font-bold text-white flex items-center gap-2">
+                  <span>Piano Orario 24h: Cinzia &amp; Francesco</span>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Attivo &amp; Modulante</span>
+                </h3>
+                <p class="text-xs text-slate-400">Regolazione oraria automatica a zone: comfort ideale (20-21°C) per mamma e neonato e modalità ECO (-15% gas)</p>
+              </div>
+            </div>
+            
+            <button onclick="document.getElementById('modal-baby-schedule').remove()" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+
+          <!-- Banner Fascia Attiva in questo momento -->
+          <div class="p-3.5 rounded-xl bg-gradient-to-r from-indigo-950/60 via-purple-950/40 to-slate-900 border border-indigo-500/40 flex items-center justify-between flex-wrap gap-3">
+            <div class="flex items-center gap-2.5">
+              <div class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></div>
+              <span class="text-xs text-slate-300">Fascia Oraria in corso adesso:</span>
+              <strong class="text-amber-300 text-xs font-mono bg-indigo-900/60 px-2 py-0.5 rounded border border-indigo-500/40">${activeSlotLabel}</strong>
+            </div>
+            <span class="text-[11px] text-slate-400 font-mono">Ora locale: ${now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>
+          </div>
+
+          <!-- Tabella Oraria 24 Ore -->
+          <div class="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/50">
+            <table class="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr class="border-b border-slate-800 bg-slate-950/80 text-[11px]">
+                  <th class="p-3 text-slate-400 font-semibold sticky left-0 bg-slate-950">Ambiente</th>
+                  ${slots.map((s, idx) => `
+                    <th class="p-2.5 text-center font-semibold ${idx === activeSlotIndex ? 'bg-indigo-600/20 text-indigo-300 border-x border-indigo-500/40 font-bold' : 'text-slate-300'}">
+                      <div class="flex items-center justify-center gap-1">
+                        <i class="fa-solid ${s.icon} text-[10px]"></i>
+                        <span>${s.label}</span>
+                      </div>
+                      <div class="text-[9.5px] text-slate-400 font-mono font-normal">${s.time}</div>
+                      ${idx === activeSlotIndex ? '<span class="inline-block mt-0.5 px-1 rounded bg-amber-500/30 text-amber-300 text-[8.5px] font-bold">ORA ATTIVA</span>' : ''}
+                    </th>
+                  `).join('')}
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800/60">
+                ${scheduleData.map(row => `
+                  <tr class="hover:bg-slate-800/40 transition-colors">
+                    <td class="p-3 font-semibold text-white sticky left-0 bg-slate-900/90 whitespace-nowrap">
+                      <div class="flex items-center gap-2">
+                        <i class="fa-solid ${row.icon} text-amber-400 text-xs w-4"></i>
+                        <span>${row.name}</span>
+                      </div>
+                      <div class="text-[10px] text-slate-400 font-normal pl-6">${row.note}</div>
+                    </td>
+                    ${row.temps.map((t, idx) => {
+                      const isCurrent = idx === activeSlotIndex;
+                      const isEco = row.isEco;
+                      let badgeColor = isEco ? 'text-emerald-400 font-mono' : 'text-amber-300 font-mono font-bold';
+                      if (parseFloat(t) >= 21.0) badgeColor = 'text-orange-400 font-mono font-black';
+
+                      return `
+                        <td class="p-2.5 text-center ${isCurrent ? 'bg-indigo-500/10 border-x border-indigo-500/40' : ''}">
+                          <div class="text-xs ${badgeColor}">${t}</div>
+                          ${isEco ? '<span class="text-[8.5px] text-emerald-400 block font-semibold uppercase">ECO</span>' : ''}
+                        </td>
+                      `;
+                    }).join('')}
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Spiegazione Strategica Risparmio Gas -->
+          <div class="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 text-xs text-slate-300 space-y-1.5 leading-relaxed">
+            <div class="font-bold text-amber-400 flex items-center gap-1.5">
+              <i class="fa-solid fa-seedling"></i>
+              <span>Come questo piano protegge la salute del bimbo e abbatte la bolletta:</span>
+            </div>
+            <ul class="list-disc list-inside space-y-1 text-slate-400 text-[11.5px]">
+              <li><strong>Zero Sbalzi Termici:</strong> Il neonato non subisce cali repentini di temperatura; l'impianto lavora a modulazione continua (rendimento caldaia a condensazione al 105%).</li>
+              <li><strong>Esclusione Spazi Vuoti:</strong> Le valvole di Cabina armadio e Bagno Alex restano chiuse a 0%, concentrando tutta l'acqua calda solo nelle stanze dove si trovano Cinzia e Francesco.</li>
+              <li><strong>Automazione 24/7:</strong> Il server Home Smart OS avanza autonomamente i setpoint nelle fasce orarie corrette ogni ora.</li>
+            </ul>
+          </div>
+
+          <!-- Footer Azioni -->
+          <div class="flex items-center justify-between border-t border-slate-800 pt-3 flex-wrap gap-2">
+            <button onclick="document.getElementById('modal-baby-schedule').remove()" class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all">
+              Chiudi
+            </button>
+            <button onclick="window.adminManager.applyBabyComfortProfile(); document.getElementById('modal-baby-schedule').remove();" class="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400 transition-all flex items-center gap-2 active:scale-95">
+              <i class="fa-solid fa-wand-magic-sparkles"></i>
+              <span>Forza / Riapplica Subito</span>
+            </button>
+          </div>
+
+        </div>
+      </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+  }
+
+  /**
+   * Annulla il tentativo di cattura automatica
     this.isCapturingBosch = false;
     showToast('Cattura automatica annullata.', 'info');
     this.renderView();
