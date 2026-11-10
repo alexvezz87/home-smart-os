@@ -651,51 +651,122 @@ class FloorplanEngine {
       const isSelected = activePin && activePin.pin === p.pin;
       const isEditMode = window.dragEditor?.editMode;
 
-      let fill = '#1e293b';
-      let stroke = '#64748b';
-      let textCol = '#ffffff';
+      let fill = '#0f172a';
+      let stroke = '#334155';
+      let iconColor = '#94a3b8';
+      let iconGlyph = '&#xf108;';
       let subBadge = '';
 
       if (p.category === 'chandelier') {
-        fill = p.isOn ? '#f59e0b' : '#1e293b';
-        stroke = isSelected ? '#22d3ee' : (p.isOn ? '#fef08a' : '#64748b');
-        textCol = p.isOn ? '#0f172a' : '#f8fafc';
-        subBadge = `${p.activeBulbs || 0}/${p.totalBulbs || 0}💡`;
+        iconGlyph = '&#xe2ca;';
+        if (p.isOn) {
+          iconColor = '#f59e0b';
+          fill = '#451a03';
+          stroke = isSelected ? '#22d3ee' : '#f59e0b';
+          subBadge = `${p.activeBulbs || 0}/${p.totalBulbs || 0}💡`;
+        } else {
+          iconColor = '#64748b';
+          fill = '#0f172a';
+          stroke = isSelected ? '#22d3ee' : '#334155';
+        }
       } else if (p.category === 'light') {
-        fill = p.isOn ? '#ef4444' : '#1e293b';
-        stroke = isSelected ? '#22d3ee' : (p.isOn ? '#fde047' : '#64748b');
-        if (p.isOn) subBadge = `${p.brightness || 100}%`;
+        iconGlyph = '&#xf0eb;';
+        if (p.isOn) {
+          iconColor = '#fde047';
+          fill = '#422006';
+          stroke = isSelected ? '#22d3ee' : '#facc15';
+          subBadge = p.brightness ? `${p.brightness}%` : 'ON';
+        } else {
+          iconColor = '#64748b';
+          fill = '#0f172a';
+          stroke = isSelected ? '#22d3ee' : '#334155';
+        }
       } else if (p.category === 'plug') {
-        fill = p.powerW > 15 ? '#2563eb' : (p.isOn ? '#1d4ed8' : '#0f172a');
-        stroke = isSelected ? '#22d3ee' : (p.powerW > 15 ? '#38bdf8' : '#60a5fa');
-        subBadge = `${p.powerW || 0}W`;
+        iconGlyph = '&#xf1e6;';
+        const power = Number(p.powerW) || 0;
+        if (power > 15) {
+          iconColor = '#38bdf8';
+          fill = '#082f49';
+          stroke = isSelected ? '#22d3ee' : '#38bdf8';
+          subBadge = `${Math.round(power)}W`;
+        } else if (p.isOn) {
+          iconColor = '#38bdf8';
+          fill = '#0f172a';
+          stroke = isSelected ? '#22d3ee' : '#0284c7';
+          subBadge = power > 0 ? `${Math.round(power)}W` : 'ON';
+        } else {
+          iconColor = '#475569';
+          fill = '#0f172a';
+          stroke = isSelected ? '#22d3ee' : '#334155';
+        }
       } else if (p.category === 'valve') {
-        const isHeating = p.isHeating || (Number(p.valvePercent) > 15);
-        fill = isHeating ? '#ea580c' : '#334155';
-        stroke = isSelected ? '#22d3ee' : (isHeating ? '#fdba74' : '#64748b');
-        textCol = '#ffffff';
-        subBadge = `${p.temperature || 20.5}°/${p.setpoint || 20.5}°`;
+        iconGlyph = '&#xf769;'; // fa-temperature-half
+        const isHeating = Boolean(p.isHeating || (Number(p.valvePercent) > 15));
+        if (isHeating) {
+          iconColor = '#ea580c';
+          fill = '#431407';
+          stroke = isSelected ? '#22d3ee' : '#f97316';
+        } else {
+          iconColor = '#94a3b8';
+          fill = '#0f172a';
+          stroke = isSelected ? '#22d3ee' : '#334155';
+        }
+        subBadge = `${p.setpoint || p.temperature || 20.5}°`;
       } else if (p.category === 'camera') {
-        fill = p.privacyMode ? '#475569' : '#d946ef';
-        stroke = isSelected ? '#22d3ee' : '#f5d0fe';
-        subBadge = p.privacyMode ? 'PRIV' : 'LIVE';
-      } else if (p.category === 'speaker' || p.category === 'tv') {
-        fill = '#eab308';
-        stroke = isSelected ? '#22d3ee' : '#fef08a';
-        textCol = '#0f172a';
-      } else if (p.category === 'sensor' || p.category === 'climate' || p.category === 'appliance') {
-        fill = '#0284c7';
-        stroke = isSelected ? '#22d3ee' : '#7dd3fc';
-        if (p.pin === 8 && p.temperature) subBadge = `${p.temperature}°C`;
+        if (p.privacyMode) {
+          iconGlyph = '&#xf070;'; // fa-eye-slash
+          iconColor = '#64748b';
+          fill = '#1e293b';
+          stroke = isSelected ? '#22d3ee' : '#475569';
+          subBadge = 'PRIV';
+        } else {
+          iconGlyph = '&#xf03d;'; // fa-video
+          iconColor = '#d946ef';
+          fill = '#3b0764';
+          stroke = isSelected ? '#22d3ee' : '#e879f9';
+          subBadge = 'LIVE';
+        }
+      } else if (p.category === 'speaker') {
+        iconGlyph = '&#xf028;'; // fa-volume-high
+        iconColor = '#eab308';
+        fill = '#1e293b';
+        stroke = isSelected ? '#22d3ee' : '#ca8a04';
+        subBadge = 'Nest';
+      } else if (p.category === 'tv') {
+        iconGlyph = '&#xf26c;'; // fa-tv
+        iconColor = '#a855f7';
+        fill = '#2e1065';
+        stroke = isSelected ? '#22d3ee' : '#c084fc';
+        subBadge = 'TV';
+      } else if (p.category === 'sensor') {
+        iconGlyph = '&#xf09e;'; // fa-rss
+        iconColor = '#10b981';
+        fill = '#064e3b';
+        stroke = isSelected ? '#22d3ee' : '#34d399';
+        if (p.temperature) subBadge = `${p.temperature}°`;
+      } else if (p.category === 'climate') {
+        iconGlyph = '&#xf769;';
+        iconColor = '#06b6d4';
+        fill = '#083344';
+        stroke = isSelected ? '#22d3ee' : '#0891b2';
+        subBadge = p.isOn ? 'ON' : '';
+      } else if (p.category === 'appliance') {
+        iconGlyph = '&#xf1e6;';
+        iconColor = '#38bdf8';
+        fill = '#0f172a';
+        stroke = isSelected ? '#22d3ee' : '#0284c7';
+        if (p.powerW > 0) subBadge = `${Math.round(p.powerW)}W`;
       }
 
-      const radius = p.category === 'chandelier' ? 20 : 15.5;
       const isPinInSelectedRoom = !hasRoomSelection || p.room === this.selectedRoom;
       const isPinInActiveLayer = this.isPinInLayer(p, this.activeLayer);
       const pinOpacity = (isPinInSelectedRoom && isPinInActiveLayer)
         ? '1'
         : (!isPinInActiveLayer ? '0.10' : '0.22');
       const pointerEvents = isPinInActiveLayer ? 'auto' : 'none';
+
+      const badgeWidth = subBadge ? Math.max(28, subBadge.length * 5.8 + 8) : 0;
+      const halfW = +(badgeWidth / 2).toFixed(1);
 
       return `
         <g id="spatial-pin-group-${p.pin}"
@@ -709,20 +780,34 @@ class FloorplanEngine {
            onclick="window.floorplan.handlePinClick(${p.pin}, event)"
            ondblclick="window.floorplan.quickTogglePin(${p.pin}, event)">
           <title>#${p.pin} ${p.name} (${p.room}) — Click: Controlli · Doppio Click: ON/OFF</title>
-          ${isSelected ? `<circle cx="0" cy="0" r="${radius + 9}" fill="none" stroke="#22d3ee" stroke-width="3" opacity="0.95"/>` : ''}
-          ${isEditMode ? `<circle cx="0" cy="0" r="${radius + 5}" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-dasharray="3 3" opacity="0.9"/>` : ''}
-          ${p.category === 'plug' ? `
-            <rect x="-18" y="-13" width="36" height="26" rx="6" fill="${fill}" stroke="${stroke}" stroke-width="${isSelected ? 3.5 : 2.2}"/>
-          ` : p.category === 'valve' ? `
-            <rect x="-17" y="-14" width="34" height="28" rx="8" fill="${fill}" stroke="${stroke}" stroke-width="${isSelected ? 3.5 : 2.2}"/>
-          ` : `
-            <circle cx="0" cy="0" r="${radius}" fill="${fill}" stroke="${stroke}" stroke-width="${isSelected ? 3.5 : 2.2}"/>
-          `}
-          <text x="0" y="4.5" text-anchor="middle" fill="${textCol}" font-size="${p.category === 'valve' ? '11' : '12.5'}" font-weight="900" font-family="Inter, sans-serif">${p.category === 'valve' ? '♨️' + p.pin : p.pin}</text>
+          
+          <!-- Anello Selezione Cyan -->
+          ${isSelected ? `<rect x="-16" y="-16" width="32" height="32" rx="9" ry="9" fill="none" stroke="#22d3ee" stroke-width="2.5" opacity="0.95"/>` : ''}
+          
+          <!-- Anello Tratteggiato Edit Mode Ambra -->
+          ${isEditMode ? `<rect x="-16" y="-16" width="32" height="32" rx="9" ry="9" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-dasharray="3 3" opacity="0.9"/>` : ''}
+          
+          <!-- Squircle Base Compatto 26x26 px -->
+          <rect x="-13" y="-13" width="26" height="26" rx="7" ry="7" fill="${fill}" stroke="${stroke}" stroke-width="${isSelected ? 2.5 : 1.5}"/>
+          
+          <!-- Icona Vettoriale FontAwesome 6 Specifica -->
+          <text x="0" y="1" text-anchor="middle" dominant-baseline="central"
+                fill="${iconColor}"
+                font-family="'Font Awesome 6 Free', 'FontAwesome', sans-serif"
+                font-weight="900"
+                font-size="12.5">${iconGlyph}</text>
+
+          <!-- Micro-Badge Numero Pin in alto a destra -->
+          <g transform="translate(9.5, -9.5)">
+            <circle cx="0" cy="0" r="5" fill="#020617" stroke="${stroke}" stroke-width="0.8" opacity="0.95"/>
+            <text x="0" y="2" text-anchor="middle" fill="#94a3b8" font-size="6.5" font-weight="900" font-family="monospace">${p.pin}</text>
+          </g>
+
+          <!-- Micro-Badge Dati Inferiore Snello e Discreto -->
           ${subBadge ? `
-            <g transform="translate(0, ${radius + 11})">
-              <rect x="-24" y="-8.5" width="48" height="14" rx="4" fill="rgba(2, 6, 23, 0.92)" stroke="${stroke}" stroke-width="1"/>
-              <text x="0" y="2" text-anchor="middle" fill="#f8fafc" font-size="8.5" font-weight="bold" font-family="monospace">${subBadge}</text>
+            <g transform="translate(0, 18.5)">
+              <rect x="-${halfW}" y="-6" width="${badgeWidth.toFixed(1)}" height="12" rx="3.5" fill="rgba(2, 6, 23, 0.94)" stroke="${stroke}" stroke-width="0.8"/>
+              <text x="0" y="2.5" text-anchor="middle" fill="#f8fafc" font-size="7.5" font-weight="bold" font-family="monospace">${subBadge}</text>
             </g>
           ` : ''}
         </g>
