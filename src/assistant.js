@@ -1,6 +1,7 @@
 const mcp = require('./google-home-mcp');
 const eventLogger = require('./event-logger');
 const securitySystem = require('./security-system');
+const geminiVision = require('./gemini-vision');
 
 /**
  * Interprete di comandi in linguaggio naturale (italiano) per la Smart Home.
@@ -13,12 +14,48 @@ async function processAssistantCommand(input) {
 
   // 0a. Cast Telecamera su Nest Hub
   if ((text.includes('mostra') || text.includes('trasmetti') || text.includes('proietta') || text.includes('vedi')) && 
-      (text.includes('telecamera') || text.includes('camera') || text.includes('tapo'))) {
+      (text.includes('telecamera') || text.includes('camera') || text.includes('tapo')) &&
+      (text.includes('nest') || text.includes('hub') || text.includes('schermo') || text.includes('tv'))) {
     const isSalone = text.includes('salone');
     const isLetto = text.includes('letto') || text.includes('camera da letto');
     const targetCamName = isSalone ? 'Salone' : isLetto ? 'Camera da letto' : 'Salone';
     const result = await securitySystem.castToNestHub(targetCamName, mcp);
     return { success: true, action: 'cast_camera', reply: result.message };
+  }
+
+  // 0a-bis. Analisi visiva della scena con Gemini Vision ("Cosa succede in camera", "Guarda in salone", "Francesco dorme?", "Analizza la stanza")
+  const isVisionQuery = (
+    text.includes('cosa sta succedendo') ||
+    text.includes('cosa succede') ||
+    text.includes('guarda in') ||
+    text.includes('analizza') ||
+    text.includes('situazione in') ||
+    text.includes('com\'è la situazione') ||
+    text.includes('come va in') ||
+    text.includes('cosa vedi') ||
+    text.includes('chi c\'è in') ||
+    text.includes('francesco dorme') ||
+    text.includes('il bimbo dorme') ||
+    text.includes('il bambino dorme') ||
+    text.includes('bambino dorme')
+  );
+
+  if (isVisionQuery) {
+    const isLetto = text.includes('letto') || text.includes('camera') || text.includes('francesco') || text.includes('bimbo') || text.includes('bambino') || text.includes('culla');
+    const targetCam = isLetto ? 'letto' : 'salone';
+    const targetRoomName = isLetto ? 'Camera da letto' : 'Salone';
+
+    const result = await geminiVision.analyzeCameraScene(targetCam, input, securitySystem);
+    if (!result.success) {
+      return { success: false, action: 'vision_error', reply: result.message };
+    }
+    return {
+      success: true,
+      action: 'vision_analysis',
+      camera: targetCam,
+      room: targetRoomName,
+      reply: `👁️ [Gemini Vision - ${targetRoomName}]: ${result.analysis}`
+    };
   }
 
   // 0b. Modalità Sicurezza ("A Casa" vs "Fuori Casa")

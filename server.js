@@ -28,6 +28,7 @@ let securitySystem = null;
 let hueLocal = null;
 let spatialEngine = null;
 let evClimateHub = null;
+let geminiVision = null;
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -832,7 +833,34 @@ app.post('/api/camera/:id/config', (req, res) => {
   }
 });
 
-// 1f. WebSocket per streaming RTSP live verso il browser (fallback JSMpeg)
+// 1f. Analisi semantica della scena con Google Gemini Vision Multimodal
+app.post('/api/camera/:id/analyze', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { prompt } = req.body || {};
+    const result = await geminiVision.analyzeCameraScene(id, prompt, securitySystem);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 1g. Stato e configurazione Gemini Vision
+app.get('/api/vision/status', (req, res) => {
+  res.json({ success: true, data: geminiVision.getStatus() });
+});
+
+app.post('/api/vision/config', async (req, res) => {
+  try {
+    const { apiKey } = req.body || {};
+    const result = await geminiVision.setApiKey(apiKey);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// 1h. WebSocket per streaming RTSP live verso il browser (fallback JSMpeg)
 app.ws('/api/stream/:cameraId', (ws, req) => {
   const { cameraId } = req.params;
 
@@ -1006,6 +1034,7 @@ async function bootstrap() {
   hueLocal = require('./src/hue-local');
   spatialEngine = require('./src/spatial-engine');
   evClimateHub = require('./src/ev-climate-hub');
+  geminiVision = require('./src/gemini-vision');
 
   // Inizializza servizi hardware e telemetria
   merossEnergy.init();

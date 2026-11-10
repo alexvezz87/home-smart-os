@@ -265,33 +265,56 @@ class CameraTheaterManager {
           </div>
 
           <!-- BARRA AZIONI RAPIDE 1-CLICK -->
-          <div class="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
             
-            <button onclick="window.cameraTheater.captureSnapshot()" class="py-2.5 px-3 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm">
+            <button onclick="window.cameraTheater.analyzeSceneWithAI()" class="py-2.5 px-3 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-sky-600 hover:from-purple-500 hover:to-sky-500 text-white border border-purple-400/40 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-purple-600/25" title="Analizza la scena corrente con Google Gemini Multimodal Vision">
+              <i class="fa-solid fa-wand-magic-sparkles text-amber-300 text-sm animate-pulse"></i>
+              <span>Analisi AI</span>
+            </button>
+
+            <button onclick="window.cameraTheater.captureSnapshot()" class="py-2.5 px-3 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm" title="Scatta e salva una foto HD">
               <i class="fa-solid fa-camera text-sm"></i>
               <span>Foto HD</span>
             </button>
 
-            <button onclick="window.cameraTheater.togglePrivacy()" class="py-2.5 px-3 rounded-xl ${isPrivacy ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'} border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95">
+            <button onclick="window.cameraTheater.togglePrivacy()" class="py-2.5 px-3 rounded-xl ${isPrivacy ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'} border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95" title="Attiva/disattiva oscuramento fisico telecamera">
               <i class="fa-solid ${isPrivacy ? 'fa-eye' : 'fa-eye-slash'} text-sm"></i>
-              <span>${isPrivacy ? 'Sblocca Obiettivo' : 'Privacy Hardware'}</span>
+              <span>${isPrivacy ? 'Sblocca' : 'Privacy'}</span>
             </button>
 
-            <button onclick="window.cameraTheater.togglePatrol()" class="py-2.5 px-3 rounded-xl ${isPatrol ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'} border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95">
+            <button onclick="window.cameraTheater.togglePatrol()" class="py-2.5 px-3 rounded-xl ${isPatrol ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'} border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95" title="Scansione ciclica tra i punti memorizzati">
               <i class="fa-solid fa-route text-sm ${isPatrol ? 'animate-spin' : ''}"></i>
               <span>${isPatrol ? 'Ferma Ronda' : 'Ronda Auto'}</span>
             </button>
 
-            <button onclick="window.cameraTheater.toggleNightVision()" class="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95">
+            <button onclick="window.cameraTheater.toggleNightVision()" class="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95" title="Alterna profilo notturno IR Boost e diurno">
               <i class="fa-solid fa-moon text-indigo-400 text-sm"></i>
               <span>Night Boost</span>
             </button>
 
-            <button onclick="window.cameraTheater.castToNestHub()" class="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95">
+            <button onclick="window.cameraTheater.castToNestHub()" class="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95" title="Trasmetti video su Google Nest Hub">
               <i class="fa-solid fa-tv text-sky-400 text-sm"></i>
               <span>Nest Hub</span>
             </button>
 
+          </div>
+
+          <!-- BOX RISPOSTA ANALISI AI GEMINI VISION -->
+          <div id="theater-ai-box" class="hidden p-4 rounded-2xl bg-gradient-to-br from-purple-950/40 via-indigo-950/30 to-slate-900 border border-purple-500/30 shadow-xl space-y-2.5 animate-in fade-in duration-300">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2 flex-wrap">
+                <div class="w-6 h-6 rounded-lg bg-purple-500/20 text-purple-300 flex items-center justify-center text-xs">
+                  <i class="fa-solid fa-brain"></i>
+                </div>
+                <span class="text-xs font-bold text-white">Analisi Scena • Google Gemini Vision</span>
+                <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">Multimodal AI</span>
+              </div>
+              <button onclick="document.getElementById('theater-ai-box').classList.add('hidden')" class="text-slate-400 hover:text-white p-1 text-xs">
+                <i class="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+            <div id="theater-ai-text" class="text-xs text-slate-200 leading-relaxed pl-8"></div>
+            <div id="theater-ai-meta" class="text-[10px] text-slate-500 pl-8 font-mono"></div>
           </div>
 
           <!-- GRIGLIA CONTROLLI: PTZ (SX) + PRESET RAPIDI (DX) -->
@@ -830,6 +853,66 @@ class CameraTheaterManager {
       if (!json.success) throw new Error(json.error);
       if (typeof showToast === 'function') showToast(json.message, 'success');
     } catch (err) {
+      if (typeof showToast === 'function') showToast(err.message, 'error');
+    }
+  }
+
+  /**
+   * Analisi visiva semantica della scena corrente con Gemini Vision
+   */
+  async analyzeSceneWithAI() {
+    const cam = this.currentCamData;
+    if (!cam) return;
+
+    const box = document.getElementById('theater-ai-box');
+    const textEl = document.getElementById('theater-ai-text');
+    const metaEl = document.getElementById('theater-ai-meta');
+
+    if (box) box.classList.remove('hidden');
+    if (textEl) {
+      textEl.innerHTML = `
+        <div class="flex items-center gap-2 text-indigo-300 py-1">
+          <i class="fa-solid fa-circle-notch fa-spin text-purple-400"></i>
+          <span>Acquisizione fotogramma HD e comprensione semantica con Gemini Vision in corso...</span>
+        </div>
+      `;
+    }
+    if (metaEl) metaEl.textContent = '';
+
+    try {
+      if (typeof showToast === 'function') showToast('🧠 Analisi visiva con Gemini Vision in corso...', 'info');
+      const res = await fetch(`/api/camera/${encodeURIComponent(cam.id)}/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: 'Descrivi la scena attuale in modo chiaro, naturale e rassicurante.' })
+      });
+      const json = await res.json();
+
+      if (!json.success) {
+        if (textEl) {
+          textEl.innerHTML = `
+            <div class="text-rose-400 flex items-start gap-2">
+              <i class="fa-solid fa-circle-exclamation mt-0.5 shrink-0"></i>
+              <span>${json.message || json.error || 'Errore durante l\'analisi visiva'}</span>
+            </div>
+          `;
+        }
+        if (typeof showToast === 'function') showToast(json.message || 'Errore analisi AI', 'error');
+        return;
+      }
+
+      if (textEl) {
+        textEl.textContent = json.analysis;
+      }
+      if (metaEl) {
+        metaEl.textContent = `Generato da ${json.model || 'Gemini 1.5 Flash'} alle ${new Date(json.timestamp).toLocaleTimeString('it-IT')}`;
+      }
+      if (typeof showToast === 'function') showToast('✨ Analisi completata con successo!', 'success');
+
+    } catch (err) {
+      if (textEl) {
+        textEl.innerHTML = `<span class="text-rose-400">Errore di comunicazione: ${err.message}</span>`;
+      }
       if (typeof showToast === 'function') showToast(err.message, 'error');
     }
   }

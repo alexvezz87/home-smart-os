@@ -38,3 +38,11 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 ## 5. Philips Hue & Telecamere Tapo (`src/hue-local.js`, `src/security-system.js`)
 - **Philips Hue Bridge**: API REST locale (`http://<bridge-ip>/api/<key>/lights`) sincronizzata con i 32 pin della mappa spaziale.
 - **TP-Link Tapo C200 / C210**: Controllo PTZ e notifiche movimento tramite protocollo **ONVIF** (porta 2020) + API nativa Tapo; flusso video **RTSP** (`:554/stream1` e `stream2`) convertito in WebRTC/MSE tramite motore integrato `go2rtc` (porta 1984, < 0.3s latenza); visualizzazione immersiva via Modal Teatro / Maxi-Player a schermo intero ([`public/js/camera-theater.js`](../public/js/camera-theater.js)) con D-Pad ONVIF, memorizzazione preset e snapshot ad alta risoluzione.
+
+---
+
+## 6. Google Gemini Multimodal Vision API (`src/gemini-vision.js`)
+- **Endpoint**: Google Generative Language API v1beta (`models/gemini-1.5-flash:generateContent`).
+- **Autenticazione**: Chiave `GEMINI_API_KEY` o `GOOGLE_API_KEY` (da variabile d'ambiente o salvata con cifratura nel database TiDB Cloud `kv_store`).
+- **Funzionamento On-Demand**: Il motore acquisisce un frame JPEG in memoria tramite `go2rtc.captureSnapshotBuffer` solo quando interrogato (on-demand), convertendolo in base64 senza inviare flussi continui nel cloud.
+- **Integrazione**: Richiamato dall'Assistente Vocale/Chat (`src/assistant.js`), dal pulsante *"Analisi AI"* nel Maxi-Player (`public/js/camera-theater.js`) e dai controlli diagnostici in Amministrazione (`public/js/admin.js`).
