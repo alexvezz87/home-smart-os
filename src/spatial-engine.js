@@ -582,6 +582,19 @@ class SpatialEngine {
         x: 44.0,
         y: 32.0,
         nearbyPins: [14, 13]
+      },
+      {
+        pin: 42,
+        name: 'Baby Monitor Francesco',
+        room: 'Camera da letto',
+        microZone: 'culla_francesco',
+        category: 'camera',
+        cameraId: 'baby',
+        vendor: 'GHB BABY6T 2K',
+        x: 30.5,
+        y: 18.5,
+        baseHeadingDeg: -90,
+        nearbyPins: [1, 2, 3, 5, 6]
       }
     ];
 

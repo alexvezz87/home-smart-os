@@ -54,17 +54,26 @@ class Go2RtcManager {
       const uEnc = encodeURIComponent(user);
       const pEnc = encodeURIComponent(pass);
       const streamKey = this.getStreamKey(cam.id, cam.name);
+      const rtspPort = cam.rtspPort || 554;
 
-      // Stream principale (configurato dall'utente: stream1 o stream2)
-      const q = cam.streamQuality || 'stream2';
-      lines.push(`  ${streamKey}:`);
-      lines.push(`    - rtsp://${uEnc}:${pEnc}@${ip}:554/${q}`);
-
-      // Stream HD (stream1) e SD (stream2) sempre disponibili
-      lines.push(`  ${streamKey}_hd:`);
-      lines.push(`    - rtsp://${uEnc}:${pEnc}@${ip}:554/stream1`);
-      lines.push(`  ${streamKey}_sd:`);
-      lines.push(`    - rtsp://${uEnc}:${pEnc}@${ip}:554/stream2`);
+      if (cam.rtspPath) {
+        // Telecamera custom / Baby Monitor (es. GHB BABY6T)
+        lines.push(`  ${streamKey}:`);
+        lines.push(`    - rtsp://${uEnc}:${pEnc}@${ip}:${rtspPort}${cam.rtspPath}`);
+        lines.push(`  ${streamKey}_hd:`);
+        lines.push(`    - rtsp://${uEnc}:${pEnc}@${ip}:${rtspPort}${cam.rtspPath}`);
+        lines.push(`  ${streamKey}_sd:`);
+        lines.push(`    - rtsp://${uEnc}:${pEnc}@${ip}:${rtspPort}${cam.rtspPath}`);
+      } else {
+        // Telecamera Tapo standard (stream1 HD, stream2 SD)
+        const q = cam.streamQuality || 'stream2';
+        lines.push(`  ${streamKey}:`);
+        lines.push(`    - rtsp://${uEnc}:${pEnc}@${ip}:${rtspPort}/${q}`);
+        lines.push(`  ${streamKey}_hd:`);
+        lines.push(`    - rtsp://${uEnc}:${pEnc}@${ip}:${rtspPort}/stream1`);
+        lines.push(`  ${streamKey}_sd:`);
+        lines.push(`    - rtsp://${uEnc}:${pEnc}@${ip}:${rtspPort}/stream2`);
+      }
     }
 
     if (!fs.existsSync(this.binDir)) {
@@ -75,6 +84,7 @@ class Go2RtcManager {
 
   getStreamKey(cameraId, cameraName = '') {
     const n = (cameraName || cameraId || '').toLowerCase();
+    if (n.includes('francesco') || n.includes('baby') || n.includes('ghb') || n.includes('culla')) return 'baby_francesco';
     if (n.includes('salone') || String(cameraId).includes('1ca73bcd')) return 'salone';
     if (n.includes('letto') || String(cameraId).includes('7a20d851')) return 'camera_letto';
     return String(cameraId).replace(/[^a-zA-Z0-9_-]/g, '_');

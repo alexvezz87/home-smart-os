@@ -40,7 +40,8 @@ class CameraTheaterManager {
     // Risoluzione dati telecamera
     let targetId = 'salone';
     if (typeof camOrPin === 'object' && camOrPin !== null) {
-      targetId = camOrPin.cameraId || camOrPin.id || (camOrPin.name?.toLowerCase().includes('letto') ? 'letto' : 'salone');
+      const n = (camOrPin.name || '').toLowerCase();
+      targetId = camOrPin.cameraId || camOrPin.id || (n.includes('francesco') || n.includes('baby') || n.includes('culla') ? 'baby' : n.includes('letto') ? 'letto' : 'salone');
     } else if (typeof camOrPin === 'string') {
       targetId = camOrPin;
     }
@@ -98,8 +99,8 @@ class CameraTheaterManager {
         this.currentCamData = cameras.find(c => 
           c.id.toLowerCase() === cid ||
           (c.name && c.name.toLowerCase().includes(cid)) ||
-          (c.room && c.room.toLowerCase().includes(cid)) ||
-          (cid.includes('letto') && c.name.toLowerCase().includes('letto')) ||
+          ((cid.includes('baby') || cid.includes('francesco') || cid.includes('culla')) && (c.name.toLowerCase().includes('francesco') || c.name.toLowerCase().includes('baby'))) ||
+          (cid.includes('letto') && !cid.includes('baby') && c.name.toLowerCase().includes('letto') && !c.name.toLowerCase().includes('baby')) ||
           (cid.includes('salone') && c.name.toLowerCase().includes('salone'))
         ) || cameras[0] || null;
 
@@ -162,11 +163,21 @@ class CameraTheaterManager {
           <!-- Pulsanti Rapidi Header -->
           <div class="flex items-center gap-2">
             
-            <!-- Switch Rapido Altra Telecamera -->
-            <button onclick="window.cameraTheater.open('${altCamId}')" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-semibold text-slate-200 border border-slate-700/80 transition-all flex items-center gap-1.5" title="Passa a ${altCamName}">
-              <i class="fa-solid fa-camera-rotate text-purple-400"></i>
-              <span class="hidden sm:inline">Passa a</span> <span>${altCamName}</span>
-            </button>
+            <!-- Switch Rapido Telecamere -->
+            <div class="flex items-center gap-1 bg-slate-800/80 p-1 rounded-xl border border-slate-700/80">
+              ${(this.allCameras || []).map(c => {
+                const isCur = c.id === cam.id;
+                let shortLabel = c.name;
+                if (c.name.includes('Francesco') || c.name.includes('Baby')) shortLabel = '👶 Baby 2K';
+                else if (c.name.includes('Salone')) shortLabel = '🛋️ Salone';
+                else if (c.name.includes('letto')) shortLabel = '🛏️ Letto';
+                return `
+                  <button onclick="window.cameraTheater.open('${c.id}')" class="px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${isCur ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-300 hover:text-white hover:bg-slate-700/60'}" title="${c.name}">
+                    ${shortLabel}
+                  </button>
+                `;
+              }).join('')}
+            </div>
 
             <!-- Selettore Motore Streaming (WebRTC / JSMpeg) -->
             <button onclick="window.cameraTheater.toggleStreamEngine()" class="px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 active:scale-95 text-[11px] font-mono text-cyan-300 border border-cyan-500/30 transition-all flex items-center gap-1.5" title="Cambia motore streaming (WebRTC ultra-low latency vs JSMpeg)">

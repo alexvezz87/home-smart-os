@@ -744,7 +744,8 @@ async function ptzMove(camId, directionOrPan, tilt) {
     }
 
     let targetId = camId;
-    if (camId === 'letto' || camId === 'camera') targetId = 'device@7a20d851-543b-4ae8-845c-edca07903c30';
+    if (camId === 'baby' || camId === 'francesco' || camId === 'ghb') targetId = 'device@ghb-baby6t-francesco';
+    else if (camId === 'letto' || camId === 'camera') targetId = 'device@7a20d851-543b-4ae8-845c-edca07903c30';
     else if (camId === 'salone') targetId = 'device@1ca73bcd-1f86-4082-b16d-5a4aa6d40ec3';
 
     const res = await fetch(`/api/camera/${encodeURIComponent(targetId)}/ptz`, {

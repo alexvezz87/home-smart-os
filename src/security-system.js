@@ -83,6 +83,35 @@ class SecuritySystem {
           { id: 2, name: 'Porta d\'Ingresso', pan: 50, tilt: 5, x: 50, y: 5 },
           { id: 3, name: 'Zona Finestre', pan: -50, tilt: 10, x: -50, y: 10 }
         ]
+      },
+      'device@ghb-baby6t-francesco': {
+        id: 'device@ghb-baby6t-francesco',
+        name: 'Baby Monitor Francesco',
+        room: 'Camera da letto',
+        model: 'GHB BABY6T 2K',
+        firmware: '1.0.0',
+        privacyMode: false,
+        motionDetection: false,
+        ledEnabled: true,
+        nightVision: 'auto',
+        patrolActive: false,
+        online: true,
+        ip: process.env.GHB_CAM_IP || '192.168.1.75',
+        user: process.env.GHB_CAM_USER || 'admin',
+        password: process.env.GHB_CAM_PASS || '',
+        cloudPassword: '',
+        onvifPort: parseInt(process.env.GHB_CAM_ONVIF_PORT, 10) || 8000,
+        rtspPort: parseInt(process.env.GHB_CAM_RTSP_PORT, 10) || 8554,
+        rtspPath: process.env.GHB_CAM_RTSP_PATH || '/Streaming/Channels/101',
+        streamQuality: 'stream1',
+        ptz: { pan: 0, tilt: 0 },
+        imaging: { brightness: 50, contrast: 50, colorSaturation: 50, sharpness: 50 },
+        lastMotion: null,
+        lastEventType: null,
+        presets: [
+          { id: 1, name: 'Culla Francesco', pan: 0, tilt: 0, x: 0, y: 0 },
+          { id: 2, name: 'Panoramica Letto', pan: 45, tilt: 15, x: 45, y: 15 }
+        ]
       }
     };
 
@@ -171,10 +200,22 @@ class SecuritySystem {
 
   resolveCamera(cameraId) {
     if (!cameraId) return null;
-    return this.cameras[cameraId] || Object.values(this.cameras).find(
-      c => c.name.toLowerCase().includes(String(cameraId).toLowerCase()) ||
-           c.room.toLowerCase().includes(String(cameraId).toLowerCase())
-    );
+    const str = String(cameraId).toLowerCase().trim();
+    if (this.cameras[cameraId]) return this.cameras[cameraId];
+    if (str === 'baby' || str === 'francesco' || str === 'ghb' || str === 'culla' || str.includes('baby') || str.includes('francesco') || str.includes('culla')) {
+      return this.cameras['device@ghb-baby6t-francesco'] || Object.values(this.cameras).find(c => c.name.toLowerCase().includes('francesco'));
+    }
+    if (str === 'salone' || str.includes('salone')) {
+      return this.cameras['device@1ca73bcd-1f86-4082-b16d-5a4aa6d40ec3'] || Object.values(this.cameras).find(c => c.name.toLowerCase().includes('salone'));
+    }
+    if (str === 'letto' || str === 'camera' || str.includes('letto')) {
+      return this.cameras['device@7a20d851-543b-4ae8-845c-edca07903c30'] || Object.values(this.cameras).find(c => c.name.toLowerCase().includes('camera da letto'));
+    }
+    return Object.values(this.cameras).find(
+      c => c.id.toLowerCase().includes(str) ||
+           c.name.toLowerCase().includes(str) ||
+           c.room.toLowerCase().includes(str)
+    ) || null;
   }
 
   getStatus() {
@@ -217,6 +258,11 @@ class SecuritySystem {
     const ip = cam.ip || (cam.name === 'Salone' ? '192.168.1.74' : (cam.name.toLowerCase().includes('letto') ? '192.168.1.161' : null));
 
     if (!ip || !user || !pass) return null;
+
+    if (cam.rtspPath) {
+      const port = cam.rtspPort || 8554;
+      return `rtsp://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${ip}:${port}${cam.rtspPath}`;
+    }
 
     const stream = cam.streamQuality || 'stream2';
     return `rtsp://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${ip}:554/${stream}`;
@@ -293,7 +339,7 @@ class SecuritySystem {
         hostname: cam.ip,
         username: cam.user,
         password: cam.password,
-        port: 2020,
+        port: cam.onvifPort || 2020,
         timeout: 4000
       }, (err) => {
         if (err) {

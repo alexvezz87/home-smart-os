@@ -85,7 +85,9 @@ Riorganizzata con un'architettura **modulare a schede (Tab Switcher)** con persi
    - **Modal Teatro / Maxi-Player (`public/js/camera-theater.js`)**: visualizzazione ad alta definizione a tutto schermo richiamabile con 1-click dalla planimetria, dal drawer laterale o dall'hub Amministrazione, comprensivo di tasto rapido *"Analisi AI"* con box descrittivo istantaneo.
    - Overlay HUD trasparente con badge LIVE/REC, orologio dinamico, coordinate Pan/Tilt e toggle Fullscreen nativo.
    - Controlli motorizzati PTZ con D-Pad ONVIF a 5 vie, preset rapidi di puntamento (*Salone / Divano / Ingresso / Letto*), salvataggio inquadratura al volo (*"Salva Posizione"*), modalità Privacy hardware con schermata protetta, scatto Snapshot HD istantaneo con galleria fotografica e ronda automatica ciclica.
-   - Telecamere Tapo C200/C210 Salone (`192.168.1.74`) e Camera da letto (`192.168.1.161`): porta ONVIF 2020 e stream RTSP standard `:554/stream1`.
+   - Parco telecamere integrato:
+     - Telecamere Tapo C200/C210 Salone (`192.168.1.74`) e Camera da letto (`192.168.1.161`): porta ONVIF 2020 e stream RTSP standard `:554/stream1`.
+     - Baby Monitor GHB BABY6T 2K (`192.168.1.75`): porta ONVIF 8000, stream RTSP 2K `:8554/Streaming/Channels/101`, orientata sulla culla di Francesco in Camera da letto (pin spaziale `#42`), con prompt Gemini dedicato per il controllo del neonato (sonno, sacco nanna, sicurezza culla).
 6. 🗺️ **Editor Piantina (Digital Twin Blueprint Editor)**:
    - Blocco/sblocco interattivo Drag & Drop della mappa planimetrica con ricalcolo immediato dell'assegnazione spaziale alle stanze e grafo di prossimità.
    - Cassetto dinamico dispositivi non collocati e pulsante di ripristino coordinate di fabbrica.

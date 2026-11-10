@@ -890,8 +890,8 @@ class AdminManager {
           </div>
         </div>
 
-        <!-- Griglia Telecamere Salone & Letto -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- Griglia Telecamere Salone, Letto & Baby Monitor -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
           
           <!-- Telecamera Salone -->
           <div class="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3.5 shadow-sm">
@@ -973,6 +973,48 @@ class AdminManager {
                 <button onclick="if(window.ptzMove) window.ptzMove('letto', 'center')" class="p-2 rounded-lg bg-purple-600/40 hover:bg-purple-600 text-xs text-white" title="Ricentra"><i class="fa-solid fa-crosshairs"></i></button>
                 <button onclick="if(window.ptzMove) window.ptzMove('letto', 'down')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white" title="Giù"><i class="fa-solid fa-arrow-down"></i></button>
                 <button onclick="if(window.ptzMove) window.ptzMove('letto', 'right')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white" title="Destra"><i class="fa-solid fa-arrow-right"></i></button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Baby Monitor GHB BABY6T (Culla Francesco) -->
+          <div class="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3.5 shadow-sm">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-lg bg-pink-500/20 text-pink-400 flex items-center justify-center">
+                  <i class="fa-solid fa-baby text-xs"></i>
+                </div>
+                <div>
+                  <span class="text-xs font-bold text-white block">Baby Monitor Francesco</span>
+                  <span class="text-[10px] text-slate-400">GHB BABY6T 2K (CloudEdge)</span>
+                </div>
+              </div>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20">192.168.1.75</span>
+            </div>
+
+            <p class="text-[11px] text-slate-400 font-mono">Porta ONVIF: <strong>8000</strong> · Stream: <code>rtsp://192.168.1.75:8554/Streaming/Channels/101</code></p>
+            
+            <!-- Azioni Rapide Telecamera -->
+            <div class="flex items-center gap-2 pt-1">
+              <button onclick="window.cameraTheater.open('baby')" class="flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 active:scale-95 text-white font-bold text-xs shadow-md shadow-pink-600/30 flex items-center justify-center gap-1.5 transition-all">
+                <i class="fa-solid fa-expand"></i>
+                <span>Maxi-Player WebRTC</span>
+              </button>
+              <button onclick="window.cameraTheater.currentCamId='baby'; window.cameraTheater.captureSnapshot();" class="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-pink-300 border border-slate-700 text-xs font-semibold flex items-center gap-1 transition-all" title="Scatta Foto HD Culla">
+                <i class="fa-solid fa-camera"></i>
+                <span>Foto HD</span>
+              </button>
+            </div>
+
+            <!-- Frecce PTZ -->
+            <div class="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+              <span class="text-[11px] text-slate-400 font-medium">Brandeggio ONVIF:</span>
+              <div class="flex items-center gap-1.5">
+                <button onclick="if(window.ptzMove) window.ptzMove('baby', 'left')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white" title="Sinistra"><i class="fa-solid fa-arrow-left"></i></button>
+                <button onclick="if(window.ptzMove) window.ptzMove('baby', 'up')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white" title="Su"><i class="fa-solid fa-arrow-up"></i></button>
+                <button onclick="if(window.ptzMove) window.ptzMove('baby', 'center')" class="p-2 rounded-lg bg-pink-600/40 hover:bg-pink-600 text-xs text-white" title="Ricentra"><i class="fa-solid fa-crosshairs"></i></button>
+                <button onclick="if(window.ptzMove) window.ptzMove('baby', 'down')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white" title="Giù"><i class="fa-solid fa-arrow-down"></i></button>
+                <button onclick="if(window.ptzMove) window.ptzMove('baby', 'right')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white" title="Destra"><i class="fa-solid fa-arrow-right"></i></button>
               </div>
             </div>
           </div>

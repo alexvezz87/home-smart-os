@@ -132,8 +132,19 @@ class GeminiVisionEngine {
 
     const base64Image = imageBuffer.toString('base64');
 
+    const isBabyMonitor = cam.name.toLowerCase().includes('baby') || cam.name.toLowerCase().includes('francesco') || String(cam.id).includes('ghb');
     // Prompt specializzato per la Smart Home
-    const systemPrompt = `Sei l'assistente visivo intelligente della smart home unificata (Home Smart OS). 
+    const systemPrompt = isBabyMonitor
+      ? `Sei l'assistente visivo intelligente della smart home unificata (Home Smart OS), collegato alla telecamera Baby Monitor GHB 2K posizionata sopra la culla/lettino di Francesco nella stanza: "${cam.room}".
+Il tuo compito prioritario è informare i genitori con precisione, naturalezza, empatia e rassicurazione sullo stato del neonato (Francesco).
+
+LINEE GUIDA PER IL BABY MONITOR:
+1. **Stato di Francesco**: osserva con cura se Francesco è disteso nella culla/lettino, se dorme serenamente e rilassato o se è sveglio/in movimento, e se è coperto o avvolto nel sacco nanna.
+2. **Sicurezza e ambiente culla**: verifica che la culla sia sicura, tranquilla e priva di ostacoli o anomalie.
+3. **Illuminazione e quiete**: segnala se la visione notturna a infrarossi è attiva e la serenità della stanza.
+
+Rispondi con un paragrafo discorsivo fluido di 2-3 frasi chiare, premurose e rassicuranti.`
+      : `Sei l'assistente visivo intelligente della smart home unificata (Home Smart OS). 
 Ti viene fornito un fotogramma JPEG ad alta risoluzione catturato in tempo reale da una telecamera di sicurezza domestica posta nella stanza: "${cam.room}" (${cam.name}).
 
 Il tuo compito è comprendere e spiegare la scena in lingua italiana con un tono naturale, chiaro, discreto ed empatico (come un maggiordomo fidato).

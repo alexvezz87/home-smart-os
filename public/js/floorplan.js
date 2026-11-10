@@ -1169,15 +1169,16 @@ class FloorplanEngine {
               `;
             }
 
-            // SCHEDA TELECAMERA TAPO
+            // SCHEDA TELECAMERA
             if (isCam) {
-              const camId = p.cameraId || (p.name.includes('Salone') ? 'salone' : 'letto');
+              const camId = p.cameraId || (p.name.includes('Salone') ? 'salone' : (p.name.includes('Baby') || p.name.includes('Francesco') ? 'baby' : 'letto'));
+              const isBaby = p.name.includes('Baby') || p.name.includes('Francesco');
               return `
                 <div class="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 hover:border-purple-500/50 transition-all flex items-center justify-between gap-2.5 cursor-pointer shadow-sm group"
                      onclick="window.cameraTheater.open('${camId}')">
                   <div class="flex items-center gap-2.5 overflow-hidden">
-                    <div class="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center shrink-0">
-                      <i class="fa-solid fa-video text-xs"></i>
+                    <div class="w-8 h-8 rounded-lg ${isBaby ? 'bg-pink-500/20 text-pink-400' : 'bg-purple-500/20 text-purple-400'} flex items-center justify-center shrink-0">
+                      <i class="fa-solid ${isBaby ? 'fa-baby' : 'fa-video'} text-xs"></i>
                     </div>
                     <div class="truncate">
                       <div class="text-xs font-bold text-white truncate flex items-center gap-1.5">
@@ -1185,13 +1186,13 @@ class FloorplanEngine {
                         <span class="truncate">${p.name}</span>
                       </div>
                       <div class="text-[10px] text-slate-400 truncate">
-                        ${p.room} · <strong class="text-emerald-400">WebRTC Live</strong>
+                        ${p.room} · <strong class="text-emerald-400">${isBaby ? '2K Live' : 'WebRTC Live'}</strong>
                       </div>
                     </div>
                   </div>
 
                   <div class="flex items-center gap-1.5 shrink-0" onclick="event.stopPropagation()">
-                    <button onclick="window.cameraTheater.open('${camId}')" class="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 active:scale-95 text-white font-bold text-[10.5px] transition-all shadow-sm flex items-center gap-1">
+                    <button onclick="window.cameraTheater.open('${camId}')" class="px-2.5 py-1 rounded-lg ${isBaby ? 'bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500' : 'bg-purple-600 hover:bg-purple-500'} active:scale-95 text-white font-bold text-[10.5px] transition-all shadow-sm flex items-center gap-1">
                       <i class="fa-solid fa-expand text-[9px]"></i>
                       <span>Teatro</span>
                     </button>
