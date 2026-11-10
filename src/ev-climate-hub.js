@@ -381,6 +381,16 @@ class EvClimateHub {
       this.syncVolvoEx30(),
       this.syncBoschEasyControl()
     ]);
+
+    // Automazione continua: se il Profilo Neonato "Cinzia & Francesco" è attivo,
+    // verifica ogni ora se è necessario adeguare le fasce (es. cena, nanna, risveglio)
+    if (this.config.bosch?.babyComfortProfileActive && this.boschState.connected) {
+      const currentHour = new Date().getHours();
+      if (this._lastBabyProfileHour !== currentHour) {
+        this._lastBabyProfileHour = currentHour;
+        this.applyBabyComfortProfile().catch(() => {});
+      }
+    }
   }
 
   // =========================================================================
