@@ -37,4 +37,4 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 
 ## 5. Philips Hue & Telecamere Tapo (`src/hue-local.js`, `src/security-system.js`)
 - **Philips Hue Bridge**: API REST locale (`http://<bridge-ip>/api/<key>/lights`) sincronizzata con i 32 pin della mappa spaziale.
-- **TP-Link Tapo C200**: Controllo PTZ e notifiche movimento tramite protocollo **ONVIF** + API nativa Tapo; flusso video **RTSP** (`:554/stream1` e `stream2`) convertito in WebRTC/MSE tramite `go2rtc`.
+- **TP-Link Tapo C200 / C210**: Controllo PTZ e notifiche movimento tramite protocollo **ONVIF** (porta 2020) + API nativa Tapo; flusso video **RTSP** (`:554/stream1` e `stream2`) convertito in WebRTC/MSE tramite motore integrato `go2rtc` (porta 1984, < 0.3s latenza); visualizzazione immersiva via Modal Teatro / Maxi-Player a schermo intero ([`public/js/camera-theater.js`](../public/js/camera-theater.js)) con D-Pad ONVIF, memorizzazione preset e snapshot ad alta risoluzione.

@@ -1169,9 +1169,39 @@ class FloorplanEngine {
               `;
             }
 
-            // ALTRE SCHEDE (CAMERE, NEST, SENSORI, APPLIANCE)
-            const icon = isCam ? 'fa-video text-purple-400' :
-                         p.category === 'speaker' ? 'fa-volume-high text-yellow-400' :
+            // SCHEDA TELECAMERA TAPO
+            if (isCam) {
+              const camId = p.cameraId || (p.name.includes('Salone') ? 'salone' : 'letto');
+              return `
+                <div class="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 hover:border-purple-500/50 transition-all flex items-center justify-between gap-2.5 cursor-pointer shadow-sm group"
+                     onclick="window.cameraTheater.open('${camId}')">
+                  <div class="flex items-center gap-2.5 overflow-hidden">
+                    <div class="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center shrink-0">
+                      <i class="fa-solid fa-video text-xs"></i>
+                    </div>
+                    <div class="truncate">
+                      <div class="text-xs font-bold text-white truncate flex items-center gap-1.5">
+                        <span class="text-[10px] text-slate-400 font-mono">#${p.pin}</span>
+                        <span class="truncate">${p.name}</span>
+                      </div>
+                      <div class="text-[10px] text-slate-400 truncate">
+                        ${p.room} · <strong class="text-emerald-400">WebRTC Live</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="flex items-center gap-1.5 shrink-0" onclick="event.stopPropagation()">
+                    <button onclick="window.cameraTheater.open('${camId}')" class="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 active:scale-95 text-white font-bold text-[10.5px] transition-all shadow-sm flex items-center gap-1">
+                      <i class="fa-solid fa-expand text-[9px]"></i>
+                      <span>Teatro</span>
+                    </button>
+                  </div>
+                </div>
+              `;
+            }
+
+            // ALTRE SCHEDE (NEST, SENSORI, APPLIANCE)
+            const icon = p.category === 'speaker' ? 'fa-volume-high text-yellow-400' :
                          p.category === 'tv' ? 'fa-tv text-purple-400' :
                          p.category === 'sensor' ? 'fa-temperature-half text-sky-400' : 'fa-microchip text-slate-400';
 
@@ -1231,6 +1261,11 @@ class FloorplanEngine {
     const p = pins.find(item => item.pin === Number(pinNum));
     if (p) {
       if (p.room) this.selectedRoom = p.room;
+      // Se telecamera, apri direttamente il Maxi-Player Modal Teatro
+      if (p.category === 'camera' && window.cameraTheater) {
+        window.cameraTheater.open(p);
+        return;
+      }
       if (window.deviceSheet) {
         window.deviceSheet.open(p);
       }

@@ -856,10 +856,15 @@ class AdminManager {
   // SCHEDA 5: 📹 SICUREZZA, TELECAMERE TAPO & GO2RTC
   // =========================================================================
   renderSecurityPane(data) {
+    const sec = data?.security || {};
+    const mode = sec.mode || 'home';
+    const isAway = mode === 'away' || mode === 'Fuori Casa';
+    const snapshots = sec.snapshots || [];
+
     return `
       <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-6">
         
-        <!-- Header Sicurezza -->
+        <!-- Header Sicurezza & Modalità Allarme -->
         <div class="flex items-center justify-between flex-wrap gap-4 border-b border-slate-800 pb-4">
           <div class="flex items-center gap-3">
             <div class="w-12 h-12 rounded-2xl bg-purple-500/15 text-purple-400 border border-purple-500/30 flex items-center justify-center text-2xl shadow-lg shadow-purple-500/10">
@@ -868,49 +873,141 @@ class AdminManager {
             <div>
               <div class="flex items-center gap-2">
                 <h3 class="text-base font-bold text-white tracking-tight">Sicurezza Domestica &amp; Telecamere Tapo</h3>
-                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">go2rtc WebRTC</span>
+                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">go2rtc WebRTC (:1984)</span>
               </div>
-              <p class="text-xs text-slate-400">Streaming ultra-bassa latenza (porta 1984), controllo motorizzato ONVIF PTZ e privacy hardware</p>
+              <p class="text-xs text-slate-400">Streaming ultra-bassa latenza, controllo motorizzato ONVIF PTZ, privacy hardware e snapshot HD</p>
             </div>
+          </div>
+
+          <!-- Switch Rapido Stato Sorveglianza -->
+          <div class="flex items-center gap-2">
+            <button onclick="if(window.cycleSecurityMode) window.cycleSecurityMode()" class="px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+              isAway ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/30' : 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30'
+            }">
+              <i class="fa-solid ${isAway ? 'fa-shield-halved' : 'fa-house-shield'}"></i>
+              <span>${isAway ? 'Stato: 🚨 ARMATO' : 'Stato: 🛡️ A CASA'}</span>
+            </button>
           </div>
         </div>
 
+        <!-- Griglia Telecamere Salone & Letto -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          
           <!-- Telecamera Salone -->
-          <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
+          <div class="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3.5 shadow-sm">
             <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <i class="fa-solid fa-video text-purple-400"></i>
-                <span class="text-xs font-bold text-white">Telecamera Salone (Tapo C210)</span>
+              <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center">
+                  <i class="fa-solid fa-video text-xs"></i>
+                </div>
+                <div>
+                  <span class="text-xs font-bold text-white block">Telecamera Salone</span>
+                  <span class="text-[10px] text-slate-400">Tapo C200 / C210</span>
+                </div>
               </div>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono text-emerald-400 bg-emerald-500/10">192.168.1.74</span>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20">192.168.1.74</span>
             </div>
-            <p class="text-[11px] text-slate-400">Porta ONVIF: <strong>2020</strong> · Stream RTSP: <code>rtsp://192.168.1.74:554/stream1</code></p>
+
+            <p class="text-[11px] text-slate-400 font-mono">Porta ONVIF: <strong>2020</strong> · Stream: <code>rtsp://192.168.1.74:554/stream1</code></p>
+            
+            <!-- Azioni Rapide Telecamera -->
             <div class="flex items-center gap-2 pt-1">
-              <button onclick="if(window.ptzMove) window.ptzMove('salone', 'left')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white"><i class="fa-solid fa-arrow-left"></i></button>
-              <button onclick="if(window.ptzMove) window.ptzMove('salone', 'right')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white"><i class="fa-solid fa-arrow-right"></i></button>
-              <button onclick="if(window.ptzMove) window.ptzMove('salone', 'up')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white"><i class="fa-solid fa-arrow-up"></i></button>
-              <button onclick="if(window.ptzMove) window.ptzMove('salone', 'down')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white"><i class="fa-solid fa-arrow-down"></i></button>
+              <button onclick="window.cameraTheater.open('salone')" class="flex-1 py-2 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 active:scale-95 text-white font-bold text-xs shadow-md shadow-purple-600/30 flex items-center justify-center gap-1.5 transition-all">
+                <i class="fa-solid fa-expand"></i>
+                <span>Maxi-Player WebRTC</span>
+              </button>
+              <button onclick="window.cameraTheater.currentCamId='salone'; window.cameraTheater.captureSnapshot();" class="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-emerald-400 border border-slate-700 text-xs font-semibold flex items-center gap-1 transition-all" title="Scatta Foto HD">
+                <i class="fa-solid fa-camera"></i>
+                <span>Foto HD</span>
+              </button>
+            </div>
+
+            <!-- Frecce PTZ -->
+            <div class="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+              <span class="text-[11px] text-slate-400 font-medium">Brandeggio ONVIF:</span>
+              <div class="flex items-center gap-1.5">
+                <button onclick="if(window.ptzMove) window.ptzMove('salone', 'left')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white" title="Sinistra"><i class="fa-solid fa-arrow-left"></i></button>
+                <button onclick="if(window.ptzMove) window.ptzMove('salone', 'up')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white" title="Su"><i class="fa-solid fa-arrow-up"></i></button>
+                <button onclick="if(window.ptzMove) window.ptzMove('salone', 'center')" class="p-2 rounded-lg bg-purple-600/40 hover:bg-purple-600 text-xs text-white" title="Ricentra"><i class="fa-solid fa-crosshairs"></i></button>
+                <button onclick="if(window.ptzMove) window.ptzMove('salone', 'down')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white" title="Giù"><i class="fa-solid fa-arrow-down"></i></button>
+                <button onclick="if(window.ptzMove) window.ptzMove('salone', 'right')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white" title="Destra"><i class="fa-solid fa-arrow-right"></i></button>
+              </div>
             </div>
           </div>
 
           <!-- Telecamera Camera da letto -->
-          <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
+          <div class="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3.5 shadow-sm">
             <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <i class="fa-solid fa-video text-purple-400"></i>
-                <span class="text-xs font-bold text-white">Telecamera Camera (Tapo C210)</span>
+              <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center">
+                  <i class="fa-solid fa-video text-xs"></i>
+                </div>
+                <div>
+                  <span class="text-xs font-bold text-white block">Telecamera Camera da Letto</span>
+                  <span class="text-[10px] text-slate-400">Tapo C200 / C210</span>
+                </div>
               </div>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono text-emerald-400 bg-emerald-500/10">192.168.1.161</span>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20">192.168.1.161</span>
             </div>
-            <p class="text-[11px] text-slate-400">Porta ONVIF: <strong>2020</strong> · Stream RTSP: <code>rtsp://192.168.1.161:554/stream1</code></p>
+
+            <p class="text-[11px] text-slate-400 font-mono">Porta ONVIF: <strong>2020</strong> · Stream: <code>rtsp://192.168.1.161:554/stream1</code></p>
+            
+            <!-- Azioni Rapide Telecamera -->
             <div class="flex items-center gap-2 pt-1">
-              <button onclick="if(window.ptzMove) window.ptzMove('camera', 'left')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white"><i class="fa-solid fa-arrow-left"></i></button>
-              <button onclick="if(window.ptzMove) window.ptzMove('camera', 'right')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white"><i class="fa-solid fa-arrow-right"></i></button>
-              <button onclick="if(window.ptzMove) window.ptzMove('camera', 'up')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white"><i class="fa-solid fa-arrow-up"></i></button>
-              <button onclick="if(window.ptzMove) window.ptzMove('camera', 'down')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white"><i class="fa-solid fa-arrow-down"></i></button>
+              <button onclick="window.cameraTheater.open('letto')" class="flex-1 py-2 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 active:scale-95 text-white font-bold text-xs shadow-md shadow-purple-600/30 flex items-center justify-center gap-1.5 transition-all">
+                <i class="fa-solid fa-expand"></i>
+                <span>Maxi-Player WebRTC</span>
+              </button>
+              <button onclick="window.cameraTheater.currentCamId='letto'; window.cameraTheater.captureSnapshot();" class="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-emerald-400 border border-slate-700 text-xs font-semibold flex items-center gap-1 transition-all" title="Scatta Foto HD">
+                <i class="fa-solid fa-camera"></i>
+                <span>Foto HD</span>
+              </button>
+            </div>
+
+            <!-- Frecce PTZ -->
+            <div class="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+              <span class="text-[11px] text-slate-400 font-medium">Brandeggio ONVIF:</span>
+              <div class="flex items-center gap-1.5">
+                <button onclick="if(window.ptzMove) window.ptzMove('letto', 'left')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white" title="Sinistra"><i class="fa-solid fa-arrow-left"></i></button>
+                <button onclick="if(window.ptzMove) window.ptzMove('letto', 'up')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white" title="Su"><i class="fa-solid fa-arrow-up"></i></button>
+                <button onclick="if(window.ptzMove) window.ptzMove('letto', 'center')" class="p-2 rounded-lg bg-purple-600/40 hover:bg-purple-600 text-xs text-white" title="Ricentra"><i class="fa-solid fa-crosshairs"></i></button>
+                <button onclick="if(window.ptzMove) window.ptzMove('letto', 'down')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white" title="Giù"><i class="fa-solid fa-arrow-down"></i></button>
+                <button onclick="if(window.ptzMove) window.ptzMove('letto', 'right')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white" title="Destra"><i class="fa-solid fa-arrow-right"></i></button>
+              </div>
             </div>
           </div>
+
+        </div>
+
+        <!-- Galleria Snapshot HD Memorizzati -->
+        <div class="p-4 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-camera-retro text-indigo-400"></i>
+              <span>Galleria Fotogrammi Salvati (Archivio Locale)</span>
+            </span>
+            <span class="text-[11px] text-slate-400">${snapshots.length} foto in <code>public/snapshots/</code></span>
+          </div>
+
+          ${snapshots.length === 0 ? `
+            <div class="py-4 text-center text-xs text-slate-500">
+              Nessun fotogramma salvato. Premi "Foto HD" su una telecamera!
+            </div>
+          ` : `
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              ${snapshots.slice(0, 4).map(s => `
+                <a href="${s.url}" target="_blank" class="group relative rounded-xl overflow-hidden bg-slate-950 border border-slate-800 hover:border-purple-500/50 aspect-video block transition-all shadow-sm">
+                  <img src="${s.url}" alt="${s.cameraName}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy" />
+                  <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent p-1.5 text-[9.5px]">
+                    <div class="font-bold text-white flex items-center justify-between">
+                      <span>${s.cameraName}</span>
+                      <span class="text-purple-300 font-mono">${new Date(s.timestamp).toLocaleTimeString('it-IT')}</span>
+                    </div>
+                  </div>
+                </a>
+              `).join('')}
+            </div>
+          `}
         </div>
 
       </div>
