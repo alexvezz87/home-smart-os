@@ -87,23 +87,38 @@ class GeminiVisionEngine {
       };
     }
 
-    // Cattura buffer JPEG
+    // Cattura buffer JPEG live da go2rtc
     let imageBuffer = null;
     try {
       imageBuffer = await go2rtc.captureSnapshotBuffer(cam.id, cam.name);
     } catch (err) {
-      console.warn(`[GeminiVision] Impossibile catturare frame live da go2rtc per ${cam.name}, tentativo da archivio:`, err.message);
-      
-      // Fallback: cerca l'ultimo snapshot su disco
+      console.warn(`[GeminiVision] Impossibile catturare frame live da go2rtc per ${cam.name} (${err.message}). Tento recupero rapido del flusso...`);
+      if (securitySystem && securitySystem.cameras) {
+        try {
+          go2rtc.start(securitySystem.cameras);
+          await new Promise(r => setTimeout(r, 1500));
+          imageBuffer = await go2rtc.captureSnapshotBuffer(cam.id, cam.name);
+        } catch (_) {}
+      }
+    }
+
+    // Se ancora non disponibile, fallback su snapshot recente su disco (massimo 15 minuti fa)
+    if (!imageBuffer || imageBuffer.length === 0) {
       const snapDir = path.join(__dirname, '..', 'public', 'snapshots');
       if (fs.existsSync(snapDir)) {
         const isSalone = cam.name.toLowerCase().includes('salone');
+        const now = Date.now();
         const files = fs.readdirSync(snapDir)
           .filter(f => f.endsWith('.jpg') && (isSalone ? f.includes('salone') : f.includes('letto')))
-          .sort()
-          .reverse();
-        if (files.length > 0) {
-          imageBuffer = fs.readFileSync(path.join(snapDir, files[0]));
+          .map(f => {
+            const p = path.join(snapDir, f);
+            return { file: f, path: p, mtime: fs.statSync(p).mtimeMs };
+          })
+          .sort((a, b) => b.mtime - a.mtime);
+
+        if (files.length > 0 && (now - files[0].mtime) < 15 * 60 * 1000) {
+          imageBuffer = fs.readFileSync(files[0].path);
+          console.log(`[GeminiVision] Utilizzo snapshot recente da disco (${Math.round((now - files[0].mtime) / 1000)}s fa) per ${cam.name}`);
         }
       }
     }
@@ -111,7 +126,7 @@ class GeminiVisionEngine {
     if (!imageBuffer || imageBuffer.length === 0) {
       return {
         success: false,
-        message: `Impossibile acquisire il fotogramma video dalla telecamera "${cam.name}". Verifica che lo streaming sia attivo.`
+        message: `Impossibile acquisire il fotogramma video in tempo reale dalla telecamera "${cam.name}". Verifica che la telecamera e il flusso RTSP siano attivi.`
       };
     }
 
@@ -124,11 +139,14 @@ Ti viene fornito un fotogramma JPEG ad alta risoluzione catturato in tempo reale
 Il tuo compito è comprendere e spiegare la scena in lingua italiana con un tono naturale, chiaro, discreto ed empatico (come un maggiordomo fidato).
 
 LINEE GUIDA DI ANALISI:
-1. **Presenza e attività di persone/bambini**: Indica quante persone/bambini vedi, dove si trovano (es. letto, divano, tavolo) e cosa stanno facendo (es. dormono pacificamente, leggono, usano il telefono, camminano, lavorano). Se c'è un neonato o bambino nel lettino, specifica se sembra dormire tranquillo o se è sveglio/agitato e se è coperto.
-2. **Ambiente e illuminazione**: Descrivi brevemente lo stato della stanza (luce accesa, buio con visione notturna a infrarossi, penombra, ordine generale).
-3. **Eventuali anomalie**: Segnala solo se noti situazioni insolite (es. porte/finestre aperte, oggetti insoliti sul pavimento, fumo o disordine evidente).
+1. **Presenza e attività reale di persone/bambini**:
+   - Individua con precisione se ci sono persone e la loro esatta posizione (es. divano, divano-letto, letto matrimoniale, lettino/culla, scrivania).
+   - Analizza la postura e l'attività reale: osserva con cura se la persona sta **dormendo** (completamente distesa e rilassata) oppure se è **sveglia ed attiva** (es. sta lavorando con un computer portatile o tablet, consulta lo smartphone, legge, è seduta/chinata sul letto o sotto il piumone). Anche se una persona è sotto le coperte o nel letto, controlla se ha davanti a sé un laptop o uno schermo riflettente/illuminato.
+   - Per neonati/bambini: controlla con attenzione culle, lettini o carrozzine/passeggini per capire se c'è un bimbo, se riposa sereno o se è sveglio.
+2. **Ambiente e illuminazione**: Descrivi brevemente lo stato della stanza (visione notturna a infrarossi in bianco e nero, penombra, luce accesa, lampade, ordine).
+3. **Eventuali anomalie**: Segnala solo se noti pericoli o situazioni inconsuete.
 
-NON elencare punti tecnici o dettagli irrilevanti. Rispondi con un paragrafo discorsivo fluido di 2-4 frasi concise e rassicuranti.`;
+Rispondi con un paragrafo discorsivo fluido di 2-4 frasi chiare, precise e rassicuranti.`;
 
     const promptText = userPrompt 
       ? `${systemPrompt}\n\nRichiesta specifica dell'utente: "${userPrompt}"` 
@@ -159,14 +177,14 @@ NON elencare punti tecnici o dettagli irrilevanti. Rispondi con un paragrafo dis
             }
           ],
           generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 400
+            temperature: 0.1,
+            maxOutputTokens: 1200
           }
         };
 
         const res = await axios.post(url, payload, {
           headers: { 'Content-Type': 'application/json' },
-          timeout: 18000
+          timeout: 12000
         });
 
         const candidates = res.data?.candidates;
