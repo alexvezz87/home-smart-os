@@ -42,7 +42,7 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 ---
 
 ## 6. Google Gemini Multimodal Vision API (`src/gemini-vision.js`)
-- **Endpoint**: Google Generative Language API v1beta (`models/gemini-1.5-flash:generateContent`).
+- **Endpoint**: Google Generative Language API v1beta (`models/gemini-3.5-flash:generateContent`, con resilienza automatica multi-modello su `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite` e `gemini-3.8-flash`).
 - **Autenticazione**: Chiave `GEMINI_API_KEY` o `GOOGLE_API_KEY` (da variabile d'ambiente o salvata con cifratura nel database TiDB Cloud `kv_store`).
 - **Funzionamento On-Demand**: Il motore acquisisce un frame JPEG in memoria tramite `go2rtc.captureSnapshotBuffer` solo quando interrogato (on-demand), convertendolo in base64 senza inviare flussi continui nel cloud.
 - **Integrazione**: Richiamato dall'Assistente Vocale/Chat (`src/assistant.js`), dal pulsante *"Analisi AI"* nel Maxi-Player (`public/js/camera-theater.js`) e dai controlli diagnostici in Amministrazione (`public/js/admin.js`).

@@ -8,7 +8,8 @@ const db = require('./db');
 class GeminiVisionEngine {
   constructor() {
     this.cachedApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || null;
-    this.modelName = 'gemini-1.5-flash';
+    this.modelName = process.env.GEMINI_VISION_MODEL || 'gemini-3.5-flash';
+    this.fallbackModels = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
     this.initApiKeyFromDb();
   }
 
@@ -133,64 +134,77 @@ NON elencare punti tecnici o dettagli irrilevanti. Rispondi con un paragrafo dis
       ? `${systemPrompt}\n\nRichiesta specifica dell'utente: "${userPrompt}"` 
       : `${systemPrompt}\n\nDescrivi cosa sta succedendo in questa stanza in questo momento.`;
 
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
-      
-      const payload = {
-        contents: [
-          {
-            parts: [
-              { text: promptText },
-              {
-                inlineData: {
-                  mimeType: 'image/jpeg',
-                  data: base64Image
+    const candidateModels = [
+      this.modelName,
+      ...this.fallbackModels
+    ].filter((v, i, a) => a.indexOf(v) === i);
+
+    let lastError = null;
+    for (const model of candidateModels) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        
+        const payload = {
+          contents: [
+            {
+              parts: [
+                { text: promptText },
+                {
+                  inlineData: {
+                    mimeType: 'image/jpeg',
+                    data: base64Image
+                  }
                 }
-              }
-            ]
+              ]
+            }
+          ],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 400
           }
-        ],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 400
+        };
+
+        const res = await axios.post(url, payload, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 18000
+        });
+
+        const candidates = res.data?.candidates;
+        if (!candidates || candidates.length === 0) {
+          throw new Error('Nessuna risposta generata da Gemini Vision');
         }
-      };
 
-      const res = await axios.post(url, payload, {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 18000
-      });
+        const replyText = candidates[0]?.content?.parts?.[0]?.text?.trim() || 'Nessuna descrizione disponibile.';
 
-      const candidates = res.data?.candidates;
-      if (!candidates || candidates.length === 0) {
-        throw new Error('Nessuna risposta generata da Gemini Vision');
+        eventLogger.log('vision', `Analisi completata per "${cam.name}": ${replyText.substring(0, 100)}...`, {
+          camera: cam.name,
+          room: cam.room,
+          model
+        });
+
+        return {
+          success: true,
+          camera: cam.name,
+          room: cam.room,
+          model,
+          analysis: replyText,
+          timestamp: new Date().toISOString()
+        };
+
+      } catch (err) {
+        lastError = err;
+        const statusCode = err.response?.status;
+        const errMsg = err.response?.data?.error?.message || err.message;
+        console.warn(`⚠️ [GeminiVision] Modello ${model} ha risposto con errore (${statusCode || 'ERR'}): ${errMsg}. Tento fallback...`);
       }
-
-      const replyText = candidates[0]?.content?.parts?.[0]?.text?.trim() || 'Nessuna descrizione disponibile.';
-
-      eventLogger.log('vision', `Analisi completata per "${cam.name}": ${replyText.substring(0, 100)}...`, {
-        camera: cam.name,
-        room: cam.room,
-        model: this.modelName
-      });
-
-      return {
-        success: true,
-        camera: cam.name,
-        room: cam.room,
-        model: this.modelName,
-        analysis: replyText,
-        timestamp: new Date().toISOString()
-      };
-
-    } catch (err) {
-      console.error('❌ [GeminiVision] Errore chiamata API:', err.response?.data || err.message);
-      const errMsg = err.response?.data?.error?.message || err.message;
-      return {
-        success: false,
-        message: `Errore durante l'analisi visiva con Gemini: ${errMsg}`
-      };
     }
+
+    console.error('❌ [GeminiVision] Tutti i modelli candidati hanno fallito:', lastError?.response?.data || lastError?.message);
+    const finalErrMsg = lastError?.response?.data?.error?.message || lastError?.message || 'Errore sconosciuto';
+    return {
+      success: false,
+      message: `Errore durante l'analisi visiva con Gemini: ${finalErrMsg}`
+    };
   }
 }
 
