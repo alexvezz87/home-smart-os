@@ -1169,6 +1169,9 @@ class EvClimateHub {
       '--no-default-browser-check',
       authUrl
     ], { detached: true, stdio: 'ignore' });
+    proc.on('error', (err) => {
+      console.warn('⚠️ [Bosch Browser Capture] Errore processo Chrome:', err.message);
+    });
     proc.unref();
 
     return new Promise(async (resolve, reject) => {
@@ -1217,6 +1220,9 @@ class EvClimateHub {
             if (page.webSocketDebuggerUrl && !connectedTargets.has(page.id)) {
               connectedTargets.add(page.id);
               const ws = new WebSocket(page.webSocketDebuggerUrl);
+              ws.on('error', () => {
+                // Ignora errori debugger su pagine/estensioni chiuse per non crashare Node
+              });
               activeWs = ws;
               ws.on('open', () => {
                 ws.send(JSON.stringify({ id: 1, method: 'Network.enable' }));
