@@ -158,12 +158,28 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ success: true, message: 'Logout effettuato con successo' });
 });
 
-// Endpoint pubblici di generazione link OAuth2 esterni (non espongono segreti)
+// Endpoint pubblici di generazione e ricezione OAuth2 esterni (non espongono segreti)
 app.get('/api/ev-climate/bosch/oauth-url', (req, res) => {
   try {
     const hub = evClimateHub || require('./src/ev-climate-hub');
     const url = hub.getBoschOAuthUrl();
     res.json({ success: true, url });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/bosch/oauth-callback', async (req, res) => {
+  try {
+    const hub = evClimateHub || require('./src/ev-climate-hub');
+    const { callbackUrl } = req.body || {};
+    const result = await hub.exchangeBoschOAuthCode(callbackUrl);
+    const snapshot = mcp ? await mcp.getHomeSnapshot().catch(() => null) : null;
+    res.json({
+      success: true,
+      ...result,
+      data: hub.getUnifiedStatus(snapshot)
+    });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
   }
@@ -515,21 +531,6 @@ app.post('/api/ev-climate/bosch/raw', async (req, res) => {
 app.post('/api/ev-climate/bosch/browser-capture', async (req, res) => {
   try {
     const result = await evClimateHub.launchBoschBrowserCapture();
-    const snapshot = await mcp.getHomeSnapshot().catch(() => null);
-    res.json({
-      success: true,
-      ...result,
-      data: evClimateHub.getUnifiedStatus(snapshot)
-    });
-  } catch (error) {
-    res.status(400).json({ success: false, error: error.message });
-  }
-});
-
-app.post('/api/ev-climate/bosch/oauth-callback', async (req, res) => {
-  try {
-    const { callbackUrl } = req.body || {};
-    const result = await evClimateHub.exchangeBoschOAuthCode(callbackUrl);
     const snapshot = await mcp.getHomeSnapshot().catch(() => null);
     res.json({
       success: true,
@@ -962,6 +963,8 @@ async function bootstrap() {
   // Inizializza servizi hardware e telemetria
   merossEnergy.init();
   hueLocal.init();
+  evClimateHub.syncAll().catch((err) => console.warn('⚠️ [EV-Climate Hub] Primo sync background:', err.message));
+  setInterval(() => evClimateHub.syncAll().catch(() => {}), 60000);
 
   // Avvia il server TCP solo a bootstrap completato con successo
   tcpServer.listen(PORT, () => {
