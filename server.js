@@ -526,6 +526,15 @@ app.post('/api/ev-climate/bosch/baby-comfort-profile', async (req, res) => {
   }
 });
 
+app.post('/api/ev-climate/bosch/sync-programs', async (req, res) => {
+  try {
+    const result = await evClimateHub.syncBabyComfortToBoschPrograms();
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
 app.get('/api/ev-climate/alerts', (req, res) => {
   try {
     const alerts = evClimateHub.getSystemAlerts();

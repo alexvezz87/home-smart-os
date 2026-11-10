@@ -2364,6 +2364,73 @@ class EvClimateHub {
     };
   }
 
+  /**
+   * Scrive in modo permanente tutti i 7 programmi orari settimanali nella memoria flash del CT200
+   * e sui server Bosch PointT Cloud (Lunedì - Domenica)
+   */
+  async syncBabyComfortToBoschPrograms() {
+    if (!this.boschState.connected) {
+      throw new Error('Termostato Bosch CT200 non connesso.');
+    }
+
+    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+    const programsPlan = {
+      // 5: Salone (zn10)
+      5: [
+        { t: 510, Th: 21.0, name: 0 },
+        { t: 1290, Th: 20.0, name: 0 },
+        { t: 1380, Th: 19.5, name: 0 }
+      ],
+      // 6: Camera da letto (zn7)
+      6: [
+        { t: 480, Th: 19.5, name: 0 },
+        { t: 1230, Th: 20.5, name: 0 }
+      ],
+      // 2: Bagni (zn4 Bagno Cinzia, zn6 Bagno Alex)
+      2: [
+        { t: 390, Th: 21.5, name: 0 },
+        { t: 570, Th: 20.5, name: 0 },
+        { t: 1110, Th: 22.0, name: 0 },
+        { t: 1230, Th: 20.5, name: 0 },
+        { t: 1380, Th: 20.0, name: 0 }
+      ],
+      // 3: Cucina (zn9)
+      3: [
+        { t: 420, Th: 21.0, name: 0 },
+        { t: 570, Th: 20.0, name: 0 },
+        { t: 720, Th: 21.0, name: 0 },
+        { t: 870, Th: 20.0, name: 0 },
+        { t: 1140, Th: 21.0, name: 0 },
+        { t: 1290, Th: 19.5, name: 0 }
+      ],
+      // 4: Cameretta (zn3)
+      4: [
+        { t: 480, Th: 20.0, name: 0 },
+        { t: 1260, Th: 20.0, name: 0 }
+      ],
+      // 7: Cabina armadio (zn5)
+      7: [
+        { t: 480, Th: 17.5, name: 0 },
+        { t: 1320, Th: 17.5, name: 0 }
+      ],
+      // 1: Corridoi & Ingresso (zn1, zn2, zn8)
+      1: [
+        { t: 420, Th: 19.5, name: 0 },
+        { t: 1320, Th: 19.5, name: 0 }
+      ]
+    };
+
+    for (const [pId, points] of Object.entries(programsPlan)) {
+      for (const d of days) {
+        await this.setBoschProgramDaySchedule(pId, d, points);
+      }
+    }
+
+    eventLogger.log('bosch_thermo', `📋 [Bosch CT200] Sincronizzati tutti i 7 programmi orari settimanali permanenti sul Cloud Bosch`);
+    return { success: true, count: 49 };
+  }
+
   async controlBosch(action, value = null, extra = {}) {
     if (!this.boschState.connected) {
       throw new Error('Termostato Bosch EasyControl CT200 non connesso.');

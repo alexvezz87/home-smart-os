@@ -955,10 +955,16 @@ class AdminManager {
             <button onclick="document.getElementById('modal-baby-schedule').remove()" class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all">
               Chiudi
             </button>
-            <button onclick="window.adminManager.applyBabyComfortProfile(); document.getElementById('modal-baby-schedule').remove();" class="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400 transition-all flex items-center gap-2 active:scale-95">
-              <i class="fa-solid fa-wand-magic-sparkles"></i>
-              <span>Forza / Riapplica Subito</span>
-            </button>
+            <div class="flex items-center gap-2 flex-wrap">
+              <button onclick="window.adminManager.syncProgramsToBosch()" class="px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white shadow-md shadow-amber-600/30 border border-amber-400 transition-all flex items-center gap-2 active:scale-95" title="Scrive tutti i 7 programmi settimanali direttamente nella memoria della caldaia Bosch">
+                <i class="fa-solid fa-cloud-arrow-up"></i>
+                <span>Sincronizza su App Bosch</span>
+              </button>
+              <button onclick="window.adminManager.applyBabyComfortProfile(); document.getElementById('modal-baby-schedule').remove();" class="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400 transition-all flex items-center gap-2 active:scale-95">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                <span>Forza / Riapplica Subito</span>
+              </button>
+            </div>
           </div>
 
         </div>
@@ -969,7 +975,26 @@ class AdminManager {
   }
 
   /**
+   * Scrive in modo permanente i 7 programmi orari settimanali nella memoria flash del CT200
+   */
+  async syncProgramsToBosch() {
+    showToast('Sincronizzazione 7 programmi su memoria Bosch in corso...', 'info');
+    try {
+      const res = await fetch('/api/ev-climate/bosch/sync-programs', { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok || json.success === false) {
+        throw new Error(json.error || 'Errore sincronizzazione');
+      }
+      showToast('✅ Programmi settimanali scritti con successo sul Cloud e memoria CT200!', 'success');
+    } catch (err) {
+      showToast('Errore sincronizzazione: ' + err.message, 'error');
+    }
+  }
+
+  /**
    * Annulla il tentativo di cattura automatica
+   */
+  cancelBoschCapture() {
     this.isCapturingBosch = false;
     showToast('Cattura automatica annullata.', 'info');
     this.renderView();
