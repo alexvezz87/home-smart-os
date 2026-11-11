@@ -69,7 +69,7 @@ class SecuritySystem {
         nightVision: 'auto',
         patrolActive: false,
         online: true,
-        ip: '192.168.1.74',
+        ip: '192.168.1.75',
         user: '',
         password: '',
         cloudPassword: '',
@@ -148,7 +148,7 @@ class SecuritySystem {
     }
 
     const saloneCam = this.cameras['device@1ca73bcd-1f86-4082-b16d-5a4aa6d40ec3'];
-    if (saloneCam && !saloneCam.ip) saloneCam.ip = '192.168.1.74';
+    if (saloneCam && !saloneCam.ip) saloneCam.ip = '192.168.1.75';
 
     const cameraLetto = this.cameras['device@7a20d851-543b-4ae8-845c-edca07903c30'];
     if (cameraLetto && (!cameraLetto.ip || cameraLetto.ip === '192.168.1.74')) {

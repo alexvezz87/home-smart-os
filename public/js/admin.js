@@ -905,10 +905,10 @@ class AdminManager {
                   <span class="text-[10px] text-slate-400">Tapo C200 / C210</span>
                 </div>
               </div>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20">192.168.1.74</span>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20">192.168.1.75</span>
             </div>
 
-            <p class="text-[11px] text-slate-400 font-mono">Porta ONVIF: <strong>2020</strong> · Stream: <code>rtsp://192.168.1.74:554/stream1</code></p>
+            <p class="text-[11px] text-slate-400 font-mono">Porta ONVIF: <strong>2020</strong> · Stream: <code>rtsp://192.168.1.75:554/stream1</code></p>
             
             <!-- Azioni Rapide Telecamera -->
             <div class="flex items-center gap-2 pt-1">
@@ -989,10 +989,10 @@ class AdminManager {
                   <span class="text-[10px] text-slate-400">GHB BABY6T 2K (CloudEdge)</span>
                 </div>
               </div>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20">192.168.1.75</span>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20">192.168.1.76</span>
             </div>
 
-            <p class="text-[11px] text-slate-400 font-mono">Porta ONVIF: <strong>8000</strong> · Stream: <code>rtsp://192.168.1.75:8554/Streaming/Channels/101</code></p>
+            <p class="text-[11px] text-slate-400 font-mono">Porta ONVIF: <strong>8000</strong> · Stream: <code>rtsp://192.168.1.76:8554/Streaming/Channels/101</code></p>
             
             <!-- Azioni Rapide Telecamera -->
             <div class="flex items-center gap-2 pt-1">
