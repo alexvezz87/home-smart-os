@@ -346,10 +346,14 @@ class SecuritySystem {
           console.warn(`⚠️ [ONVIF] Impossibile connettersi a ${cam.name} (${cam.ip}):`, err.message);
           resolve(null);
         } else {
-          console.log(`🎮 [ONVIF] Connesso con successo a ${cam.name} (${cam.ip})`);
-          if (!this._onvifCams) this._onvifCams = {};
-          this._onvifCams[key] = c;
-          resolve(c);
+          // Risolvi capabilities per popolare gli endpoint corretti (es. /onvif/ptz_services per GHB vs /onvif/ptz_service per Tapo)
+          c.getCapabilities((errCaps) => {
+            if (errCaps) console.warn(`⚠️ [ONVIF Caps] ${cam.name}:`, errCaps.message);
+            console.log(`🎮 [ONVIF] Connesso con successo a ${cam.name} (${cam.ip}) - PTZ: ${c.uri?.ptz?.path || 'N/A'}`);
+            if (!this._onvifCams) this._onvifCams = {};
+            this._onvifCams[key] = c;
+            resolve(c);
+          });
         }
       });
     });
@@ -674,6 +678,7 @@ class SecuritySystem {
     if (!cam) throw new Error(`Telecamera ${cameraId} non trovata.`);
 
     const isDeg = this.isDegreeSpace(cam);
+    const isMeari = Boolean(cam.model && (cam.model.includes('GHB') || cam.model.includes('BABY') || cam.model.includes('Meari'))) || String(cam.id).includes('ghb');
     const panStep = isDeg ? 20 : 0.08;
     const tiltStep = isDeg ? 12 : 0.08;
 
@@ -683,19 +688,19 @@ class SecuritySystem {
     switch (direction.toLowerCase()) {
       case 'up':
         desc = `Inclinata verso l'alto`;
-        moveVector = { x: 0, y: tiltStep };
+        moveVector = { x: 0, y: isMeari ? 0.6 : tiltStep };
         break;
       case 'down':
         desc = `Inclinata verso il basso`;
-        moveVector = { x: 0, y: -tiltStep };
+        moveVector = { x: 0, y: isMeari ? -0.6 : -tiltStep };
         break;
       case 'left':
         desc = `Ruotata a sinistra`;
-        moveVector = { x: isDeg ? -panStep : panStep, y: 0 };
+        moveVector = { x: isMeari ? -0.6 : (isDeg ? -panStep : panStep), y: 0 };
         break;
       case 'right':
         desc = `Ruotata a destra`;
-        moveVector = { x: isDeg ? panStep : -panStep, y: 0 };
+        moveVector = { x: isMeari ? 0.6 : (isDeg ? panStep : -panStep), y: 0 };
         break;
       case 'center':
       case 'home':
@@ -712,11 +717,36 @@ class SecuritySystem {
         if (onvifCam) {
           if (moveVector.center) {
             await new Promise((resolve) => {
-              onvifCam.absoluteMove({ x: 0, y: 0 }, (err) => {
-                if (err) console.warn('[ONVIF absoluteMove]', err.message);
-                resolve();
+              if (isMeari && typeof onvifCam.gotoHomePosition === 'function') {
+                onvifCam.gotoHomePosition({}, (err) => {
+                  if (err) console.warn('[ONVIF gotoHomePosition]', err.message);
+                  resolve();
+                });
+              } else {
+                onvifCam.absoluteMove({ x: 0, y: 0 }, (err) => {
+                  if (err) console.warn('[ONVIF absoluteMove]', err.message);
+                  resolve();
+                });
+              }
+            });
+            cam.ptz = { pan: 0, tilt: 0 };
+          } else if (isMeari) {
+            // Su telecamere GHB / Meari si utilizza continuousMove a impulso (350ms) per rotazione fluida dello stepper motor
+            await new Promise((resolve) => {
+              onvifCam.continuousMove({ x: moveVector.x, y: moveVector.y }, (err) => {
+                if (err) console.warn('[ONVIF continuousMove GHB]', err.message);
+                setTimeout(() => {
+                  onvifCam.stop({}, (errStop) => {
+                    if (errStop) console.warn('[ONVIF stop GHB]', errStop.message);
+                    resolve();
+                  });
+                }, 350);
               });
             });
+            if (direction === 'left') cam.ptz.pan = Math.max(-170, (cam.ptz.pan || 0) - 15);
+            if (direction === 'right') cam.ptz.pan = Math.min(170, (cam.ptz.pan || 0) + 15);
+            if (direction === 'up') cam.ptz.tilt = Math.min(45, (cam.ptz.tilt || 0) + 10);
+            if (direction === 'down') cam.ptz.tilt = Math.max(-45, (cam.ptz.tilt || 0) - 10);
           } else {
             await new Promise((resolve) => {
               onvifCam.relativeMove({ x: moveVector.x, y: moveVector.y }, (err) => {
@@ -724,18 +754,18 @@ class SecuritySystem {
                 resolve();
               });
             });
-          }
 
-          try {
-            const status = await new Promise((resolve) => {
-              onvifCam.getStatus({}, (err, res) => resolve(res));
-            });
-            if (status && status.position) {
-              const posX = isDeg ? Math.round(status.position.x) : Math.round(status.position.x * 100);
-              const posY = isDeg ? Math.round(status.position.y) : Math.round(status.position.y * 100);
-              cam.ptz = { pan: posX, tilt: posY };
-            }
-          } catch (_) {}
+            try {
+              const status = await new Promise((resolve) => {
+                onvifCam.getStatus({}, (err, res) => resolve(res));
+              });
+              if (status && status.position) {
+                const posX = isDeg ? Math.round(status.position.x) : Math.round(status.position.x * 100);
+                const posY = isDeg ? Math.round(status.position.y) : Math.round(status.position.y * 100);
+                cam.ptz = { pan: posX, tilt: posY };
+              }
+            } catch (_) {}
+          }
         }
       } catch (onvifErr) {
         console.warn(`[ONVIF PTZ Move] ${cam.name}:`, onvifErr.message);
