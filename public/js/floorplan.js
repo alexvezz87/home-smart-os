@@ -535,12 +535,16 @@ class FloorplanEngine {
 
     const cam6 = pins.find(p => p.pin === 6) || { x: 39.2, y: 20.6, pan: 0, privacyMode: false };
     const cam17 = pins.find(p => p.pin === 17) || { x: 47.4, y: 54.4, pan: 0, privacyMode: false };
+    const cam42 = pins.find(p => p.pin === 42) || { x: 31.0, y: 19.5, pan: 0, privacyMode: false };
     const cam6X = +(cam6.x * 10).toFixed(1);
     const cam6Y = +(cam6.y * 13.37).toFixed(1);
     const cam17X = +(cam17.x * 10).toFixed(1);
     const cam17Y = +(cam17.y * 13.37).toFixed(1);
+    const cam42X = +(cam42.x * 10).toFixed(1);
+    const cam42Y = +(cam42.y * 13.37).toFixed(1);
     const cone6Path = buildRadarCone(cam6X, cam6Y, -65, -(cam6.pan || 0), 205, 62);
     const cone17Path = buildRadarCone(cam17X, cam17Y, 135, cam17.pan || 0, 245, 64);
+    const cone42Path = buildRadarCone(cam42X, cam42Y, 75, cam42.pan || 0, 140, 60);
 
     // Stanze SVG con Evidenziazione Architettonica (Spotlight)
     const roomsSvg = ARCHITECTURAL_ROOMS.map(r => {
@@ -981,9 +985,10 @@ class FloorplanEngine {
             <!-- Layer 0: Stanze Architettoniche Interattive -->
             <g id="svg-layer-rooms">${roomsSvg}</g>
 
-            <!-- Layer 1: Coni Radar Telecamere Tapo -->
+            <!-- Layer 1: Coni Radar Telecamere -->
             ${!cam6.privacyMode ? `<path d="${cone6Path}" fill="url(#radarConeGrad)" pointer-events="none"/>` : ''}
             ${!cam17.privacyMode ? `<path d="${cone17Path}" fill="url(#radarConeGrad)" pointer-events="none"/>` : ''}
+            ${!cam42.privacyMode ? `<path d="${cone42Path}" fill="url(#radarConeGrad)" pointer-events="none"/>` : ''}
 
             <!-- Layer 2: Mobili & Arredi Vettoriali -->
             ${this.showFurniture ? this.buildVectorFurniture(isCad, isLight) : ''}

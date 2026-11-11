@@ -985,7 +985,7 @@ class AdminManager {
                   <i class="fa-solid fa-baby text-xs"></i>
                 </div>
                 <div>
-                  <span class="text-xs font-bold text-white block">Baby Monitor Francesco</span>
+                  <span class="text-xs font-bold text-white block">Baby Monitor</span>
                   <span class="text-[10px] text-slate-400">GHB BABY6T 2K (CloudEdge)</span>
                 </div>
               </div>

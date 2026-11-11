@@ -500,7 +500,8 @@ class CameraTheaterManager {
     if (engine === 'webrtc' && iframe) {
       if (loadingText) loadingText.textContent = 'Connessione WebRTC ultra-low latency (<0.3s)...';
 
-      const streamKey = cam.streamKey || ((cam.name || '').toLowerCase().includes('salone') ? 'salone' : 'camera_letto');
+      const n = (cam.name || '').toLowerCase();
+      const streamKey = cam.streamKey || (n.includes('salone') ? 'salone' : (n.includes('baby') || n.includes('francesco') || n.includes('ghb') ? 'baby_francesco' : 'camera_letto'));
       const apiPort = this.go2rtcStatus?.apiPort || 1984;
       const host = window.location.hostname || 'localhost';
       const streamUrl = `http://${host}:${apiPort}/stream.html?src=${encodeURIComponent(streamKey)}&mode=webrtc,mse,hls,mjpeg`;

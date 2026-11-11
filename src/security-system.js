@@ -86,7 +86,7 @@ class SecuritySystem {
       },
       'device@ghb-baby6t-francesco': {
         id: 'device@ghb-baby6t-francesco',
-        name: 'Baby Monitor Francesco',
+        name: 'Baby Monitor',
         room: 'Camera da letto',
         model: 'GHB BABY6T 2K',
         firmware: '1.0.0',

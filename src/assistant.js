@@ -44,7 +44,7 @@ async function processAssistantCommand(input) {
     const isBaby = text.includes('francesco') || text.includes('bimbo') || text.includes('bambino') || text.includes('culla') || text.includes('baby');
     const isLetto = text.includes('letto') || text.includes('camera');
     const targetCam = isBaby ? 'baby' : isLetto ? 'letto' : 'salone';
-    const targetRoomName = isBaby ? 'Baby Monitor Francesco' : isLetto ? 'Camera da letto' : 'Salone';
+    const targetRoomName = isBaby ? 'Baby Monitor' : isLetto ? 'Camera da letto' : 'Salone';
 
     const result = await geminiVision.analyzeCameraScene(targetCam, input, securitySystem);
     if (!result.success) {

@@ -585,7 +585,7 @@ class SpatialEngine {
       },
       {
         pin: 42,
-        name: 'Baby Monitor Francesco',
+        name: 'Baby Monitor',
         room: 'Camera da letto',
         microZone: 'culla_francesco',
         category: 'camera',
