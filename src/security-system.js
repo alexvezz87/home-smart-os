@@ -14,6 +14,13 @@ try {
   TapoCamera = require('tapo-camera-client').TapoCamera;
 } catch (_) {}
 
+let Client, DefaultMediaReceiver;
+try {
+  const castv2 = require('castv2-client');
+  Client = castv2.Client;
+  DefaultMediaReceiver = castv2.DefaultMediaReceiver;
+} catch (_) {}
+
 class SecuritySystem {
   constructor() {
     this.configFile = path.join(__dirname, '..', 'security-config.json');
@@ -28,6 +35,15 @@ class SecuritySystem {
     this._patrolIntervals = {};
     this._eventPollingStarted = false;
     this.snapshots = []; // { id, cameraId, cameraName, room, url, filename, presetName, reason, timestamp }
+    this.activeCast = {
+      client: null,
+      player: null,
+      cameraId: null,
+      cameraName: null,
+      streamKey: null,
+      startedAt: null
+    };
+    this.nestHubIp = process.env.NEST_HUB_IP || '192.168.1.66';
 
     this.cameras = {
       'device@7a20d851-543b-4ae8-845c-edca07903c30': {
@@ -238,6 +254,12 @@ class SecuritySystem {
       mode: this.mode,
       modeLabel: this.mode === 'home' ? 'A Casa (Privacy Attiva)' : 'Fuori Casa (Allarme Armato)',
       go2rtc: go2rtc.getStatus(),
+      activeCast: this.activeCast && this.activeCast.cameraId ? {
+        cameraId: this.activeCast.cameraId,
+        cameraName: this.activeCast.cameraName,
+        streamKey: this.activeCast.streamKey,
+        startedAt: this.activeCast.startedAt
+      } : null,
       cameras: safeCameras,
       snapshots: this.snapshots.slice(0, 12),
       summary: {
@@ -247,6 +269,30 @@ class SecuritySystem {
         motionAlertsActive: this.mode === 'away'
       }
     };
+  }
+
+  getLocalHostIp() {
+    try {
+      const os = require('os');
+      const interfaces = os.networkInterfaces();
+      for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name]) {
+          if (iface.family === 'IPv4' && !iface.internal) {
+            if (iface.address.startsWith('192.168.1.')) {
+              return iface.address;
+            }
+          }
+        }
+      }
+      for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name]) {
+          if (iface.family === 'IPv4' && !iface.internal) {
+            return iface.address;
+          }
+        }
+      }
+    } catch (_) {}
+    return '192.168.1.146';
   }
 
   getRTSPUrl(cameraId) {
@@ -990,25 +1036,222 @@ class SecuritySystem {
     };
   }
 
-  async castToNestHub(cameraId, mcpClient) {
+  async stopAnyCastSessionOnDevice(hubIp = this.nestHubIp) {
+    if (!Client || !DefaultMediaReceiver) return false;
+    return new Promise((resolve) => {
+      let client = null;
+      let timer = null;
+
+      const cleanup = (res = false) => {
+        if (timer) clearTimeout(timer);
+        if (client) {
+          try { client.close(); } catch (_) {}
+          client = null;
+        }
+        resolve(res);
+      };
+
+      timer = setTimeout(() => cleanup(false), 5000);
+
+      try {
+        client = new Client();
+        client.on('error', () => cleanup(false));
+
+        client.connect(hubIp, () => {
+          client.getSessions((err, sessions) => {
+            if (err || !sessions || sessions.length === 0) {
+              return cleanup(false);
+            }
+            const mediaSession = sessions.find(s => s.appId === 'CC1AD845') || sessions[0];
+            if (!mediaSession) return cleanup(false);
+
+            client.join(mediaSession, DefaultMediaReceiver, (joinErr, app) => {
+              if (joinErr || !app) return cleanup(false);
+              client.stop(app, () => cleanup(true));
+            });
+          });
+        });
+      } catch (_) {
+        cleanup(false);
+      }
+    });
+  }
+
+  async stopNestHubCast() {
+    const hubName = 'Nest Hub Camera da letto';
+    const oldCam = this.activeCast?.cameraName || 'Telecamera';
+    const hadActive = Boolean(this.activeCast?.client || this.activeCast?.cameraId);
+
+    if (this.activeCast?.player) {
+      try {
+        await new Promise((r) => {
+          try {
+            this.activeCast.player.stop(() => r());
+          } catch (_) { r(); }
+          setTimeout(r, 800);
+        });
+      } catch (_) {}
+    }
+
+    if (this.activeCast?.client) {
+      try {
+        this.activeCast.client.close();
+      } catch (_) {}
+    }
+
+    this.activeCast = {
+      client: null,
+      player: null,
+      cameraId: null,
+      cameraName: null,
+      streamKey: null,
+      startedAt: null
+    };
+
+    await this.stopAnyCastSessionOnDevice(this.nestHubIp);
+
+    if (hadActive) {
+      eventLogger.log('security', `📺 Trasmissione di "${oldCam}" su "${hubName}" interrotta`, {
+        device: oldCam,
+        target: hubName,
+        source: 'Google Cast'
+      });
+    }
+
+    return {
+      success: true,
+      isCasting: false,
+      message: `Trasmissione su "${hubName}" interrotta.`
+    };
+  }
+
+  async castToNestHub(cameraId, mcpClient = null) {
     const cam = this.resolveCamera(cameraId);
     if (!cam) throw new Error(`Telecamera ${cameraId} non trovata.`);
+
+    if (!Client || !DefaultMediaReceiver) {
+      throw new Error(`Modulo castv2-client non disponibile.`);
+    }
 
     const hubName = 'Nest Hub Camera da letto';
     const hubId = 'device@1547416a-9e60-4097-abc6-b952346f09b6';
 
-    const msg = `📺 Flusso video di "${cam.name}" inviato in trasmissione a "${hubName}"`;
+    // 1. Se stiamo già trasmettendo questa stessa telecamera su Nest Hub, effettua toggle OFF
+    if (this.activeCast?.cameraId === cam.id && this.activeCast?.client) {
+      await this.stopNestHubCast();
+      return {
+        success: true,
+        isCasting: false,
+        camera: cam.name,
+        targetDisplay: hubName,
+        targetId: hubId,
+        message: `Trasmissione della telecamera "${cam.name}" interrotta su "${hubName}".`
+      };
+    }
+
+    // 2. Se c'è una trasmissione in corso per un'altra telecamera o sessione aperta, arrestala prima
+    if (this.activeCast?.client) {
+      await this.stopNestHubCast();
+    } else {
+      await this.stopAnyCastSessionOnDevice(this.nestHubIp);
+    }
+
+    // 3. Risolvi il flusso video live generato da go2rtc (fMP4 stream)
+    const streamKey = go2rtc.getStreamKey(cam.id, cam.name);
+    const hostIp = this.getLocalHostIp();
+    const streamUrl = `http://${hostIp}:${go2rtc.apiPort || 1984}/api/stream.mp4?src=${streamKey}`;
+
+    // 4. Connessione a Google Nest Hub su porta 8009 (Cast V2)
+    const client = new Client();
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        try { client.close(); } catch (_) {}
+        reject(new Error(`Timeout connessione a ${hubName} (${this.nestHubIp}:8009). Verifica che il dispositivo sia acceso.`));
+      }, 7000);
+
+      client.connect(this.nestHubIp, () => {
+        clearTimeout(timer);
+        resolve();
+      });
+
+      client.on('error', (err) => {
+        clearTimeout(timer);
+        console.warn(`⚠️ [Cast] Errore connessione client Google Cast:`, err.message);
+        if (this.activeCast?.client === client) {
+          this.activeCast = { client: null, player: null, cameraId: null, cameraName: null, streamKey: null, startedAt: null };
+        }
+      });
+    });
+
+    // 5. Avvio del DefaultMediaReceiver (App ID: CC1AD845)
+    const player = await new Promise((resolve, reject) => {
+      client.launch(DefaultMediaReceiver, (err, p) => {
+        if (err) {
+          try { client.close(); } catch (_) {}
+          return reject(new Error(`Impossibile avviare Media Receiver su Nest Hub: ${err.message}`));
+        }
+        resolve(p);
+      });
+    });
+
+    // 6. Invio del flusso video live al Nest Hub
+    const media = {
+      contentId: streamUrl,
+      contentType: 'video/mp4',
+      streamType: 'LIVE',
+      metadata: {
+        type: 0,
+        metadataType: 0,
+        title: cam.name,
+        subtitle: `Streaming Live • ${cam.room}`
+      }
+    };
+
+    await new Promise((resolve, reject) => {
+      player.load(media, { autoplay: true }, (err, status) => {
+        if (err) {
+          try { client.close(); } catch (_) {}
+          return reject(new Error(`Errore durante il caricamento del flusso su Nest Hub: ${err.message}`));
+        }
+        resolve(status);
+      });
+    });
+
+    // 7. Salva la sessione attiva per consentire toggle e chiusura da UI/Voce
+    this.activeCast = {
+      client,
+      player,
+      cameraId: cam.id,
+      cameraName: cam.name,
+      streamKey,
+      startedAt: new Date().toISOString()
+    };
+
+    player.on('status', (status) => {
+      if (status && (status.playerState === 'IDLE' || status.idleReason)) {
+        if (this.activeCast?.client === client) {
+          try { client.close(); } catch (_) {}
+          this.activeCast = { client: null, player: null, cameraId: null, cameraName: null, streamKey: null, startedAt: null };
+          console.log(`ℹ️ [Cast] Riproduzione su Nest Hub conclusa (stato: ${status.playerState})`);
+        }
+      }
+    });
+
+    const msg = `📺 Flusso video di "${cam.name}" trasmesso su "${hubName}"`;
     eventLogger.log('security', msg, {
       device: cam.name,
       target: hubName,
-      source: 'Google Cast'
+      source: 'Google Cast',
+      streamUrl
     });
 
     return {
       success: true,
+      isCasting: true,
       camera: cam.name,
       targetDisplay: hubName,
       targetId: hubId,
+      streamUrl,
       message: `Streaming della telecamera "${cam.name}" avviato su "${hubName}".`
     };
   }

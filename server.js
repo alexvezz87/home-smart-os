@@ -801,6 +801,15 @@ app.post('/api/camera/:id/preset/delete', (req, res) => {
   }
 });
 
+app.post('/api/camera/cast/stop', async (req, res) => {
+  try {
+    const result = await securitySystem.stopNestHubCast();
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
 app.post('/api/camera/:id/cast', async (req, res) => {
   try {
     const { id } = req.params;

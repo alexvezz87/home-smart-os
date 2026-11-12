@@ -12,13 +12,21 @@ async function processAssistantCommand(input) {
     return { success: false, reply: 'Non ho ricevuto alcun comando.' };
   }
 
-  // 0a. Cast Telecamera su Nest Hub
-  if ((text.includes('mostra') || text.includes('trasmetti') || text.includes('proietta') || text.includes('vedi')) && 
-      (text.includes('telecamera') || text.includes('camera') || text.includes('tapo')) &&
+  // 0a. Cast Telecamera su Nest Hub (avvio e arresto)
+  if ((text.includes('interrompi') || text.includes('ferma') || text.includes('stop') || text.includes('chiudi')) && 
+      (text.includes('trasmissione') || text.includes('cast') || text.includes('streaming')) &&
       (text.includes('nest') || text.includes('hub') || text.includes('schermo') || text.includes('tv'))) {
+    const result = await securitySystem.stopNestHubCast();
+    return { success: true, action: 'stop_cast', reply: result.message };
+  }
+
+  if ((text.includes('mostra') || text.includes('trasmetti') || text.includes('proietta') || text.includes('vedi')) && 
+      (text.includes('telecamera') || text.includes('camera') || text.includes('tapo') || text.includes('monitor') || text.includes('video')) &&
+      (text.includes('nest') || text.includes('hub') || text.includes('schermo') || text.includes('tv'))) {
+    const isBaby = text.includes('baby') || text.includes('francesco') || text.includes('culla');
     const isSalone = text.includes('salone');
     const isLetto = text.includes('letto') || text.includes('camera da letto');
-    const targetCamName = isSalone ? 'Salone' : isLetto ? 'Camera da letto' : 'Salone';
+    const targetCamName = isBaby ? 'Baby Monitor' : isSalone ? 'Salone' : isLetto ? 'Camera da letto' : 'Baby Monitor';
     const result = await securitySystem.castToNestHub(targetCamName, mcp);
     return { success: true, action: 'cast_camera', reply: result.message };
   }

@@ -107,6 +107,7 @@ class CameraTheaterManager {
         this.allCameras = cameras;
         this.allSnapshots = json.data.snapshots || [];
         this.go2rtcStatus = json.data.go2rtc || {};
+        this.activeCast = json.data.activeCast || null;
       }
     } catch (err) {
       console.warn('[CameraTheater] Errore aggiornamento stato:', err);
@@ -122,6 +123,7 @@ class CameraTheaterManager {
 
     const isPrivacy = Boolean(cam.privacyMode);
     const isPatrol = Boolean(cam.patrolActive);
+    const isCasting = Boolean(this.activeCast && (this.activeCast.cameraId === cam.id || this.activeCast.cameraName === cam.name));
     const ptz = cam.ptz || { pan: 0, tilt: 0 };
     const presets = cam.presets || [];
     const isSalone = (cam.name || '').toLowerCase().includes('salone');
@@ -303,9 +305,9 @@ class CameraTheaterManager {
               <span>Night Boost</span>
             </button>
 
-            <button onclick="window.cameraTheater.castToNestHub()" class="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95" title="Trasmetti video su Google Nest Hub">
-              <i class="fa-solid fa-tv text-sky-400 text-sm"></i>
-              <span>Nest Hub</span>
+            <button id="theater-btn-nest-hub" onclick="window.cameraTheater.castToNestHub()" class="py-2.5 px-3 rounded-xl ${isCasting ? 'bg-sky-950/80 hover:bg-sky-900 text-sky-200 border border-sky-400 shadow-lg shadow-sky-950/60 ring-1 ring-sky-400/40' : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'} text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95" title="${isCasting ? 'Interrompi streaming su Nest Hub' : 'Trasmetti video su Google Nest Hub'}">
+              <i class="fa-solid fa-tv ${isCasting ? 'text-emerald-400 animate-pulse' : 'text-sky-400'} text-sm"></i>
+              <span>${isCasting ? 'Stop Nest Hub' : 'Nest Hub'}</span>
             </button>
 
           </div>
@@ -850,11 +852,17 @@ class CameraTheaterManager {
   }
 
   /**
-   * Cast to Nest Hub
+   * Trasmette il flusso live su Google Nest Hub o interrompe lo streaming attivo
    */
   async castToNestHub() {
     const cam = this.currentCamData;
     if (!cam) return;
+
+    const btn = document.getElementById('theater-btn-nest-hub');
+    if (btn) {
+      btn.disabled = true;
+      btn.classList.add('opacity-50');
+    }
 
     try {
       const res = await fetch(`/api/camera/${encodeURIComponent(cam.id)}/cast`, {
@@ -862,10 +870,49 @@ class CameraTheaterManager {
         headers: { 'Content-Type': 'application/json' }
       });
       const json = await res.json();
-      if (!json.success) throw new Error(json.error);
-      if (typeof showToast === 'function') showToast(json.message, 'success');
+      if (!json.success) throw new Error(json.error || 'Errore trasmissione Nest Hub');
+
+      if (json.isCasting) {
+        this.activeCast = { cameraId: cam.id, cameraName: cam.name };
+      } else {
+        this.activeCast = null;
+      }
+
+      this.updateCastButtonUI();
+
+      if (typeof showToast === 'function') {
+        showToast(json.message, json.isCasting ? 'success' : 'info');
+      }
     } catch (err) {
       if (typeof showToast === 'function') showToast(err.message, 'error');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.classList.remove('opacity-50');
+      }
+    }
+  }
+
+  updateCastButtonUI() {
+    const btn = document.getElementById('theater-btn-nest-hub');
+    const cam = this.currentCamData;
+    if (!btn || !cam) return;
+
+    const isCasting = Boolean(this.activeCast && (this.activeCast.cameraId === cam.id || this.activeCast.cameraName === cam.name));
+    if (isCasting) {
+      btn.className = 'py-2.5 px-3 rounded-xl bg-sky-950/80 hover:bg-sky-900 text-sky-200 border border-sky-400 shadow-lg shadow-sky-950/60 ring-1 ring-sky-400/40 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95';
+      btn.title = 'Interrompi streaming su Nest Hub';
+      btn.innerHTML = `
+        <i class="fa-solid fa-tv text-emerald-400 animate-pulse text-sm"></i>
+        <span>Stop Nest Hub</span>
+      `;
+    } else {
+      btn.className = 'py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95';
+      btn.title = 'Trasmetti video su Google Nest Hub';
+      btn.innerHTML = `
+        <i class="fa-solid fa-tv text-sky-400 text-sm"></i>
+        <span>Nest Hub</span>
+      `;
     }
   }
 
