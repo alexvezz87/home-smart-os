@@ -225,6 +225,36 @@ class DeviceSheetManager {
           <button onclick="setLightColorTemperature(${p.pin}, 2200)" class="py-2 rounded-lg bg-rose-900/40 border border-rose-500/30 text-rose-200">Notte</button>
         </div>
       </div>
+
+      <!-- Effetti Dinamici Firmware Hue (Candela, Caminetto, Prisma, ecc.) -->
+      <div class="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2">
+        <div class="text-xs font-bold text-slate-300 flex items-center justify-between">
+          <span class="flex items-center gap-1.5"><i class="fa-solid fa-wand-magic-sparkles text-amber-400"></i> Effetti Firmware Hue</span>
+          <span class="text-[9px] font-mono text-amber-400/80">LAN Direct</span>
+        </div>
+        <div class="grid grid-cols-5 gap-1.5 text-[10px] font-semibold text-center">
+          <button onclick="setLightEffectUi('${p.room}', 'candle', ${p.pin})" class="py-2 rounded-xl bg-amber-950/40 hover:bg-amber-900/60 border border-amber-500/30 text-amber-200 transition-colors" title="Simula fiamma viva oscillante">🕯️ Candela</button>
+          <button onclick="setLightEffectUi('${p.room}', 'fire', ${p.pin})" class="py-2 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-500/30 text-rose-200 transition-colors" title="Simula focolare caldo">🔥 Camino</button>
+          <button onclick="setLightEffectUi('${p.room}', 'prism', ${p.pin})" class="py-2 rounded-xl bg-indigo-950/40 hover:bg-indigo-900/60 border border-indigo-500/30 text-indigo-200 transition-colors" title="Ciclo colori arcobaleno">🌈 Prisma</button>
+          <button onclick="setLightEffectUi('${p.room}', 'sparkle', ${p.pin})" class="py-2 rounded-xl bg-sky-950/40 hover:bg-sky-900/60 border border-sky-500/30 text-sky-200 transition-colors" title="Bagliori di luce stellare">✨ Brillio</button>
+          <button onclick="setLightEffectUi('${p.room}', 'no_effect', ${p.pin})" class="py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors" title="Disattiva effetto speciale">⏹️ Stop</button>
+        </div>
+      </div>
+
+      <!-- Scene Philips Hue per Stanza -->
+      <div class="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2.5">
+        <div class="flex items-center justify-between text-xs">
+          <span class="font-bold text-slate-300 flex items-center gap-1.5">
+            <i class="fa-solid fa-shapes text-indigo-400"></i> Scene Hue (${p.room})
+          </span>
+          <button onclick="toggleSheetHueDynamic()" id="sheet-dynamic-btn" class="px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all ${window._sheetDynamic ? 'bg-amber-500 text-slate-950 border-amber-400' : 'bg-slate-800 text-slate-400 border-slate-700'}">
+            Dinamica
+          </button>
+        </div>
+        <div class="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pr-0.5">
+          ${getRoomHueScenesHtml(p.room)}
+        </div>
+      </div>
     `;
   }
 
@@ -888,6 +918,116 @@ async function adjustValveSetpoint(pinNum, delta = 0, directValue = null) {
   }
 }
 
+// --- 🎭 Helper Scene ed Effetti Philips Hue per Drawer / Sheet ---
+function getRoomHueScenesHtml(roomName) {
+  const data = window.hueScenesData;
+  if (!data || !data.byRoom) {
+    // Richiesta asincrona preventiva se non ancora in cache
+    if (!window._fetchingHueScenes) {
+      window._fetchingHueScenes = true;
+      fetch('/api/hue/scenes')
+        .then(r => r.json())
+        .then(j => {
+          if (j.success) {
+            window.hueScenesData = j.data;
+            if (window.deviceSheet?.currentPin) {
+              window.deviceSheet.open(window.deviceSheet.currentPin);
+            }
+          }
+        })
+        .finally(() => { window._fetchingHueScenes = false; });
+    }
+    return `<div class="text-[11px] text-slate-500 py-1 flex items-center gap-1.5"><i class="fa-solid fa-spinner fa-spin text-amber-400"></i> Caricamento scene Hue LAN...</div>`;
+  }
+
+  const rNorm = String(roomName || '').toLowerCase();
+  let targetList = [];
+  for (const [groupName, list] of Object.entries(data.byRoom)) {
+    if (groupName.toLowerCase().includes(rNorm) || rNorm.includes(groupName.toLowerCase())) {
+      targetList = list;
+      break;
+    }
+  }
+  if (targetList.length === 0) {
+    targetList = (data.all || []).slice(0, 8);
+  }
+
+  return targetList.map(s => {
+    const bgGrad = s.colors && s.colors.length > 1
+      ? `linear-gradient(135deg, ${s.colors.join(', ')})`
+      : (s.colors?.[0] || '#f59e0b');
+    return `
+      <button onclick="applyHueSceneUi('${s.id}')"
+              class="px-2.5 py-1.5 rounded-xl text-[10px] font-bold text-white shadow-md active:scale-95 transition-all border border-white/10 hover:border-white/30"
+              style="background: ${bgGrad};"
+              title="${s.name} (${s.groupName})">
+        <span class="drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">${s.name}</span>
+      </button>
+    `;
+  }).join('');
+}
+
+async function applyHueSceneUi(sceneId) {
+  try {
+    const isDynamic = Boolean(window._sheetDynamic || window.floorplan?.hueDynamicMode);
+    const res = await fetch(`/api/hue/scenes/${encodeURIComponent(sceneId)}/activate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dynamic: isDynamic })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(`✨ Scena "${json.data?.scene?.name || 'Hue'}" attivata${isDynamic ? ' (Dinamica)' : ''}!`, 'success');
+      if (typeof loadDashboard === 'function') await loadDashboard();
+    } else {
+      showToast('Errore attivazione scena: ' + (json.error || 'Errore'), 'error');
+    }
+  } catch (e) {
+    showToast('Errore scena: ' + e.message, 'error');
+  }
+}
+
+async function setLightEffectUi(roomName, effect, pinNum = null) {
+  try {
+    const pins = window.homeData?.spatial?.pins || [];
+    const p = pinNum ? pins.find(item => item.pin === Number(pinNum)) : null;
+    const body = {
+      roomName: roomName || 'Salone',
+      effect
+    };
+    if (p && (p.deviceId || p.hueNames?.[0])) {
+      body.lightName = p.deviceId || p.hueNames?.[0];
+    }
+    const res = await fetch('/api/hue/effect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const json = await res.json();
+    if (json.success) {
+      const msg = effect === 'no_effect' ? 'Effetti speciali disattivati' : `Effetto "${effect}" attivato`;
+      showToast(`🕯️ ${msg}`, 'info');
+      if (typeof loadDashboard === 'function') await loadDashboard();
+    } else {
+      showToast('Errore effetto: ' + (json.error || 'Errore'), 'error');
+    }
+  } catch (e) {
+    showToast('Errore effetto: ' + e.message, 'error');
+  }
+}
+
+function toggleSheetHueDynamic() {
+  window._sheetDynamic = !window._sheetDynamic;
+  const btn = document.getElementById('sheet-dynamic-btn');
+  if (btn) {
+    btn.className = `px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all ${window._sheetDynamic ? 'bg-amber-500 text-slate-950 border-amber-400' : 'bg-slate-800 text-slate-400 border-slate-700'}`;
+  }
+}
+
+window.getRoomHueScenesHtml = getRoomHueScenesHtml;
+window.applyHueSceneUi = applyHueSceneUi;
+window.setLightEffectUi = setLightEffectUi;
+window.toggleSheetHueDynamic = toggleSheetHueDynamic;
 window.adjustValveSetpoint = adjustValveSetpoint;
 window.toggleLightPin = toggleLightPin;
 window.setLightBrightnessPin = setLightBrightnessPin;
