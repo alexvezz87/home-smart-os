@@ -189,7 +189,7 @@ app.post('/api/ev-climate/bosch/oauth-callback', async (req, res) => {
 // Protezione obbligatoria per tutte le altre API (/api/*)
 app.use(auth.middleware());
 
-// API Philips Hue Bridge Locale
+// API Philips Hue Bridge Locale & CLIP v2
 app.get('/api/hue/status', (req, res) => {
   res.json({ success: true, data: hueLocal.getStatus() });
 });
@@ -200,6 +200,67 @@ app.post('/api/hue/pair', async (req, res) => {
     res.json({ success: true, data: r, status: hueLocal.getStatus() });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Elenco Scene Hue organizzate per stanza/zona con palette colori reale
+app.get('/api/hue/scenes', (req, res) => {
+  try {
+    const grouped = hueLocal.getScenesGrouped();
+    res.json({ success: true, data: grouped });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Attivazione Scena per ID (con supporto per Dynamic Palette)
+app.post('/api/hue/scenes/:id/activate', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { dynamic, speed } = req.body || {};
+    const result = await hueLocal.activateScene(id, { dynamic, speed });
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// Attivazione Scena per Nome (con risoluzione fuzzy e stanza opzionale)
+app.post('/api/hue/scenes/activate-by-name', async (req, res) => {
+  try {
+    const { sceneName, roomName, dynamic } = req.body || {};
+    if (!sceneName) {
+      return res.status(400).json({ success: false, error: 'sceneName obbligatorio' });
+    }
+    const result = await hueLocal.activateSceneByName(sceneName, roomName, Boolean(dynamic));
+    if (!result.handled) {
+      return res.status(404).json({ success: false, error: result.message || 'Scena non trovata' });
+    }
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Effetti Dinamici Firmware Hue (Candela, Caminetto, Prisma, Brillio, ecc.)
+app.post('/api/hue/effect', async (req, res) => {
+  try {
+    const { lightId, lightName, roomName, effect } = req.body || {};
+    const result = await hueLocal.setEffect({ lightId, lightName, roomName, effect });
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// Regolazione Colore (Gamut XY) e Temperatura Kelvin precisa
+app.post('/api/hue/color', async (req, res) => {
+  try {
+    const { lightId, lightName, roomName, kelvin, hex, xy } = req.body || {};
+    const result = await hueLocal.setColorOrTemperature({ lightId, lightName, roomName, kelvin, hex, xy });
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
   }
 });
 

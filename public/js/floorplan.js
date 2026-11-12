@@ -150,6 +150,10 @@ class FloorplanEngine {
     this.showFurniture = true;
     this.heatMapActive = false;
 
+    // Philips Hue LAN Scenes & Dynamic Effects
+    this.hueDynamicMode = false;
+    this.loadHueScenes();
+
     // Pan & Zoom manuale di precisione (con pinch-to-zoom touchpad e pan protetto)
     this.panX = 0;
     this.panY = 0;
@@ -165,6 +169,88 @@ class FloorplanEngine {
   setLayer(layer) {
     this.activeLayer = layer;
     this.render();
+  }
+
+  async loadHueScenes() {
+    try {
+      const res = await fetch('/api/hue/scenes');
+      const json = await res.json();
+      if (json.success) {
+        window.hueScenesData = json.data;
+        this.render();
+      }
+    } catch (_) {}
+  }
+
+  toggleHueDynamicMode() {
+    this.hueDynamicMode = !this.hueDynamicMode;
+    this.render();
+  }
+
+  async activateHueScene(sceneId) {
+    try {
+      const res = await fetch(`/api/hue/scenes/${encodeURIComponent(sceneId)}/activate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dynamic: this.hueDynamicMode })
+      });
+      const json = await res.json();
+      if (json.success) {
+        if (typeof showToast === 'function') {
+          showToast(`✨ Scena "${json.data?.scene?.name || 'Hue'}" attivata${this.hueDynamicMode ? ' (Dinamica)' : ''}!`, 'success');
+        }
+        if (typeof loadDashboard === 'function') await loadDashboard();
+      } else {
+        if (typeof showToast === 'function') showToast('Errore scena: ' + (json.error || 'Errore'), 'error');
+      }
+    } catch (e) {
+      if (typeof showToast === 'function') showToast('Errore scena: ' + e.message, 'error');
+    }
+  }
+
+  async setHueEffect(roomName, effect) {
+    try {
+      const res = await fetch('/api/hue/effect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomName: roomName || 'Salone', effect })
+      });
+      const json = await res.json();
+      if (json.success) {
+        const msg = effect === 'no_effect' ? 'Effetti speciali disattivati' : `Effetto "${effect}" attivato`;
+        if (typeof showToast === 'function') showToast(`🕯️ ${msg}`, 'info');
+        if (typeof loadDashboard === 'function') await loadDashboard();
+      } else {
+        if (typeof showToast === 'function') showToast('Errore effetto: ' + (json.error || 'Errore'), 'error');
+      }
+    } catch (e) {
+      if (typeof showToast === 'function') showToast('Errore effetto: ' + e.message, 'error');
+    }
+  }
+
+  getHueScenesForCurrentRoom() {
+    const data = window.hueScenesData;
+    if (!data || !data.byRoom) return [];
+    if (!this.selectedRoom) {
+      return (data.all || []).slice(0, 10);
+    }
+    const rNorm = this.selectedRoom.toLowerCase();
+    let targetGroup = null;
+    if (rNorm.includes('salone')) targetGroup = 'Salone';
+    else if (rNorm.includes('letto')) targetGroup = 'Camera da letto';
+    else if (rNorm.includes('studio') || rNorm.includes('cameretta')) targetGroup = 'Studio';
+    else if (rNorm.includes('cucina')) targetGroup = 'Cucina';
+    else if (rNorm.includes('corridoio')) targetGroup = 'Corridoio';
+
+    if (targetGroup && data.byRoom[targetGroup]) {
+      return data.byRoom[targetGroup];
+    }
+    for (const [k, list] of Object.entries(data.byRoom)) {
+      if (k.toLowerCase().includes(rNorm) || rNorm.includes(k.toLowerCase())) {
+        return list;
+      }
+    }
+    return (data.all || []).slice(0, 8);
   }
 
   isPinInLayer(p, layer) {
@@ -839,6 +925,7 @@ class FloorplanEngine {
     });
 
     const roomLabelDisplay = this.selectedRoom || 'Tutta la Casa';
+    const roomHueScenes = this.getHueScenesForCurrentRoom();
 
     // HTML Wrapper con Layout Desktop a 2 Colonne (Split-Screen)
     container.innerHTML = `
@@ -1034,6 +1121,65 @@ class FloorplanEngine {
               <i class="fa-solid ${r.icon} mr-1"></i>${r.label.split(' ')[0]}
             </button>
           `).join('')}
+        </div>
+      </div>
+
+      <!-- Card Scene & Effetti Philips Hue LAN -->
+      <div class="glass-card rounded-2xl p-3.5 border border-amber-500/30 bg-slate-900/85 shadow-lg space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs shadow-inner">
+              <i class="fa-solid fa-palette"></i>
+            </div>
+            <div>
+              <h4 class="text-xs font-bold text-white flex items-center gap-1.5">
+                <span>Scene &amp; Atmosfere Hue</span>
+                <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">LAN CLIP v2</span>
+              </h4>
+              <div class="text-[10px] text-slate-400">Atmosfere per <strong>${roomLabelDisplay}</strong></div>
+            </div>
+          </div>
+          <button onclick="window.floorplan.toggleHueDynamicMode()" class="px-2 py-1 rounded-xl text-[10px] font-bold border transition-all shadow-sm ${this.hueDynamicMode ? 'bg-amber-500 text-slate-950 border-amber-400 ring-2 ring-amber-400/50' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}">
+            <i class="fa-solid fa-wand-magic-sparkles mr-1"></i>${this.hueDynamicMode ? 'Dinamica ON' : 'Dinamica'}
+          </button>
+        </div>
+
+        <!-- Effetti Dinamici Firmware -->
+        <div class="space-y-1.5">
+          <div class="text-[10px] font-bold text-slate-400 flex items-center gap-1">
+            <i class="fa-solid fa-fire text-amber-400"></i> Effetti Firmware
+          </div>
+          <div class="grid grid-cols-5 gap-1.5 text-[10px] font-semibold text-center">
+            <button onclick="window.floorplan.setHueEffect('${this.selectedRoom || 'Salone'}', 'candle')" class="py-1.5 rounded-xl bg-amber-950/40 hover:bg-amber-900/50 border border-amber-500/30 text-amber-200 transition-colors" title="Simula fiamma oscillante">🕯️ Candela</button>
+            <button onclick="window.floorplan.setHueEffect('${this.selectedRoom || 'Salone'}', 'fire')" class="py-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/50 border border-rose-500/30 text-rose-200 transition-colors" title="Simula focolare caldo">🔥 Fuoco</button>
+            <button onclick="window.floorplan.setHueEffect('${this.selectedRoom || 'Salone'}', 'prism')" class="py-1.5 rounded-xl bg-indigo-950/40 hover:bg-indigo-900/50 border border-indigo-500/30 text-indigo-200 transition-colors" title="Ciclo colori arcobaleno">🌈 Prisma</button>
+            <button onclick="window.floorplan.setHueEffect('${this.selectedRoom || 'Salone'}', 'sparkle')" class="py-1.5 rounded-xl bg-sky-950/40 hover:bg-sky-900/50 border border-sky-500/30 text-sky-200 transition-colors" title="Bagliori stellari">✨ Brillio</button>
+            <button onclick="window.floorplan.setHueEffect('${this.selectedRoom || 'Salone'}', 'no_effect')" class="py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors" title="Spegni effetti">⏹️ Stop</button>
+          </div>
+        </div>
+
+        <!-- Palette Scene Hue -->
+        <div class="space-y-1.5">
+          <div class="text-[10px] font-bold text-slate-400 flex items-center justify-between">
+            <span class="flex items-center gap-1"><i class="fa-solid fa-shapes text-indigo-400"></i> Scene Salvate</span>
+            <span class="text-[9px] text-slate-500 font-mono">${roomHueScenes.length} disponibili</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pr-0.5">
+            ${roomHueScenes.length === 0 ? `<div class="text-[11px] text-slate-500 py-1 flex items-center gap-1.5"><i class="fa-solid fa-spinner fa-spin text-amber-400"></i> Caricamento scene...</div>` : ''}
+            ${roomHueScenes.map(s => {
+              const bgGrad = s.colors && s.colors.length > 1
+                ? `linear-gradient(135deg, ${s.colors.join(', ')})`
+                : (s.colors?.[0] || '#f59e0b');
+              return `
+                <button onclick="window.floorplan.activateHueScene('${s.id}')"
+                        class="px-2.5 py-1.5 rounded-xl text-[10px] font-bold text-white shadow-md active:scale-95 transition-all flex items-center gap-1.5 border border-white/10 hover:border-white/30"
+                        style="background: ${bgGrad};"
+                        title="Attiva ${s.name} in ${s.groupName}">
+                  <span class="drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">${s.name}</span>
+                </button>
+              `;
+            }).join('')}
+          </div>
         </div>
       </div>
 

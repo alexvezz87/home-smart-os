@@ -36,7 +36,13 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 ---
 
 ## 5. Philips Hue & Parco Telecamere (`src/hue-local.js`, `src/security-system.js`)
-- **Philips Hue Bridge**: API REST locale (`http://<bridge-ip>/api/<key>/lights`) sincronizzata con i 32 pin della mappa spaziale.
+- **Philips Hue Bridge (LAN CLIP v2 & v1)**:
+  - **Protocollo**: REST HTTPS su porta 443 tramite endpoint CLIP v2 (`https://<bridge-ip>/clip/v2/resource/...`) con header `hue-application-key` e fallback resiliente su REST v1 HTTP (`http://<bridge-ip>/api/<key>/...`).
+  - **Zero Latenza & Funzionamento Offline**: Tutte le operazioni viaggiano direttamente via rete locale Ethernet/Wi-Fi su `192.168.1.18` con tempo di risposta < 15ms e totale indipendenza da internet e dal cloud esterno.
+  - **Scene Native & Palette Colori**: Sincronizzazione automatica delle 43+ scene native memorizzate nel Bridge per ciascuna Stanza (Salone, Studio, Camera da letto, Cucina, Corridoio) e Zona (Giunone, Eglo). Estrazione delle coordinate cromatiche CIE 1931 ($xy$) e temperatura colore Kelvin/Mired con conversione matematica in tempo reale a gradienti CSS HEX per la UI.
+  - **Modalità Dinamica (Dynamic Palette)**: Recall scene con azione `dynamic_palette` per far variare morbidamente e continuamente i colori tra le lampade nel tempo.
+  - **Effetti Dinamici Firmware**: Supporto nativo ai 10 effetti speciali calcolati dal microcontrollore delle lampade: `candle` (candela oscillante), `fire` (caminetto caldo), `prism` (arcobaleno), `sparkle` (luccichio stellare), `opal`, `glisten`, `underwater`, `cosmos`, `sunbeam`, `enchant` e disattivazione con `no_effect` (con meccanismo di throttling anti-rate-limit 429 a 60ms).
+  - **Controllo Vocale Bilingue**: Dizionario semantico in `src/assistant.js` che associa indifferentemente comandi in italiano (*"metti scena tramonto nella savana in salone"*, *"effetto candela"*, *"fioritura primaverile"*, *"scena lettura"*) e titoli in inglese registrati nell'app Hue (*"Savanna sunset"*, *"Spring blossom"*, *"Read"*).
 - **TP-Link Tapo C200 / C210**: Controllo PTZ e notifiche movimento tramite protocollo **ONVIF** (porta 2020) + API nativa Tapo; flusso video **RTSP** (`:554/stream1` e `stream2`) convertito in WebRTC/MSE tramite motore integrato `go2rtc` (porta 1984, < 0.3s latenza); visualizzazione immersiva via Modal Teatro / Maxi-Player a schermo intero ([`public/js/camera-theater.js`](../public/js/camera-theater.js)) con D-Pad ONVIF, memorizzazione preset e snapshot ad alta risoluzione.
 - **GHB BABY6T 2K (CloudEdge / Meari)**: Baby monitor su rete locale (`192.168.1.75`), controllo brandeggio ed eventi tramite **ONVIF** su porta **8000**, flusso video **RTSP** su porta **8554** con canale 2K nativo (`/Streaming/Channels/101`), integrato in `go2rtc` con stream key `baby_francesco` e mappato sul pin spaziale `#42` (Camera da letto / Culla Francesco).
 

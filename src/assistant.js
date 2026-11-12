@@ -2,6 +2,7 @@ const mcp = require('./google-home-mcp');
 const eventLogger = require('./event-logger');
 const securitySystem = require('./security-system');
 const geminiVision = require('./gemini-vision');
+const hueLocal = require('./hue-local');
 
 /**
  * Interprete di comandi in linguaggio naturale (italiano) per la Smart Home.
@@ -84,6 +85,104 @@ async function processAssistantCommand(input) {
     const forceState = text.includes('attiva') || text.includes('accendi') ? true : text.includes('disattiva') || text.includes('spegni') ? false : null;
     const res = securitySystem.toggleCameraPrivacy(targetCam, forceState);
     return { success: true, action: 'privacy_toggle', reply: res.message };
+  }
+
+  // 0d. Effetti Dinamici Firmware Philips Hue (Candela, Caminetto, Prisma, Brillio, Stop Effetti)
+  const isHueEffect = (
+    text.includes('effetto candela') ||
+    text.includes('effetto caminetto') ||
+    text.includes('effetto fuoco') ||
+    text.includes('effetto fiammella') ||
+    text.includes('effetto prisma') ||
+    text.includes('effetto brillio') ||
+    text.includes('effetto luccichio') ||
+    text.includes('effetto opale') ||
+    text.includes('effetto oceano') ||
+    text.includes('effetto cosmo') ||
+    ((text.includes('spegni') || text.includes('ferma') || text.includes('disattiva') || text.includes('stop')) && text.includes('effetto'))
+  );
+
+  if (isHueEffect && hueLocal.isPaired) {
+    let effect = 'no_effect';
+    if (text.includes('candela') || text.includes('fiammella')) effect = 'candle';
+    else if (text.includes('caminetto') || text.includes('fuoco') || text.includes('focolare')) effect = 'fire';
+    else if (text.includes('prisma') || text.includes('arcobaleno')) effect = 'prism';
+    else if (text.includes('brillio') || text.includes('luccichio') || text.includes('scintillio')) effect = 'sparkle';
+    else if (text.includes('opale')) effect = 'opal';
+    else if (text.includes('oceano') || text.includes('subacqueo')) effect = 'underwater';
+    else if (text.includes('cosmo') || text.includes('spazio')) effect = 'cosmos';
+
+    // Riconoscimento stanza
+    const isSalone = text.includes('salone') || text.includes('soggiorno') || text.includes('sala');
+    const isStudio = text.includes('studio');
+    const isLetto = text.includes('letto') || text.includes('camera');
+    const isCucina = text.includes('cucina');
+    const isCorridoio = text.includes('corridoio');
+    const roomName = isSalone ? 'Salone' : isStudio ? 'Studio' : isLetto ? 'Camera da letto' : isCucina ? 'Cucina' : isCorridoio ? 'Corridoio' : null;
+
+    try {
+      const res = await hueLocal.setEffect({ roomName: roomName || 'Salone', effect });
+      const effName = effect === 'no_effect' ? 'disattivati' : `"${effect}" attivato`;
+      return {
+        success: true,
+        action: 'hue_effect',
+        effect,
+        room: res.target,
+        reply: `🕯️ [Philips Hue LAN]: Effetti ${effName} su ${res.target} (${res.lightsCount} luci).`
+      };
+    } catch (err) {
+      return { success: false, error: err.message, reply: `Errore effetto Hue: ${err.message}` };
+    }
+  }
+
+  // 0e. Scene & Atmosfere Native Philips Hue (Savana, Aurora, Tropicale, Fioritura, Relax, Lettura, Energia, ecc.)
+  const isHueScene = (
+    text.includes('scena') ||
+    text.includes('atmosfera') ||
+    text.includes('savana') ||
+    text.includes('aurora boreale') ||
+    text.includes('tropicale') ||
+    text.includes('fioritura') ||
+    text.includes('primaverile') ||
+    text.includes('tramonto') ||
+    text.includes('rio') ||
+    (text.includes('dinamica') && (text.includes('luci') || text.includes('relax') || text.includes('colori')))
+  );
+
+  if (isHueScene && hueLocal.isPaired) {
+    const isDynamic = text.includes('dinamic') || text.includes('sfumat') || text.includes('ciclic');
+    
+    // Riconoscimento stanza
+    const isSalone = text.includes('salone') || text.includes('soggiorno') || text.includes('sala');
+    const isStudio = text.includes('studio');
+    const isLetto = text.includes('letto') || text.includes('camera');
+    const isCucina = text.includes('cucina');
+    const isCorridoio = text.includes('corridoio');
+    const isGiunone = text.includes('giunone');
+    const roomName = isSalone ? 'Salone' : isStudio ? 'Studio' : isLetto ? 'Camera da letto' : isCucina ? 'Cucina' : isCorridoio ? 'Corridoio' : isGiunone ? 'Giunone' : null;
+
+    // Estrai nome scena ripulendo parole chiave con word boundary
+    let cleanScene = text
+      .replace(/\b(imposta|attiva|metti|avvia|accendi|cambia|fammi|vorrei|la|il|lo|le|i)\b/g, '')
+      .replace(/\b(scena|atmosfera|modalità)\b/g, '')
+      .replace(/\b(dinamica|dinamico)\b/g, '')
+      .replace(/\b(in\s+salone|in\s+studio|in\s+camera|in\s+cucina|in\s+corridoio|nel\s+salone|nello\s+studio|nella\s+camera|nella\s+cucina)\b/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    try {
+      const res = await hueLocal.activateSceneByName(cleanScene || text, roomName, isDynamic);
+      if (res && res.handled) {
+        return {
+          success: true,
+          action: 'hue_scene',
+          scene: res.scene,
+          reply: `✨ [Philips Hue LAN]: Scena "${res.scene.name}" attivata in ${res.scene.room}${isDynamic ? ' in modalità dinamica' : ''} a latenza zero.`
+        };
+      }
+    } catch (err) {
+      console.warn('[Assistant Hue Scene Error]:', err.message);
+    }
   }
 
   const snapshot = await mcp.getHomeSnapshot();
