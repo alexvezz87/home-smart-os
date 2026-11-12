@@ -3,6 +3,7 @@ const eventLogger = require('./event-logger');
 const securitySystem = require('./security-system');
 const geminiVision = require('./gemini-vision');
 const hueLocal = require('./hue-local');
+const pantumPrinter = require('./pantum-printer');
 
 /**
  * Interprete di comandi in linguaggio naturale (italiano) per la Smart Home.
@@ -183,6 +184,22 @@ async function processAssistantCommand(input) {
     } catch (err) {
       console.warn('[Assistant Hue Scene Error]:', err.message);
     }
+  }
+
+  // 0f. Stampante Laser Pantum P2500W (LAN IPP)
+  if (text.includes('stampante') || text.includes('pantum') || text.includes('toner')) {
+    const st = await pantumPrinter.refreshStatus();
+    let reply = '';
+    if (!st.configured) {
+      reply = 'La stampante Pantum non ha ancora un IP configurato.';
+    } else if (!st.online) {
+      reply = `La stampante ${st.makeAndModel || 'Pantum'} (${st.ip}) risulta spenta o offline in questo momento.`;
+    } else {
+      const tonerTxt = typeof st.tonerPercent === 'number' ? ` Toner residuo al ${st.tonerPercent}%.` : '';
+      reply = `🖨️ Stampante ${st.makeAndModel} (${st.ip}): ${st.statusLabel}.${tonerTxt}`;
+    }
+    eventLogger.log('assistant', reply, { source: 'Assistente AI' });
+    return { success: true, action: 'printer_status', printer: st, reply };
   }
 
   const snapshot = await mcp.getHomeSnapshot();

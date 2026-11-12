@@ -595,6 +595,17 @@ class SpatialEngine {
         y: 18.5,
         baseHeadingDeg: -90,
         nearbyPins: [1, 2, 3, 5, 6]
+      },
+      {
+        pin: 43,
+        name: 'Stampante Pantum P2500W',
+        room: 'Cameretta',
+        microZone: 'studio_focus',
+        category: 'printer',
+        vendor: 'Pantum',
+        x: 68.5,
+        y: 38.5,
+        nearbyPins: [12, 13, 14]
       }
     ];
 
@@ -979,6 +990,18 @@ class SpatialEngine {
         clone.batteryPercent = zBatt || 92;
         clone.deviceId = zData?.valve?.id || `bosch_trv_${p.pin}`;
         clone.zoneId = zData?.id || p.zoneId;
+      } else if (p.category === 'printer') {
+        const pr = homeSnapshot.printer || {};
+        clone.online = Boolean(pr.online);
+        clone.isOn = Boolean(pr.online);
+        clone.statusCode = pr.statusCode || 'offline';
+        clone.statusLabel = pr.statusLabel || 'Offline';
+        clone.tonerPercent = pr.tonerPercent !== undefined ? pr.tonerPercent : null;
+        clone.printerIp = pr.ip || '';
+        clone.webUrl = pr.webUrl || null;
+        clone.makeAndModel = pr.makeAndModel || 'Pantum P2500W';
+        clone.stateReasons = pr.stateReasons || [];
+        clone.uptimeSeconds = pr.uptimeSeconds || null;
       } else if (p.category === 'sensor') {
         const dMatch = devices.find(d => d.category === 'sensor');
         clone.temperature = dMatch?.extra?.temperature || homeSnapshot.stats?.temperature || 20.9;

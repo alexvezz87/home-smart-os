@@ -1183,6 +1183,47 @@ class AdminManager {
           </div>
         </div>
 
+        <!-- Stampante Laser Wi-Fi Pantum P2500W (IPP LAN) -->
+        <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
+          <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
+            <div class="flex items-center gap-2">
+              <i class="fa-solid fa-print ${data?.printer?.online ? 'text-emerald-400' : 'text-slate-400'}"></i>
+              <h4 class="text-xs font-bold text-white uppercase tracking-wider">Stampante Pantum P2500W (IPP LAN :631)</h4>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${data?.printer?.online ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'}">
+                ${data?.printer?.statusLabel || 'Offline'}
+              </span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="if(window.refreshPantumPrinterUi) window.refreshPantumPrinterUi(43)" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1 active:scale-95">
+                <i class="fa-solid fa-rotate text-[10px]"></i> Aggiorna
+              </button>
+              <button onclick="if(window.discoverPantumUi) window.discoverPantumUi(43)" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 transition-all flex items-center gap-1 active:scale-95">
+                <i class="fa-solid fa-magnifying-glass text-[10px]"></i> Cerca in LAN
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80">
+              <div class="text-[10px] text-slate-400 uppercase">Modello &amp; Stato</div>
+              <div class="font-bold text-white mt-0.5">${data?.printer?.makeAndModel || 'Pantum-P2500W-Series'}</div>
+            </div>
+            <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80">
+              <div class="text-[10px] text-slate-400 uppercase">Toner Nero</div>
+              <div class="font-bold ${data?.printer?.tonerPercent !== null && data?.printer?.tonerPercent !== undefined && data.printer.tonerPercent <= 15 ? 'text-rose-400' : 'text-emerald-400'} mt-0.5 font-mono">
+                ${data?.printer?.tonerPercent !== null && data?.printer?.tonerPercent !== undefined ? data.printer.tonerPercent + '%' : 'N/D'}
+              </div>
+            </div>
+            <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 flex items-center gap-2">
+              <input id="pantum-ip-input-43" type="text" value="${data?.printer?.ip || ''}" placeholder="es. 192.168.1.82"
+                     class="w-full px-2 py-1 rounded-md bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-indigo-500" />
+              <button onclick="if(window.savePantumIpUi) window.savePantumIpUi(43)" class="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shrink-0">
+                Salva
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Registro Eventi & Audit Log -->
         <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
           <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">

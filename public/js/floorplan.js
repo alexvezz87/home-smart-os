@@ -846,6 +846,19 @@ class FloorplanEngine {
         fill = '#0f172a';
         stroke = isSelected ? '#22d3ee' : '#0284c7';
         if (p.powerW > 0) subBadge = `${Math.round(p.powerW)}W`;
+      } else if (p.category === 'printer') {
+        iconGlyph = '&#xf02f;'; // fa-print
+        if (p.online) {
+          iconColor = p.statusCode === 'error' ? '#f43f5e' : '#34d399';
+          fill = p.statusCode === 'error' ? '#4c0519' : '#064e3b';
+          stroke = isSelected ? '#22d3ee' : (p.statusCode === 'error' ? '#fb7185' : '#10b981');
+          subBadge = typeof p.tonerPercent === 'number' ? `${p.tonerPercent}%` : 'ON';
+        } else {
+          iconColor = '#64748b';
+          fill = '#0f172a';
+          stroke = isSelected ? '#22d3ee' : '#334155';
+          subBadge = 'OFF';
+        }
       }
 
       const isPinInSelectedRoom = !hasRoomSelection || p.room === this.selectedRoom;

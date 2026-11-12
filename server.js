@@ -29,6 +29,7 @@ let hueLocal = null;
 let spatialEngine = null;
 let evClimateHub = null;
 let geminiVision = null;
+let pantumPrinter = null;
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -264,6 +265,39 @@ app.post('/api/hue/color', async (req, res) => {
   }
 });
 
+// API Stampante Laser Wi-Fi Pantum P2500W (IPP/HTTP LAN)
+app.get('/api/printer/status', (req, res) => {
+  res.json({ success: true, data: pantumPrinter.getStatus() });
+});
+
+app.post('/api/printer/config', async (req, res) => {
+  try {
+    const { ip, port } = req.body || {};
+    const status = await pantumPrinter.saveConfig({ ip, port });
+    res.json({ success: true, data: status });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/printer/discover', async (req, res) => {
+  try {
+    const result = await pantumPrinter.discoverInLan();
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/printer/refresh', async (req, res) => {
+  try {
+    const status = await pantumPrinter.refreshStatus();
+    res.json({ success: true, data: status });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // 1. Snapshot completo casa con arricchimento telemetria Meross, Sicurezza e Mappa Spaziale 32 Pin
 app.get(['/api/home', '/api/dashboard'], async (req, res) => {
   try {
@@ -272,6 +306,7 @@ app.get(['/api/home', '/api/dashboard'], async (req, res) => {
     snapshot.devices = enriched.devices;
     snapshot.energySummary = enriched.energySummary;
     snapshot.security = securitySystem.getStatus();
+    snapshot.printer = pantumPrinter ? pantumPrinter.getStatus() : null;
     snapshot.spatial = spatialEngine.getEnrichedMapState(snapshot);
     snapshot.evClimate = evClimateHub.getUnifiedStatus(snapshot);
     res.json({ success: true, data: snapshot });
@@ -1105,10 +1140,12 @@ async function bootstrap() {
   spatialEngine = require('./src/spatial-engine');
   evClimateHub = require('./src/ev-climate-hub');
   geminiVision = require('./src/gemini-vision');
+  pantumPrinter = require('./src/pantum-printer');
 
   // Inizializza servizi hardware e telemetria
   merossEnergy.init();
   hueLocal.init();
+  pantumPrinter.init().catch((err) => console.warn('⚠️ [Pantum] Init background:', err.message));
   evClimateHub.syncAll().catch((err) => console.warn('⚠️ [EV-Climate Hub] Primo sync background:', err.message));
   setInterval(() => evClimateHub.syncAll().catch(() => {}), 60000);
 
