@@ -123,6 +123,7 @@ class CameraTheaterManager {
 
     const isPrivacy = Boolean(cam.privacyMode);
     const isPatrol = Boolean(cam.patrolActive);
+    const isOffline = cam.online === false;
     const isCasting = Boolean(this.activeCast && (this.activeCast.cameraId === cam.id || this.activeCast.cameraName === cam.name));
     const ptz = cam.ptz || { pan: 0, tilt: 0 };
     const presets = cam.presets || [];
@@ -173,9 +174,10 @@ class CameraTheaterManager {
                 if (c.name.includes('Francesco') || c.name.includes('Baby')) shortLabel = '👶 Baby 2K';
                 else if (c.name.includes('Salone')) shortLabel = '🛋️ Salone';
                 else if (c.name.includes('letto')) shortLabel = '🛏️ Letto';
+                const offDot = c.online === false ? '<span class="w-1.5 h-1.5 rounded-full bg-rose-500 inline-block ml-1" title="Offline"></span>' : '';
                 return `
-                  <button onclick="window.cameraTheater.open('${c.id}')" class="px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${isCur ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-300 hover:text-white hover:bg-slate-700/60'}" title="${c.name}">
-                    ${shortLabel}
+                  <button onclick="window.cameraTheater.open('${c.id}')" class="px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center ${isCur ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-300 hover:text-white hover:bg-slate-700/60'}" title="${c.name} (${c.online ? 'Online' : 'Offline'})">
+                    <span>${shortLabel}</span>${offDot}
                   </button>
                 `;
               }).join('')}
@@ -225,6 +227,21 @@ class CameraTheaterManager {
               <button onclick="window.cameraTheater.togglePrivacy(false)" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold text-xs transition-all shadow-lg shadow-indigo-600/30 flex items-center gap-2">
                 <i class="fa-solid fa-eye text-sm"></i>
                 <span>Disattiva Privacy &amp; Ripristina Flusso</span>
+              </button>
+            </div>
+
+            <!-- Offline Overlay (se telecamera irraggiungibile) -->
+            <div id="theater-offline-overlay" class="${isOffline ? 'flex' : 'hidden'} absolute inset-0 bg-slate-950/95 flex-col items-center justify-center p-6 text-center space-y-3 backdrop-blur-md z-30">
+              <div class="w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-3xl text-rose-400 shadow-xl shadow-rose-500/10">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+              </div>
+              <div>
+                <h3 class="text-base font-bold text-white">Telecamera Non Raggiungibile</h3>
+                <p class="text-xs text-slate-400 max-w-sm mt-1">La telecamera non risponde su <code>${cam.ip}</code> (timeout). Verifica che sia alimentata e connessa alla rete Wi-Fi.</p>
+              </div>
+              <button onclick="window.cameraTheater.refreshCameraData().then(() => window.cameraTheater.renderTheaterUI())" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 font-bold text-xs transition-all border border-slate-700 flex items-center gap-2">
+                <i class="fa-solid fa-rotate text-sm text-cyan-400"></i>
+                <span>Riprova Connessione</span>
               </button>
             </div>
 
@@ -857,6 +874,13 @@ class CameraTheaterManager {
   async castToNestHub() {
     const cam = this.currentCamData;
     if (!cam) return;
+
+    if (cam.online === false) {
+      if (typeof showToast === 'function') {
+        showToast(`Impossibile trasmettere: la telecamera "${cam.name}" non risponde (${cam.ip}).`, 'error');
+      }
+      return;
+    }
 
     const btn = document.getElementById('theater-btn-nest-hub');
     if (btn) {
