@@ -115,6 +115,15 @@ class DeviceSheetManager {
         bodyHtml = this.renderPrinterControls(p);
         break;
 
+      case 'appliance':
+        categoryIcon = p.thinqRole === 'dryer' ? 'fa-wind' : 'fa-utensils';
+        categoryLabel = 'Elettrodomestico LG ThinQ';
+        badgeColor = p.isRunning
+          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+          : (p.online ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40' : 'bg-slate-800 text-slate-400');
+        bodyHtml = this.renderApplianceControls(p);
+        break;
+
       default:
         bodyHtml = `
           <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 text-center text-xs text-slate-400">
@@ -336,6 +345,87 @@ class DeviceSheetManager {
           ` : ''}
         </div>
       </div>
+    `;
+  }
+
+  /**
+   * Controlli Elettrodomestici LG ThinQ (Lavastoviglie & Asciugatrice)
+   */
+  renderApplianceControls(p) {
+    const isDryer = p.thinqRole === 'dryer';
+    const isOnline = Boolean(p.online || p.isRunning);
+    const statusText = p.statusLabel || (isOnline ? 'Attiva' : 'Spenta / Standby');
+
+    return `
+      <div class="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+        <div class="flex items-center justify-between">
+          <div>
+            <span class="text-[11px] text-slate-400 uppercase font-semibold block">Stato LG ThinQ Connect</span>
+            <div class="text-sm font-bold ${p.isRunning ? 'text-emerald-400' : (isOnline ? 'text-sky-400' : 'text-slate-300')} mt-0.5">
+              ${statusText}
+            </div>
+            ${p.modelName ? `<div class="text-[11px] text-slate-500 font-mono">Modello: ${p.modelName}</div>` : ''}
+          </div>
+          <span class="px-2.5 py-1 rounded-full text-[11px] font-bold ${p.isRunning ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : (isOnline ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700')}">
+            ${p.isRunning ? 'IN CORSO' : (isOnline ? 'ONLINE' : 'STANDBY')}
+          </span>
+        </div>
+
+        ${(p.courseLabel || p.remainFormatted || p.doorState || p.rinseRefill) ? `
+        <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800/80 text-xs">
+          ${p.courseLabel ? `
+          <div class="p-2 rounded-lg bg-slate-950/60 border border-slate-800/70">
+            <span class="text-[10px] text-slate-400 block">Programma</span>
+            <span class="font-bold text-white">${p.courseLabel}</span>
+          </div>` : ''}
+          ${p.remainFormatted ? `
+          <div class="p-2 rounded-lg bg-slate-950/60 border border-slate-800/70">
+            <span class="text-[10px] text-slate-400 block">Tempo Residuo</span>
+            <span class="font-bold text-emerald-400 font-mono">${p.remainFormatted}</span>
+          </div>` : ''}
+          ${p.doorState ? `
+          <div class="p-2 rounded-lg bg-slate-950/60 border border-slate-800/70">
+            <span class="text-[10px] text-slate-400 block">Sportello</span>
+            <span class="font-bold ${p.doorState === 'OPEN' ? 'text-amber-400' : 'text-slate-200'}">${p.doorState === 'OPEN' ? 'Aperto' : 'Chiuso'}</span>
+          </div>` : ''}
+          ${p.rinseRefill ? `
+          <div class="p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 font-semibold col-span-2">
+            <i class="fa-solid fa-droplet mr-1"></i> Brillantante in esaurimento
+          </div>` : ''}
+        </div>` : `
+        <div class="p-2.5 rounded-lg bg-slate-950/50 border border-slate-800/60 text-[11px] text-slate-400">
+          ${isDryer
+            ? 'Quando l\'asciugatrice è accesa e connessa al Wi-Fi, qui appariranno ciclo, tempo residuo e comandi remoti.'
+            : 'Quando la lavastoviglie è accesa o in lavaggio, qui appariranno programma, tempo residuo, stato sportello e avvisi.'}
+        </div>`}
+      </div>
+
+      ${isDryer ? `
+      <div class="p-3 rounded-xl bg-slate-900/70 border border-slate-800 space-y-2">
+        <div class="flex items-center justify-between text-[11px] text-slate-400">
+          <span>Controllo Remoto Asciugatrice</span>
+          <span class="font-mono ${p.remoteControlEnabled ? 'text-emerald-400' : 'text-slate-500'}">${p.remoteControlEnabled ? 'ABILITATO' : 'DISATTIVO'}</span>
+        </div>
+        <div class="grid grid-cols-3 gap-2">
+          <button onclick="window.controlThinqDryerUi(${p.pin}, 'START')" ${!p.remoteControlEnabled ? 'disabled' : ''}
+                  class="py-2 px-2 rounded-lg text-xs font-bold transition-all ${p.remoteControlEnabled ? 'bg-emerald-600 hover:bg-emerald-500 text-white active:scale-95' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
+            <i class="fa-solid fa-play mr-1"></i> Avvia
+          </button>
+          <button onclick="window.controlThinqDryerUi(${p.pin}, 'STOP')" ${!p.remoteControlEnabled ? 'disabled' : ''}
+                  class="py-2 px-2 rounded-lg text-xs font-bold transition-all ${p.remoteControlEnabled ? 'bg-amber-600 hover:bg-amber-500 text-white active:scale-95' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
+            <i class="fa-solid fa-pause mr-1"></i> Pausa
+          </button>
+          <button onclick="window.controlThinqDryerUi(${p.pin}, 'POWER_OFF')" ${!isOnline ? 'disabled' : ''}
+                  class="py-2 px-2 rounded-lg text-xs font-bold transition-all ${isOnline ? 'bg-rose-600 hover:bg-rose-500 text-white active:scale-95' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
+            <i class="fa-solid fa-power-off mr-1"></i> Spegni
+          </button>
+        </div>
+      </div>` : ''}
+
+      <button onclick="window.refreshThinqUi(${p.pin})"
+              class="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-all">
+        <i class="fa-solid fa-rotate"></i> Aggiorna Stato LG ThinQ
+      </button>
     `;
   }
 
@@ -1183,6 +1273,50 @@ async function discoverPantumUi(pinNum) {
   }
 }
 
+async function refreshThinqUi(pinNum) {
+  try {
+    if (window.showToast) window.showToast('Sincronizzazione LG ThinQ...', 'info');
+    const res = await fetch('/api/thinq/refresh', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      if (window.showToast) window.showToast(data.error || 'Errore LG ThinQ', 'error');
+      return;
+    }
+    if (window.homeData) window.homeData.thinq = data.data;
+    if (typeof loadDashboard === 'function') await loadDashboard();
+    if (window.deviceSheet && pinNum && window.homeData?.spatial?.pins) {
+      const updated = window.homeData.spatial.pins.find((p) => Number(p.pin) === Number(pinNum));
+      if (updated) window.deviceSheet.open(updated);
+    }
+    if (window.showToast) window.showToast('Stato LG ThinQ aggiornato', 'success');
+  } catch (e) {
+    console.error('Errore refreshThinqUi:', e);
+    if (window.showToast) window.showToast('Errore di rete LG ThinQ', 'error');
+  }
+}
+
+async function controlThinqDryerUi(pinNum, command) {
+  try {
+    if (window.showToast) window.showToast(`Invio comando ${command} ad asciugatrice...`, 'info');
+    const res = await fetch('/api/thinq/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target: 'dryer', command })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      if (window.showToast) window.showToast(data.error || 'Comando rifiutato', 'error');
+      return;
+    }
+    await refreshThinqUi(pinNum);
+  } catch (e) {
+    console.error('Errore controlThinqDryerUi:', e);
+    if (window.showToast) window.showToast('Errore invio comando LG ThinQ', 'error');
+  }
+}
+
+window.refreshThinqUi = refreshThinqUi;
+window.controlThinqDryerUi = controlThinqDryerUi;
 window.refreshPantumPrinterUi = refreshPantumPrinterUi;
 window.savePantumIpUi = savePantumIpUi;
 window.discoverPantumUi = discoverPantumUi;

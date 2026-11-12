@@ -4,6 +4,7 @@ const securitySystem = require('./security-system');
 const geminiVision = require('./gemini-vision');
 const hueLocal = require('./hue-local');
 const pantumPrinter = require('./pantum-printer');
+const lgThinq = require('./lg-thinq');
 
 /**
  * Interprete di comandi in linguaggio naturale (italiano) per la Smart Home.
@@ -200,6 +201,41 @@ async function processAssistantCommand(input) {
     }
     eventLogger.log('assistant', reply, { source: 'Assistente AI' });
     return { success: true, action: 'printer_status', printer: st, reply };
+  }
+
+  // 0g. Elettrodomestici LG ThinQ Connect (Lavastoviglie & Asciugatrice)
+  if (
+    text.includes('lavastoviglie') ||
+    text.includes('asciugatrice') ||
+    text.includes('wendy') ||
+    text.includes('thinq') ||
+    text.includes('elettrodomestici')
+  ) {
+    const st = await lgThinq.refreshStatus();
+    if (!st.configured) {
+      return { success: true, action: 'thinq_status', thinq: st, reply: 'LG ThinQ Connect non è ancora configurato con un Personal Access Token.' };
+    }
+    const formatDev = (d, fallbackName) => {
+      if (!d) return `${fallbackName}: non trovata`;
+      if (!d.online && !d.isRunning) return `${d.alias} (${d.modelName}): ${d.statusLabel}`;
+      const parts = [`${d.alias}: ${d.statusLabel}`];
+      if (d.courseLabel) parts.push(`programma ${d.courseLabel}`);
+      if (d.remainFormatted) parts.push(`tempo residuo ${d.remainFormatted}`);
+      if (d.doorState === 'OPEN') parts.push('sportello aperto');
+      if (d.rinseRefill) parts.push('brillantante in esaurimento');
+      return parts.join(', ');
+    };
+
+    let reply = '';
+    if (text.includes('lavastoviglie')) {
+      reply = `🍽️ ${formatDev(st.dishwasher, 'Lavastoviglie')}.`;
+    } else if (text.includes('asciugatrice') || text.includes('wendy')) {
+      reply = `🌀 ${formatDev(st.dryer, 'Asciugatrice')}.`;
+    } else {
+      reply = `🏠 LG ThinQ: ${formatDev(st.dishwasher, 'Lavastoviglie')} | ${formatDev(st.dryer, 'Asciugatrice')}.`;
+    }
+    eventLogger.log('assistant', reply, { source: 'Assistente AI' });
+    return { success: true, action: 'thinq_status', thinq: st, reply };
   }
 
   const snapshot = await mcp.getHomeSnapshot();

@@ -61,3 +61,13 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 - **Client Nativo**: Implementazione binaria pura in Node.js (`Get-Printer-Attributes` op `0x000B`) senza dipendenze esterne, con estrazione di `printer-state`, `printer-state-reasons`, `marker-levels`, `marker-names`, `printer-make-and-model` e `printer-up-time`.
 - **Auto-Discovery & Persistenza**: Scansione rapida sulla subnet locale (`:631`) e salvataggio configurazione su TiDB Cloud `kv_store` (`pantum-printer-config`) con fallback locale `pantum-config.json` (escluso da git).
 - **Endpoint & UI**: `/api/printer/status`, `/api/printer/config`, `/api/printer/discover`, `/api/printer/refresh`; Pin `#43` in `Camera da letto` (`microZone: studio_focus`), drawer dedicato (`public/js/device-sheet.js`), card in Amministrazione (`public/js/admin.js`) e query vocali in `src/assistant.js`.
+
+---
+
+## 8. Elettrodomestici LG ThinQ Connect (`src/lg-thinq.js`)
+- **API Ufficiale**: `https://api-eic.lgthinq.com` (regione `IT`) autenticata con **Personal Access Token (PAT)** (`LG_THINQ_PAT` in `.env` e cifrato AES-256-GCM su TiDB `kv_store` `lg-thinq-config`) + `x-api-key` ufficiale ThinQ Connect.
+- **Dispositivi Censiti**:
+  - **Lavastoviglie (`DEVICE_DISH_WASHER`, modello `D0211`, Pin `#31`)**: programma attivo, tempo residuo, stato porta (`OPEN`/`CLOSE`), avviso brillantante (`rinseRefill`).
+  - **Asciugatrice (`DEVICE_DRYER`, modello `RC90U2_WW`, Pin `#44`)**: stato ciclo, tempo residuo e comandi operativi remoti (`START`, `STOP`, `POWER_OFF`, `WAKE_UP`) quando `remoteControlEnabled` è attivo.
+- **Resilienza**: gestione nativa HTTP `416` (`code: "1222"`, *Not connected device*) come stato `Spenta / Standby` senza generare falsi errori.
+- **Endpoint & UI**: `/api/thinq/status`, `/api/thinq/refresh`, `/api/thinq/config`, `/api/thinq/control`, `snapshot.thinq` in `/api/home`, drawer (`public/js/device-sheet.js`), card in Amministrazione (`public/js/admin.js`) e comandi vocali in `src/assistant.js`.

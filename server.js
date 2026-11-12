@@ -30,6 +30,7 @@ let spatialEngine = null;
 let evClimateHub = null;
 let geminiVision = null;
 let pantumPrinter = null;
+let lgThinq = null;
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -298,6 +299,41 @@ app.post('/api/printer/refresh', async (req, res) => {
   }
 });
 
+// 0g. Elettrodomestici LG ThinQ Connect (Lavastoviglie & Asciugatrice)
+app.get('/api/thinq/status', (req, res) => {
+  if (!lgThinq) return res.status(503).json({ success: false, error: 'Modulo LG ThinQ non inizializzato' });
+  res.json({ success: true, data: lgThinq.getStatus() });
+});
+
+app.post('/api/thinq/refresh', async (req, res) => {
+  try {
+    const status = await lgThinq.refreshStatus();
+    res.json({ success: true, data: status });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/thinq/config', async (req, res) => {
+  try {
+    const { pat, country, pollingIntervalSec } = req.body || {};
+    const status = await lgThinq.saveConfig({ pat, country, pollingIntervalSec });
+    res.json({ success: true, data: status });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/thinq/control', async (req, res) => {
+  try {
+    const { target, command } = req.body || {};
+    const result = await lgThinq.controlDevice(target || 'dryer', command);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
 // 1. Snapshot completo casa con arricchimento telemetria Meross, Sicurezza e Mappa Spaziale 32 Pin
 app.get(['/api/home', '/api/dashboard'], async (req, res) => {
   try {
@@ -307,6 +343,7 @@ app.get(['/api/home', '/api/dashboard'], async (req, res) => {
     snapshot.energySummary = enriched.energySummary;
     snapshot.security = securitySystem.getStatus();
     snapshot.printer = pantumPrinter ? pantumPrinter.getStatus() : null;
+    snapshot.thinq = lgThinq ? lgThinq.getStatus() : null;
     snapshot.spatial = spatialEngine.getEnrichedMapState(snapshot);
     snapshot.evClimate = evClimateHub.getUnifiedStatus(snapshot);
     res.json({ success: true, data: snapshot });
@@ -1141,11 +1178,13 @@ async function bootstrap() {
   evClimateHub = require('./src/ev-climate-hub');
   geminiVision = require('./src/gemini-vision');
   pantumPrinter = require('./src/pantum-printer');
+  lgThinq = require('./src/lg-thinq');
 
   // Inizializza servizi hardware e telemetria
   merossEnergy.init();
   hueLocal.init();
   pantumPrinter.init().catch((err) => console.warn('⚠️ [Pantum] Init background:', err.message));
+  lgThinq.init().catch((err) => console.warn('⚠️ [LG ThinQ] Init background:', err.message));
   evClimateHub.syncAll().catch((err) => console.warn('⚠️ [EV-Climate Hub] Primo sync background:', err.message));
   setInterval(() => evClimateHub.syncAll().catch(() => {}), 60000);
 

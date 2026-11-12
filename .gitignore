@@ -22,6 +22,7 @@ meross-token.json
 hue-config.json
 security-config.json
 pantum-config.json
+lg-thinq-config.json
 activity-log.json
 appliance-cycles.json
 local-states-cache.json

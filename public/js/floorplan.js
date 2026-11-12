@@ -841,11 +841,23 @@ class FloorplanEngine {
         stroke = isSelected ? '#22d3ee' : '#0891b2';
         subBadge = p.isOn ? 'ON' : '';
       } else if (p.category === 'appliance') {
-        iconGlyph = '&#xf1e6;';
-        iconColor = '#38bdf8';
-        fill = '#0f172a';
-        stroke = isSelected ? '#22d3ee' : '#0284c7';
-        if (p.powerW > 0) subBadge = `${Math.round(p.powerW)}W`;
+        iconGlyph = p.thinqRole === 'dryer' ? '&#xf72e;' : '&#xf2e7;'; // fa-wind / fa-utensils
+        if (p.isRunning) {
+          iconColor = '#34d399';
+          fill = '#064e3b';
+          stroke = isSelected ? '#22d3ee' : '#10b981';
+          subBadge = p.remainFormatted || 'ON';
+        } else if (p.online) {
+          iconColor = '#38bdf8';
+          fill = '#082f49';
+          stroke = isSelected ? '#22d3ee' : '#0284c7';
+          subBadge = p.statusCode === 'END' ? 'FINE' : 'ON';
+        } else {
+          iconColor = '#64748b';
+          fill = '#0f172a';
+          stroke = isSelected ? '#22d3ee' : '#334155';
+          subBadge = 'OFF';
+        }
       } else if (p.category === 'printer') {
         iconGlyph = '&#xf02f;'; // fa-print
         if (p.online) {
