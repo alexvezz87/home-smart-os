@@ -13,6 +13,9 @@ class Go2RtcManager {
     this.webrtcPort = 8555;
     this.process = null;
     this.isRunning = false;
+    this.autoRestart = true;
+    this._stopping = false;
+    this._lastCameras = {};
   }
 
   hasBinary() {
@@ -96,7 +99,12 @@ class Go2RtcManager {
       return false;
     }
 
-    this.generateYaml(cameras);
+    if (cameras && Object.keys(cameras).length > 0) {
+      this._lastCameras = cameras;
+    }
+    this._stopping = false;
+
+    this.generateYaml(this._lastCameras);
 
     try {
       if (process.platform === 'win32') {
@@ -128,6 +136,14 @@ class Go2RtcManager {
       this.process.on('exit', (code) => {
         this.isRunning = false;
         console.log(`🎥 [go2rtc] Processo terminato (codice: ${code})`);
+        if (this.autoRestart && !this._stopping) {
+          console.log(`🔄 [go2rtc] Riavvio automatico di go2rtc in corso tra 1.5s...`);
+          setTimeout(() => {
+            if (this.autoRestart && !this._stopping && !this.isRunning) {
+              this.start(this._lastCameras);
+            }
+          }, 1500);
+        }
       });
 
       console.log(`🎥 [go2rtc] Motore WebRTC/MSE avviato su http://localhost:${this.apiPort}`);
@@ -137,6 +153,34 @@ class Go2RtcManager {
       this.isRunning = false;
       return false;
     }
+  }
+
+  async ensureRunning(cameras = null) {
+    if (cameras && Object.keys(cameras).length > 0) {
+      this._lastCameras = cameras;
+    }
+    if (this.isRunning) {
+      try {
+        await axios.get(`http://127.0.0.1:${this.apiPort}/api/config`, { timeout: 1000 });
+        return true;
+      } catch (_) {
+        this.isRunning = false;
+      }
+    }
+    return this.start(this._lastCameras);
+  }
+
+  stop() {
+    this._stopping = true;
+    this.isRunning = false;
+    try {
+      if (this.process) {
+        this.process.kill();
+      }
+      if (process.platform === 'win32') {
+        execSync('taskkill /f /im go2rtc.exe 2>nul || exit 0', { stdio: 'ignore' });
+      }
+    } catch (_) {}
   }
 
   reload(cameras = {}) {

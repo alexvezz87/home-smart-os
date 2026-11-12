@@ -405,6 +405,46 @@ class SecuritySystem {
     });
   }
 
+  async checkCameraReachable(cam, timeoutMs = 1200) {
+    if (!cam || !cam.ip) return false;
+    const net = require('net');
+    const ports = cam.rtspPort ? [cam.rtspPort, 8000, 554] : [554, 2020];
+
+    return new Promise((resolve) => {
+      let resolved = false;
+      let pending = ports.length;
+
+      ports.forEach((port) => {
+        const sock = new net.Socket();
+        sock.setTimeout(timeoutMs);
+        sock.on('connect', () => {
+          if (!resolved) {
+            resolved = true;
+            resolve(true);
+          }
+          sock.destroy();
+        });
+        const onFail = () => {
+          sock.destroy();
+          pending--;
+          if (pending === 0 && !resolved) {
+            resolved = true;
+            resolve(false);
+          }
+        };
+        sock.on('timeout', onFail);
+        sock.on('error', onFail);
+        sock.connect(port, cam.ip);
+      });
+    });
+  }
+
+  async refreshCamerasReachability() {
+    for (const cam of Object.values(this.cameras)) {
+      cam.online = await this.checkCameraReachable(cam);
+    }
+  }
+
   /**
    * Avvia listener ONVIF PullPoint in tempo reale per i sensori integrati nelle telecamere Tapo
    * (CellMotionDetector, PeopleDetector, TamperDetector, TPSmartEvent)
@@ -412,6 +452,10 @@ class SecuritySystem {
   async startOnvifEventListeners() {
     if (this._eventPollingStarted) return;
     this._eventPollingStarted = true;
+
+    // Controllo immediato e periodico dello stato di raggiungibilità reale delle telecamere
+    this.refreshCamerasReachability().catch(() => {});
+    setInterval(() => this.refreshCamerasReachability().catch(() => {}), 30000);
 
     for (const cam of Object.values(this.cameras)) {
       this.attachCameraEventWatcher(cam);
@@ -1135,6 +1179,14 @@ class SecuritySystem {
 
     const hubName = 'Nest Hub Camera da letto';
     const hubId = 'device@1547416a-9e60-4097-abc6-b952346f09b6';
+
+    // 0. Verifica raggiungibilità telecamera e operatività go2rtc
+    const isAlive = await this.checkCameraReachable(cam);
+    if (!isAlive) {
+      throw new Error(`La telecamera "${cam.name}" (${cam.ip}) non risponde sulla rete locale. Verifica che sia alimentata e collegata al Wi-Fi.`);
+    }
+
+    await go2rtc.ensureRunning(this.cameras);
 
     // 1. Se stiamo già trasmettendo questa stessa telecamera su Nest Hub, effettua toggle OFF
     if (this.activeCast?.cameraId === cam.id && this.activeCast?.client) {
