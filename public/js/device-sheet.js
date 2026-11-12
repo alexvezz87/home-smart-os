@@ -108,6 +108,13 @@ class DeviceSheetManager {
         bodyHtml = this.renderPlugControls(p);
         break;
 
+      case 'printer':
+        categoryIcon = 'fa-print';
+        categoryLabel = 'Stampante Laser LAN';
+        badgeColor = p.online ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-slate-800 text-slate-400';
+        bodyHtml = this.renderPrinterControls(p);
+        break;
+
       default:
         bodyHtml = `
           <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 text-center text-xs text-slate-400">
@@ -253,6 +260,80 @@ class DeviceSheetManager {
         </div>
         <div class="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pr-0.5">
           ${getRoomHueScenesHtml(p.room)}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Controlli Stampante Laser Wi-Fi Pantum P2500W (IPP / HTTP LAN)
+   */
+  renderPrinterControls(p) {
+    const pr = window.homeData?.printer || {};
+    const online = p.online !== undefined ? p.online : Boolean(pr.online);
+    const statusLabel = p.statusLabel || pr.statusLabel || (online ? 'Pronta' : 'Spenta / Offline');
+    const toner = typeof p.tonerPercent === 'number' ? p.tonerPercent : (typeof pr.tonerPercent === 'number' ? pr.tonerPercent : null);
+    const ip = p.printerIp || pr.ip || '';
+    const model = p.makeAndModel || pr.makeAndModel || 'Pantum-P2500W-Series';
+    const reasons = p.stateReasons || pr.stateReasons || [];
+    const tonerBarColor = toner === null ? 'bg-slate-600' : (toner <= 15 ? 'bg-rose-500' : (toner <= 35 ? 'bg-amber-400' : 'bg-emerald-500'));
+
+    return `
+      <div class="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl ${online ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-500 border border-slate-700'} flex items-center justify-center text-lg">
+              <i class="fa-solid fa-print"></i>
+            </div>
+            <div>
+              <div class="text-xs font-bold text-white">${model}</div>
+              <div class="text-[11px] font-semibold ${online ? 'text-emerald-400' : 'text-slate-400'}">${statusLabel}</div>
+            </div>
+          </div>
+          <button onclick="refreshPantumPrinterUi(${p.pin})" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-all active:scale-95">
+            <i class="fa-solid fa-rotate mr-1"></i>Aggiorna
+          </button>
+        </div>
+
+        ${reasons.length > 0 ? `
+          <div class="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-[11px] font-medium">
+            <i class="fa-solid fa-triangle-exclamation mr-1"></i>Avvisi: ${reasons.join(', ')}
+          </div>
+        ` : ''}
+
+        <!-- Livello Toner -->
+        <div class="space-y-1.5 pt-1">
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-bold text-slate-300 flex items-center gap-1.5">
+              <i class="fa-solid fa-droplet text-slate-400"></i> Livello Toner Nero
+            </span>
+            <span class="font-mono font-bold ${toner !== null && toner <= 15 ? 'text-rose-400' : 'text-emerald-400'}">${toner !== null ? `${toner}%` : '--'}</span>
+          </div>
+          <div class="w-full h-2.5 rounded-full bg-slate-800 overflow-hidden">
+            <div class="h-full ${tonerBarColor} transition-all duration-500" style="width: ${toner !== null ? toner : 0}%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Configurazione IP & Accesso Web Locale -->
+      <div class="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2.5">
+        <div class="text-xs font-bold text-slate-300 flex items-center justify-between">
+          <span class="flex items-center gap-1.5"><i class="fa-solid fa-network-wired text-indigo-400"></i> Connessione IPP Locale</span>
+          <span class="text-[10px] font-mono text-slate-400">${ip ? `${ip}:631` : 'Non impostato'}</span>
+        </div>
+        <div class="flex gap-2">
+          <input id="pantum-ip-input-${p.pin}" type="text" value="${ip}" placeholder="es. 192.168.1.82" class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-indigo-500" />
+          <button onclick="savePantumIpUi(${p.pin})" class="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all">Salva</button>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="discoverPantumUi(${p.pin})" class="flex-1 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold border border-slate-700 transition-all">
+            <i class="fa-solid fa-magnifying-glass mr-1 text-cyan-400"></i>Rileva in LAN
+          </button>
+          ${ip ? `
+            <a href="http://${ip}" target="_blank" rel="noopener" class="flex-1 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold border border-slate-700 text-center transition-all">
+              <i class="fa-solid fa-arrow-up-right-from-square mr-1 text-indigo-400"></i>Pannello Web
+            </a>
+          ` : ''}
         </div>
       </div>
     `;
@@ -1024,6 +1105,87 @@ function toggleSheetHueDynamic() {
   }
 }
 
+async function refreshPantumPrinterUi(pinNum) {
+  try {
+    if (window.showToast) window.showToast('Aggiornamento stato stampante...', 'info');
+    const res = await fetch('/api/printer/refresh', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      if (window.showToast) window.showToast(data.error || 'Errore aggiornamento stampante', 'error');
+      return;
+    }
+    if (window.homeData) window.homeData.printer = data.printer;
+    if (typeof loadDashboard === 'function') await loadDashboard();
+    if (window.deviceSheet && window.homeData?.mapState?.pins) {
+      const updated = window.homeData.mapState.pins.find((p) => Number(p.pin) === Number(pinNum));
+      if (updated) window.deviceSheet.open(updated);
+    }
+    if (window.showToast) window.showToast(`Stampante: ${data.printer?.statusLabel || 'Aggiornata'}`, 'success');
+  } catch (e) {
+    console.error('Errore refreshPantumPrinterUi:', e);
+    if (window.showToast) window.showToast('Errore di rete stampante', 'error');
+  }
+}
+
+async function savePantumIpUi(pinNum) {
+  const input = document.getElementById(`pantum-ip-input-${pinNum}`);
+  const ip = input ? input.value.trim() : '';
+  if (!ip) {
+    if (window.showToast) window.showToast('Inserisci un indirizzo IP valido', 'error');
+    return;
+  }
+  try {
+    if (window.showToast) window.showToast(`Connessione a ${ip}...`, 'info');
+    const res = await fetch('/api/printer/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      if (window.showToast) window.showToast(data.error || 'Errore salvataggio IP', 'error');
+      return;
+    }
+    if (window.homeData) window.homeData.printer = data.printer;
+    if (typeof loadDashboard === 'function') await loadDashboard();
+    if (window.deviceSheet && window.homeData?.mapState?.pins) {
+      const updated = window.homeData.mapState.pins.find((p) => Number(p.pin) === Number(pinNum));
+      if (updated) window.deviceSheet.open(updated);
+    }
+    if (window.showToast) window.showToast(`Stampante configurata (${ip})`, 'success');
+  } catch (e) {
+    console.error('Errore savePantumIpUi:', e);
+    if (window.showToast) window.showToast('Errore salvataggio IP', 'error');
+  }
+}
+
+async function discoverPantumUi(pinNum) {
+  try {
+    if (window.showToast) window.showToast('Scansione rete LAN porta 631 in corso...', 'info');
+    const res = await fetch('/api/printer/discover', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      if (window.showToast) window.showToast(data.error || 'Errore scansione LAN', 'error');
+      return;
+    }
+    const found = data.found || [];
+    if (found.length === 0) {
+      if (window.showToast) window.showToast('Nessuna stampante IPP trovata in LAN', 'warning');
+      return;
+    }
+    const firstIp = found[0].ip;
+    const input = document.getElementById(`pantum-ip-input-${pinNum}`);
+    if (input) input.value = firstIp;
+    await savePantumIpUi(pinNum);
+  } catch (e) {
+    console.error('Errore discoverPantumUi:', e);
+    if (window.showToast) window.showToast('Errore scansione LAN', 'error');
+  }
+}
+
+window.refreshPantumPrinterUi = refreshPantumPrinterUi;
+window.savePantumIpUi = savePantumIpUi;
+window.discoverPantumUi = discoverPantumUi;
 window.getRoomHueScenesHtml = getRoomHueScenesHtml;
 window.applyHueSceneUi = applyHueSceneUi;
 window.setLightEffectUi = setLightEffectUi;

@@ -17,6 +17,7 @@ Il backend di **Home Smart OS** è strutturato in moduli indipendenti all'intern
 | **Sicurezza & Tapo** | `src/security-system.js` | Gestione modalità *A Casa / Fuori Casa*, controllo ONVIF PTZ, modalità Privacy, ronda automatica e cattura snapshot HD. |
 | **Streaming Engine** | `src/go2rtc-manager.js` | Gestione automatica del processo `go2rtc` per flussi video a bassa latenza WebRTC/MSE. |
 | **Philips Hue Local & CLIP v2** | `src/hue-local.js` | Controllo diretto del Bridge Philips Hue in LAN locale (CLIP v2 HTTPS + v1 fallback): 25 luci, 43+ scene native Hue per stanza/zona con palette cromatica reale, modalità dinamica e 10 effetti firmware (candela, caminetto, prisma, brillio, ecc.). |
+| **Stampante Pantum P2500W** | `src/pantum-printer.js` | Integrazione locale senza cloud via IPP 2.0 (porta 631) + fallback HTTP EWS: telemetria stato, livello toner nero (%), auto-discovery LAN, persistenza su TiDB `kv_store` e Pin `#43` sulla piantina. |
 | **Google Home MCP** | `src/google-home-mcp.js` | Client JSON-RPC per il server MCP di Google Home con caching e sincronizzazione stato. |
 | **Assistente Naturale** | `src/assistant.js` | Interprete di comandi vocali e testuali in lingua italiana per il controllo rapido della casa. |
 | **Gemini Vision Engine** | `src/gemini-vision.js` | Scene understanding semantico con Google Gemini Multimodal Vision (Gemini 1.5/2.0 Flash) su fotogrammi telecamere. |

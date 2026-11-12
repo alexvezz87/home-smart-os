@@ -53,3 +53,11 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 - **Autenticazione**: Chiave `GEMINI_API_KEY` o `GOOGLE_API_KEY` (da variabile d'ambiente o salvata con cifratura nel database TiDB Cloud `kv_store`).
 - **Funzionamento On-Demand**: Il motore acquisisce un frame JPEG in memoria tramite `go2rtc.captureSnapshotBuffer` solo quando interrogato (on-demand), convertendolo in base64 senza inviare flussi continui nel cloud.
 - **Integrazione**: Richiamato dall'Assistente Vocale/Chat (`src/assistant.js`), dal pulsante *"Analisi AI"* nel Maxi-Player (`public/js/camera-theater.js`) e dai controlli diagnostici in Amministrazione (`public/js/admin.js`).
+
+---
+
+## 7. Stampante Laser Wi-Fi Pantum P2500W (`src/pantum-printer.js`)
+- **Protocollo**: **IPP 2.0 (Internet Printing Protocol, RFC 8010/8011)** su porta TCP `631` (`/ipp/print` con fallback `/` e `/ipp`) + fallback HTTP Embedded Web Server (EWS).
+- **Client Nativo**: Implementazione binaria pura in Node.js (`Get-Printer-Attributes` op `0x000B`) senza dipendenze esterne, con estrazione di `printer-state`, `printer-state-reasons`, `marker-levels`, `marker-names`, `printer-make-and-model` e `printer-up-time`.
+- **Auto-Discovery & Persistenza**: Scansione rapida sulla subnet locale (`:631`) e salvataggio configurazione su TiDB Cloud `kv_store` (`pantum-printer-config`) con fallback locale `pantum-config.json` (escluso da git).
+- **Endpoint & UI**: `/api/printer/status`, `/api/printer/config`, `/api/printer/discover`, `/api/printer/refresh`; Pin `#43` in `Camera da letto` (`microZone: studio_focus`), drawer dedicato (`public/js/device-sheet.js`), card in Amministrazione (`public/js/admin.js`) e query vocali in `src/assistant.js`.
