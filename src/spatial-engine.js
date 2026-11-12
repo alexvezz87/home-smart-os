@@ -445,6 +445,7 @@ class SpatialEngine {
         microZone: 'cucina_operativa',
         category: 'appliance',
         vendor: 'LG ThinQ',
+        thinqRole: 'dishwasher',
         googleName: 'Lavastoviglie',
         x: 71.2,
         y: 61.8,
@@ -606,6 +607,19 @@ class SpatialEngine {
         x: 68.5,
         y: 38.5,
         nearbyPins: [12, 13, 14]
+      },
+      {
+        pin: 44,
+        name: 'Asciugatrice LG ThinQ',
+        room: 'Bagno',
+        microZone: 'bagno_relax',
+        category: 'appliance',
+        vendor: 'LG ThinQ',
+        thinqRole: 'dryer',
+        googleName: 'Asciugatrice',
+        x: 34.5,
+        y: 55.0,
+        nearbyPins: [9, 10]
       }
     ];
 
@@ -1002,6 +1016,31 @@ class SpatialEngine {
         clone.makeAndModel = pr.makeAndModel || 'Pantum P2500W';
         clone.stateReasons = pr.stateReasons || [];
         clone.uptimeSeconds = pr.uptimeSeconds || null;
+      } else if (p.category === 'appliance' && p.thinqRole) {
+        const thinq = homeSnapshot.thinq || {};
+        const dev = p.thinqRole === 'dishwasher' ? thinq.dishwasher : thinq.dryer;
+        if (dev) {
+          clone.online = Boolean(dev.online);
+          clone.isRunning = Boolean(dev.isRunning);
+          clone.isOn = Boolean(dev.online || dev.isRunning);
+          clone.statusCode = dev.statusCode || 'POWER_OFF';
+          clone.statusLabel = dev.statusLabel || 'Spenta / Standby';
+          clone.course = dev.course || null;
+          clone.courseLabel = dev.courseLabel || null;
+          clone.remainMinutes = dev.remainMinutes ?? null;
+          clone.remainFormatted = dev.remainFormatted || null;
+          clone.totalMinutes = dev.totalMinutes ?? null;
+          clone.doorState = dev.doorState || null;
+          clone.rinseRefill = Boolean(dev.rinseRefill);
+          clone.remoteControlEnabled = Boolean(dev.remoteControlEnabled);
+          clone.modelName = dev.modelName || '';
+          clone.thinqDeviceId = dev.deviceId || null;
+        } else {
+          clone.online = false;
+          clone.isRunning = false;
+          clone.isOn = false;
+          clone.statusLabel = 'Non collegata';
+        }
       } else if (p.category === 'sensor') {
         const dMatch = devices.find(d => d.category === 'sensor');
         clone.temperature = dMatch?.extra?.temperature || homeSnapshot.stats?.temperature || 20.9;

@@ -1224,6 +1224,43 @@ class AdminManager {
           </div>
         </div>
 
+        <!-- Elettrodomestici LG ThinQ Connect -->
+        <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
+          <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
+            <div class="flex items-center gap-2">
+              <i class="fa-solid fa-kitchen-set ${data?.thinq?.connected ? 'text-emerald-400' : 'text-slate-400'}"></i>
+              <h4 class="text-xs font-bold text-white uppercase tracking-wider">LG ThinQ Connect (Lavastoviglie &amp; Asciugatrice)</h4>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${data?.thinq?.connected ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'}">
+                ${data?.thinq?.connected ? 'API Connessa' : (data?.thinq?.configured ? 'In attesa' : 'Non configurato')}
+              </span>
+            </div>
+            <button onclick="if(window.refreshThinqUi) window.refreshThinqUi(null)" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1 active:scale-95">
+              <i class="fa-solid fa-rotate text-[10px]"></i> Sincronizza
+            </button>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 flex items-center justify-between">
+              <div>
+                <div class="text-[10px] text-slate-400 uppercase">Lavastoviglie (Pin #31)</div>
+                <div class="font-bold text-white mt-0.5">${data?.thinq?.dishwasher?.alias || 'Lavastoviglie'} · ${data?.thinq?.dishwasher?.modelName || 'D0211'}</div>
+              </div>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${data?.thinq?.dishwasher?.isRunning ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-800 text-slate-400'}">
+                ${data?.thinq?.dishwasher?.statusLabel || 'Standby'}
+              </span>
+            </div>
+            <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 flex items-center justify-between">
+              <div>
+                <div class="text-[10px] text-slate-400 uppercase">Asciugatrice (Pin #44)</div>
+                <div class="font-bold text-white mt-0.5">${data?.thinq?.dryer?.alias || 'Wendy'} · ${data?.thinq?.dryer?.modelName || 'RC90U2_WW'}</div>
+              </div>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${data?.thinq?.dryer?.isRunning ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-800 text-slate-400'}">
+                ${data?.thinq?.dryer?.statusLabel || 'Standby'}
+              </span>
+            </div>
+          </div>
+        </div>
+
         <!-- Registro Eventi & Audit Log -->
         <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
           <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
