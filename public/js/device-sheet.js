@@ -207,6 +207,10 @@ class DeviceSheetManager {
         </button>
       </div>
     `;
+
+    if (p.category === 'valve') {
+      this.initValveDialListeners(p);
+    }
   }
 
   /**
@@ -606,58 +610,119 @@ class DeviceSheetManager {
   }
 
   /**
-   * Controlli Termovalvola Smart Radiator Bosch EasyControl
+   * Controlli Termovalvola Smart Radiator Bosch EasyControl (Dial Circolare Swipe)
    */
   renderValveControls(p) {
-    const curTemp = p.temperature || 20.5;
-    const targetTemp = p.setpoint || 20.0;
+    const curTemp = Number(p.temperature || 20.5);
+    const targetTemp = Number(p.setpoint || 20.0);
     const valvePct = p.valvePercent !== undefined ? p.valvePercent : (curTemp < targetTemp ? 75 : 0);
     const isHeating = valvePct > 15;
     const batt = p.batteryPercent || 92;
+    const isManual = p.mode === 'manual';
+
+    const splitT = (t) => {
+      const clamped = Math.max(5, Math.min(30, Math.round(t * 2) / 2));
+      const whole = Math.floor(clamped);
+      const dec = Math.round((clamped - whole) * 10);
+      return { whole, dec };
+    };
+
+    const upT = splitT(targetTemp + 0.5);
+    const midT = splitT(targetTemp);
+    const downT = splitT(targetTemp - 0.5);
+    const curSplit = splitT(curTemp);
+
+    const dialBg = isHeating
+      ? 'radial-gradient(circle at 38% 32%, #ea580c 0%, #c2410c 40%, #7c2d12 75%, #431407 100%)'
+      : 'radial-gradient(circle at 38% 32%, #0284c7 0%, #0369a1 40%, #0c4a6e 75%, #082f49 100%)';
+    const dialGlow = isHeating
+      ? '0 0 42px rgba(234, 88, 12, 0.42), inset 0 0 28px rgba(255, 255, 255, 0.14)'
+      : '0 0 42px rgba(14, 165, 233, 0.35), inset 0 0 28px rgba(255, 255, 255, 0.14)';
 
     return `
-      <!-- Display Temperatura e Apertura Valvola -->
-      <div class="p-4 rounded-2xl bg-gradient-to-br ${isHeating ? 'from-orange-950/60 to-slate-900 border-orange-500/40' : 'from-slate-900 to-slate-950 border-slate-800'} border text-center relative overflow-hidden">
-        <div class="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
-          <span class="flex items-center gap-1.5 ${isHeating ? 'text-orange-400 font-bold' : 'text-slate-400'}">
-            <i class="fa-solid fa-temperature-arrow-up"></i>
-            ${isHeating ? 'Riscaldamento Attivo' : 'A riposo / Chiusa'}
-          </span>
-          <span class="flex items-center gap-1 text-slate-400 font-mono text-[10px]">
-            <i class="fa-solid fa-battery-three-quarters text-emerald-400"></i> ${batt}%
-          </span>
+      <!-- Dial Circolare Stile Bosch EasyControl con Swipe Verticale -->
+      <div class="py-2 flex flex-col items-center space-y-4">
+        <div id="valve-dial-${p.pin}"
+             class="w-60 h-60 rounded-full relative flex items-center justify-center select-none touch-none cursor-grab active:cursor-grabbing overflow-hidden border border-white/15 transition-shadow duration-300"
+             style="background: ${dialBg}; box-shadow: ${dialGlow};">
+
+          <!-- Tamburo Verticale Scorrevole -->
+          <div id="valve-dial-wheel-${p.pin}" class="flex flex-col items-center justify-center will-change-transform" style="transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);">
+            <!-- +0.5°C (Sopra) -->
+            <button type="button" id="valve-dial-up-${p.pin}" class="flex items-start justify-center opacity-35 hover:opacity-75 transition-opacity leading-none py-1 focus:outline-none" title="Aumenta +0.5°C">
+              <span class="text-3xl font-light text-white tracking-tight">${upT.whole}</span>
+              <span class="flex flex-col items-start ml-0.5 text-[11px] font-normal text-white leading-tight mt-0.5">
+                <span>°C</span>
+                <span>${upT.dec}</span>
+              </span>
+            </button>
+
+            <!-- Setpoint Attuale (Centro) -->
+            <div id="valve-dial-center-${p.pin}" class="flex items-start justify-center leading-none my-1 drop-shadow-[0_2px_10px_rgba(0,0,0,0.35)]">
+              <span class="text-6xl font-normal text-white tracking-tight">${midT.whole}</span>
+              <span class="flex flex-col items-start ml-1 text-lg font-normal text-white leading-tight mt-1">
+                <span>°C</span>
+                <span class="text-xl">${midT.dec}</span>
+              </span>
+            </div>
+
+            <!-- -0.5°C (Sotto) -->
+            <button type="button" id="valve-dial-down-${p.pin}" class="flex items-start justify-center opacity-35 hover:opacity-75 transition-opacity leading-none py-1 focus:outline-none" title="Abbassa -0.5°C">
+              <span class="text-3xl font-light text-white tracking-tight">${downT.whole}</span>
+              <span class="flex flex-col items-start ml-0.5 text-[11px] font-normal text-white leading-tight mt-0.5">
+                <span>°C</span>
+                <span>${downT.dec}</span>
+              </span>
+            </button>
+          </div>
+
+          <!-- Temperatura Rilevata Ambiente (Lato Destro) -->
+          <div class="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col items-end pointer-events-none">
+            <div class="flex items-baseline text-white/85 font-light leading-none">
+              <span class="text-base">${curSplit.whole}</span>
+              <span class="text-[10px] ml-0.5">${curSplit.dec}°</span>
+            </div>
+            <span class="text-[8px] uppercase tracking-wider text-white/50 mt-0.5">Ambiente</span>
+          </div>
+
+          <!-- Indicatore Swipe Discreto -->
+          <div class="absolute bottom-2.5 inset-x-0 text-center text-[9px] text-white/45 pointer-events-none tracking-wide">
+            <i class="fa-solid fa-arrows-up-down mr-1"></i>Swipe su / giù
+          </div>
         </div>
 
-        <div class="text-4xl font-black text-white my-1 font-mono">${curTemp.toFixed(1)}°C</div>
-        
-        <div class="text-xs text-slate-400">
-          Setpoint Target: <strong class="text-amber-400 font-mono text-sm">${targetTemp.toFixed(1)}°C</strong>
-        </div>
-
-        <!-- Barra Percentuale Apertura Valvola -->
-        <div class="mt-3 bg-slate-950/80 rounded-full h-3 border border-slate-800 overflow-hidden relative">
-          <div class="h-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-500 rounded-full" style="width: ${valvePct}%"></div>
-        </div>
-        <div class="flex items-center justify-between text-[10px] text-slate-400 mt-1 font-mono">
-          <span>Apertura Otturatore: <strong class="text-white">${valvePct}%</strong></span>
-          <span>${valvePct > 0 ? 'Flusso Acqua Calda Aperto' : 'Circuito Chiuso'}</span>
+        <!-- Selettore Modalità EasyControl (Manuale vs Programma) -->
+        <div class="inline-flex items-center p-1 rounded-full bg-slate-900/90 border border-slate-700/70 shadow-inner gap-1">
+          <button type="button" onclick="adjustValveSetpoint(${p.pin}, 0, ${targetTemp}, 'manual')"
+                  class="w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95 ${isManual ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30' : 'text-slate-400 hover:text-white'}"
+                  title="Modalità Manuale">
+            <i class="fa-regular fa-hand text-sm"></i>
+          </button>
+          <button type="button" onclick="adjustValveSetpoint(${p.pin}, 0, ${targetTemp}, 'clock')"
+                  class="w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95 ${!isManual ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30' : 'text-slate-400 hover:text-white'}"
+                  title="Modalità Programma Orario">
+            <i class="fa-regular fa-clock text-sm"></i>
+          </button>
         </div>
       </div>
 
-      <!-- Regolazione Setpoint Termovalvola -->
-      <div class="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2">
-        <div class="text-xs font-bold text-slate-300 flex items-center justify-between">
-          <span>Regola Temperatura Radiatore</span>
-          <span class="font-mono text-amber-400 font-bold">${targetTemp.toFixed(1)}°C</span>
+      <!-- Barra Apertura Valvola & Batteria -->
+      <div class="p-3 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-2">
+        <div class="flex items-center justify-between text-[11px] font-semibold">
+          <span class="flex items-center gap-1.5 ${isHeating ? 'text-orange-400' : 'text-slate-400'}">
+            <i class="fa-solid fa-fire"></i>
+            ${isHeating ? 'Riscaldamento Attivo' : 'A riposo / Chiusa'}
+          </span>
+          <span class="font-mono text-slate-400 text-[10px]">
+            <i class="fa-solid fa-battery-three-quarters text-emerald-400 mr-1"></i>${batt}%
+          </span>
         </div>
-        <div class="flex items-center justify-center gap-4">
-          <button onclick="adjustValveSetpoint(${p.pin}, -0.5)" class="w-12 h-12 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-lg font-bold text-white transition-all shadow-md">
-            <i class="fa-solid fa-minus"></i>
-          </button>
-          <span class="text-2xl font-black text-white font-mono min-w-[70px] text-center">${targetTemp.toFixed(1)}°</span>
-          <button onclick="adjustValveSetpoint(${p.pin}, 0.5)" class="w-12 h-12 rounded-xl bg-orange-600 hover:bg-orange-500 active:scale-95 text-lg font-bold text-white transition-all shadow-md shadow-orange-600/30">
-            <i class="fa-solid fa-plus"></i>
-          </button>
+        <div class="bg-slate-950/80 rounded-full h-2.5 border border-slate-800 overflow-hidden">
+          <div class="h-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-500 rounded-full" style="width: ${valvePct}%"></div>
+        </div>
+        <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+          <span>Apertura: <strong class="text-white">${valvePct}%</strong></span>
+          <span>${valvePct > 0 ? 'Flusso Aperto' : 'Circuito Chiuso'}</span>
         </div>
       </div>
 
@@ -684,6 +749,132 @@ class DeviceSheetManager {
         <span>Visualizza Piano Orario 24h Completo</span>
       </button>
     `;
+  }
+
+  initValveDialListeners(p) {
+    const dial = document.getElementById(`valve-dial-${p.pin}`);
+    const wheel = document.getElementById(`valve-dial-wheel-${p.pin}`);
+    const upBtn = document.getElementById(`valve-dial-up-${p.pin}`);
+    const downBtn = document.getElementById(`valve-dial-down-${p.pin}`);
+    if (!dial || !wheel) return;
+
+    let draftTemp = Number(p.setpoint || 20.0);
+    let dragging = false;
+    let startY = 0;
+    let stepAnchorY = 0;
+    let commitTimer = null;
+
+    const splitT = (t) => {
+      const clamped = Math.max(5, Math.min(30, Math.round(t * 2) / 2));
+      return { whole: Math.floor(clamped), dec: Math.round((clamped - Math.floor(clamped)) * 10) };
+    };
+
+    const refreshWheelVisual = (animateDir = 0) => {
+      const upT = splitT(draftTemp + 0.5);
+      const midT = splitT(draftTemp);
+      const downT = splitT(draftTemp - 0.5);
+
+      if (upBtn) {
+        upBtn.innerHTML = `<span class="text-3xl font-light text-white tracking-tight">${upT.whole}</span><span class="flex flex-col items-start ml-0.5 text-[11px] font-normal text-white leading-tight mt-0.5"><span>°C</span><span>${upT.dec}</span></span>`;
+      }
+      const centerEl = document.getElementById(`valve-dial-center-${p.pin}`);
+      if (centerEl) {
+        centerEl.innerHTML = `<span class="text-6xl font-normal text-white tracking-tight">${midT.whole}</span><span class="flex flex-col items-start ml-1 text-lg font-normal text-white leading-tight mt-1"><span>°C</span><span class="text-xl">${midT.dec}</span></span>`;
+      }
+      if (downBtn) {
+        downBtn.innerHTML = `<span class="text-3xl font-light text-white tracking-tight">${downT.whole}</span><span class="flex flex-col items-start ml-0.5 text-[11px] font-normal text-white leading-tight mt-0.5"><span>°C</span><span>${downT.dec}</span></span>`;
+      }
+
+      if (animateDir !== 0) {
+        wheel.style.transition = 'none';
+        wheel.style.transform = `translateY(${animateDir * -22}px)`;
+        requestAnimationFrame(() => {
+          wheel.style.transition = 'transform 190ms cubic-bezier(0.22, 1, 0.36, 1)';
+          wheel.style.transform = 'translateY(0px)';
+        });
+      }
+    };
+
+    const scheduleCommit = (immediate = false) => {
+      clearTimeout(commitTimer);
+      if (immediate) {
+        adjustValveSetpoint(p.pin, 0, draftTemp);
+      } else {
+        commitTimer = setTimeout(() => adjustValveSetpoint(p.pin, 0, draftTemp), 320);
+      }
+    };
+
+    const stepTemp = (delta, animateDir) => {
+      const next = Math.max(5, Math.min(30, +(draftTemp + delta).toFixed(1)));
+      if (next !== draftTemp) {
+        draftTemp = next;
+        refreshWheelVisual(animateDir);
+      }
+    };
+
+    if (upBtn) {
+      upBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        stepTemp(0.5, 1);
+        scheduleCommit();
+      });
+    }
+    if (downBtn) {
+      downBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        stepTemp(-0.5, -1);
+        scheduleCommit();
+      });
+    }
+
+    dial.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('button')) return;
+      dragging = true;
+      startY = e.clientY;
+      stepAnchorY = e.clientY;
+      dial.setPointerCapture(e.pointerId);
+      wheel.style.transition = 'none';
+    });
+
+    dial.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const dySinceAnchor = e.clientY - stepAnchorY;
+      const stepPx = 30;
+      // Swipe verso l'alto (dy < 0) -> abbassa temperatura (-0.5)
+      // Swipe verso il basso (dy > 0) -> aumenta temperatura (+0.5)
+      if (dySinceAnchor <= -stepPx) {
+        stepAnchorY -= stepPx;
+        stepTemp(-0.5, -1);
+      } else if (dySinceAnchor >= stepPx) {
+        stepAnchorY += stepPx;
+        stepTemp(0.5, 1);
+      } else {
+        wheel.style.transform = `translateY(${(dySinceAnchor * 0.45).toFixed(1)}px)`;
+      }
+    });
+
+    const endSwipe = () => {
+      if (!dragging) return;
+      dragging = false;
+      wheel.style.transition = 'transform 190ms cubic-bezier(0.22, 1, 0.36, 1)';
+      wheel.style.transform = 'translateY(0px)';
+      if (draftTemp !== Number(p.setpoint || 20.0)) {
+        scheduleCommit(true);
+      }
+    };
+
+    dial.addEventListener('pointerup', endSwipe);
+    dial.addEventListener('pointercancel', endSwipe);
+
+    dial.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      if (e.deltaY < 0) {
+        stepTemp(0.5, 1);
+      } else if (e.deltaY > 0) {
+        stepTemp(-0.5, -1);
+      }
+      scheduleCommit();
+    }, { passive: false });
   }
 
   /**
@@ -1181,7 +1372,7 @@ async function setWallboxAmps(amps) {
   }
 }
 
-async function adjustValveSetpoint(pinNum, delta = 0, directValue = null) {
+async function adjustValveSetpoint(pinNum, delta = 0, directValue = null, mode = null) {
   const pins = window.homeData?.spatial?.pins || [];
   const p = pins.find(item => item.pin === Number(pinNum));
   if (!p) return;
@@ -1191,6 +1382,7 @@ async function adjustValveSetpoint(pinNum, delta = 0, directValue = null) {
 
   try {
     p.setpoint = target;
+    if (mode) p.mode = mode;
     p.valvePercent = (p.temperature || 20) < target ? 75 : 0;
     p.isHeating = p.valvePercent > 15;
     p.isOn = p.valvePercent > 0;
