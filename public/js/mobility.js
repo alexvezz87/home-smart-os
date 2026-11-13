@@ -149,8 +149,7 @@ class MobilityManager {
 
   async openVolvoReauth() {
     try {
-      const redirectUri = `${window.location.origin}/api/ev-climate/volvo/callback`;
-      const res = await fetch(`/api/ev-climate/volvo/oauth-url?redirectUri=${encodeURIComponent(redirectUri)}`);
+      const res = await fetch('/api/ev-climate/volvo/oauth-url');
       const json = await res.json();
       if (json.success && json.url) {
         window.open(json.url, '_blank', 'noopener');
@@ -161,6 +160,38 @@ class MobilityManager {
       if (typeof window.showToast === 'function') {
         window.showToast(err.message, 'error');
       }
+    }
+  }
+
+  async submitVolvoDirectToken() {
+    const accessInput = document.getElementById('mobility-volvo-token');
+    const refreshInput = document.getElementById('mobility-volvo-refresh');
+    const accessToken = accessInput?.value?.trim();
+    const refreshToken = refreshInput?.value?.trim() || null;
+    if (!accessToken) {
+      if (typeof window.showToast === 'function') window.showToast('Inserisci Access Token o URL di callback', 'error');
+      return;
+    }
+    this.busyAction = 'auth';
+    this.renderView();
+    try {
+      const isCallbackOrCode = accessToken.includes('code=') || !accessToken.includes('.');
+      const endpoint = isCallbackOrCode ? '/api/ev-climate/volvo/oauth-callback' : '/api/ev-climate/volvo/direct-token';
+      const payload = isCallbackOrCode ? { callbackUrl: accessToken } : { accessToken, refreshToken };
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Autenticazione Volvo fallita');
+      if (typeof window.showToast === 'function') window.showToast('Volvo EX30 autenticata e sincronizzata!', 'success');
+      if (typeof window.loadDashboard === 'function') await window.loadDashboard();
+    } catch (err) {
+      if (typeof window.showToast === 'function') window.showToast(err.message, 'error');
+    } finally {
+      this.busyAction = null;
+      this.renderView();
     }
   }
 
@@ -322,7 +353,11 @@ class MobilityManager {
                 <button onclick="window.mobilityManager.syncAllMobility()" class="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5" ${this.busyAction ? 'disabled' : ''}>
                   <i class="fa-solid fa-rotate ${this.busyAction === 'sync' ? 'fa-spin' : ''}"></i> Sincronizza
                 </button>
-                ${missingScopes.length > 0 ? `
+                ${!volvo.connected ? `
+                  <button onclick="window.mobilityManager.openVolvoReauth()" class="px-3 py-2 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white shadow-md shadow-sky-600/25 transition-all flex items-center gap-1.5">
+                    <i class="fa-solid fa-right-to-bracket"></i> Accedi con Volvo ID
+                  </button>
+                ` : missingScopes.length > 0 ? `
                   <button onclick="window.mobilityManager.openVolvoReauth()" class="px-3 py-2 rounded-xl text-xs font-semibold bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 transition-all flex items-center gap-1.5">
                     <i class="fa-solid fa-key"></i> Autorizza Scope Mancanti (${missingScopes.length})
                   </button>
@@ -351,6 +386,26 @@ class MobilityManager {
             </div>
           </div>
           ${volvo.lastError ? `<div class="mt-3 px-3 py-2 rounded-xl bg-rose-950/50 border border-rose-500/40 text-xs text-rose-200"><i class="fa-solid fa-triangle-exclamation mr-1.5"></i>${this.escapeHtml(volvo.lastError)}</div>` : ''}
+          ${!volvo.connected ? `
+            <div class="mt-3 p-3.5 rounded-2xl bg-slate-950/80 border border-sky-500/30 space-y-2.5">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="text-xs font-bold text-sky-300"><i class="fa-solid fa-key mr-1.5"></i>Connessione Volvo ID richiesta</div>
+                <button onclick="window.mobilityManager.openVolvoReauth()" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white transition-all">
+                  1. Apri Login Volvo ID (OAuth2)
+                </button>
+              </div>
+              <div class="text-[11px] text-slate-400">
+                Dopo il login su Volvo ID verrai reindirizzato automaticamente. In alternativa, incolla qui l'URL di callback (<code class="text-slate-300">?code=...</code>) oppure un Access Token dal portale Volvo Developer:
+              </div>
+              <div class="flex flex-col sm:flex-row gap-2">
+                <input id="mobility-volvo-token" type="text" placeholder="Incolla URL callback (?code=...) o Access Token JWT" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500">
+                <input id="mobility-volvo-refresh" type="text" placeholder="Refresh Token (opzionale)" class="sm:w-52 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500">
+                <button onclick="window.mobilityManager.submitVolvoDirectToken()" class="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-all shrink-0">
+                  Collega Auto
+                </button>
+              </div>
+            </div>
+          ` : ''}
         </div>
 
         <!-- SEZIONE DIAGNOSTICA & PNEUMATICI -->

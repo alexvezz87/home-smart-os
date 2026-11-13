@@ -754,6 +754,11 @@ class AdminManager {
   renderEvPane(data, ev) {
     const volvo = ev.volvo || {};
     const wallbox = ev.wallbox || {};
+    const volvoCfg = ev.config?.volvo || {};
+    const socText = volvo.batteryChargeLevel !== null && volvo.batteryChargeLevel !== undefined ? `${volvo.batteryChargeLevel}%` : '--%';
+    const rangeText = volvo.electricRangeKm !== null && volvo.electricRangeKm !== undefined ? `${volvo.electricRangeKm} km` : '-- km';
+    const wbCurrentText = wallbox.currentLimitA ?? wallbox.ratedCurrentA ?? '--';
+    const lockLabel = volvo.carLocked === true ? 'Bloccata' : volvo.carLocked === false ? 'Sbloccata' : 'N/D';
 
     return `
       <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-6">
@@ -772,6 +777,14 @@ class AdminManager {
               <p class="text-xs text-slate-400">Integrazione Volvo Cars API v2, Wallbox ABB Terra AC e Dynamic Load Balancing contatore</p>
             </div>
           </div>
+          <div class="flex items-center gap-2">
+            <button onclick="if(window.mobilityManager) window.mobilityManager.syncAllMobility()" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 flex items-center gap-1.5">
+              <i class="fa-solid fa-rotate"></i> Sincronizza
+            </button>
+            <button onclick="if(typeof switchArea==='function') switchArea('mobility')" class="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-indigo-600/20">
+              <i class="fa-solid fa-stethoscope"></i> Centro Diagnostico
+            </button>
+          </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -781,34 +794,55 @@ class AdminManager {
               <div class="flex items-center gap-2.5">
                 <i class="fa-solid fa-car text-emerald-400 text-lg"></i>
                 <div>
-                  <h4 class="text-sm font-bold text-white">Volvo EX30 Twin Motor</h4>
-                  <span class="text-[10.5px] text-slate-400">Connected Car API v2</span>
+                  <h4 class="text-sm font-bold text-white">${volvo.model || 'Volvo EX30'}</h4>
+                  <span class="text-[10.5px] text-slate-400">Connected Car API v2 ${volvo.vin ? '• ••••' + String(volvo.vin).slice(-6) : ''}</span>
                 </div>
               </div>
-              <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold ${volvo.connected ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'}">
-                ${volvo.connected ? 'Connessa' : 'Standby / Auth'}
+              <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold ${volvo.connected ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'}">
+                ${volvo.connected ? 'Connessa' : 'Non Autenticata'}
               </span>
             </div>
 
             <div class="grid grid-cols-2 gap-3">
               <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
                 <span class="text-[10px] text-slate-400 uppercase font-semibold">Batteria (SOC)</span>
-                <div class="text-xl font-black text-emerald-400 font-mono mt-0.5">${volvo.batteryPercent || 78}%</div>
+                <div class="text-xl font-black text-emerald-400 font-mono mt-0.5">${socText}</div>
               </div>
               <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
                 <span class="text-[10px] text-slate-400 uppercase font-semibold">Autonomia Residua</span>
-                <div class="text-xl font-black text-white font-mono mt-0.5">${volvo.rangeKm || 342} km</div>
+                <div class="text-xl font-black text-white font-mono mt-0.5">${rangeText}</div>
               </div>
             </div>
 
-            <div class="flex items-center gap-2 pt-2">
-              <button onclick="if(window.toggleVolvoLock) window.toggleVolvoLock()" class="flex-1 py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-95">
+            ${volvo.lastError ? `<div class="p-2.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-[11px] text-rose-200">${volvo.lastError}</div>` : ''}
+
+            <!-- Autenticazione Volvo ID -->
+            <div class="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2.5">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-xs font-bold text-slate-200"><i class="fa-solid fa-key text-sky-400 mr-1.5"></i>Autenticazione Volvo ID</span>
+                <button onclick="if(window.mobilityManager) window.mobilityManager.openVolvoReauth()" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold flex items-center gap-1.5">
+                  <i class="fa-solid fa-right-to-bracket"></i> Accedi OAuth2
+                </button>
+              </div>
+              <div class="text-[10.5px] text-slate-400">
+                Client ID: <span class="text-slate-300 font-mono">${volvoCfg.clientId ? volvoCfg.clientId.slice(0, 14) + '…' : 'N/D'}</span> •
+                API Key: <span class="${volvoCfg.hasApiKey ? 'text-emerald-400' : 'text-rose-400'}">${volvoCfg.hasApiKey ? 'OK' : 'Mancante'}</span> •
+                Token: <span class="${volvoCfg.hasAccessToken ? 'text-emerald-400' : 'text-amber-400'}">${volvoCfg.hasAccessToken ? 'Presente' : 'Assente'}</span>
+              </div>
+              <div class="flex gap-2">
+                <input id="admin-volvo-token" type="text" placeholder="Incolla URL callback (?code=...) o Access Token" class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500" />
+                <button onclick="window.adminManager.submitAdminVolvoAuth()" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shrink-0">Collega</button>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2 pt-1">
+              <button onclick="if(window.mobilityManager) window.mobilityManager.sendVolvoCommand('${volvo.carLocked ? 'unlock' : 'lock'}')" class="flex-1 py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-95">
                 <i class="fa-solid fa-lock"></i>
-                <span>${volvo.isLocked !== false ? 'Bloccata' : 'Sbloccata'}</span>
+                <span>${lockLabel}</span>
               </button>
-              <button onclick="if(window.toggleVolvoClimate) window.toggleVolvoClimate()" class="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 active:scale-95 shadow-md shadow-emerald-600/20">
+              <button onclick="if(window.mobilityManager) window.mobilityManager.sendVolvoCommand('climatization_start')" class="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 active:scale-95 shadow-md shadow-emerald-600/20">
                 <i class="fa-solid fa-fan"></i>
-                <span>${volvo.isClimateOn ? 'Clima Attivo' : 'Avvia Clima'}</span>
+                <span>Avvia Clima</span>
               </button>
             </div>
           </div>
@@ -820,7 +854,7 @@ class AdminManager {
                 <i class="fa-solid fa-charging-station text-sky-400 text-lg"></i>
                 <div>
                   <h4 class="text-sm font-bold text-white">Wallbox ABB Terra AC</h4>
-                  <span class="text-[10.5px] text-slate-400">ChargerSync Cloud / Modbus</span>
+                  <span class="text-[10.5px] text-slate-400">ChargerSync Cloud</span>
                 </div>
               </div>
               <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold ${wallbox.connected ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'}">
@@ -831,16 +865,16 @@ class AdminManager {
             <div class="grid grid-cols-2 gap-3">
               <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
                 <span class="text-[10px] text-slate-400 uppercase font-semibold">Potenza Erogata</span>
-                <div class="text-xl font-black text-sky-400 font-mono mt-0.5">${wallbox.powerW || 0} W</div>
+                <div class="text-xl font-black text-sky-400 font-mono mt-0.5">${wallbox.powerW ?? 0} W</div>
               </div>
               <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
                 <span class="text-[10px] text-slate-400 uppercase font-semibold">Corrente Massima</span>
-                <div class="text-xl font-black text-white font-mono mt-0.5">${wallbox.currentAmps || 16} A</div>
+                <div class="text-xl font-black text-white font-mono mt-0.5">${wbCurrentText} A</div>
               </div>
             </div>
 
             <div class="flex items-center gap-2 pt-2">
-              <button onclick="if(window.toggleWallboxCharging) window.toggleWallboxCharging()" class="w-full py-2 px-3 rounded-xl ${wallbox.isCharging ? 'bg-rose-600 hover:bg-rose-500 text-white' : 'bg-sky-600 hover:bg-sky-500 text-white'} text-xs font-bold flex items-center justify-center gap-1.5 active:scale-95 shadow-md">
+              <button onclick="if(window.mobilityManager) window.mobilityManager.sendWallboxCommand('${wallbox.isCharging ? 'stop' : 'start'}')" class="w-full py-2 px-3 rounded-xl ${wallbox.isCharging ? 'bg-rose-600 hover:bg-rose-500 text-white' : 'bg-sky-600 hover:bg-sky-500 text-white'} text-xs font-bold flex items-center justify-center gap-1.5 active:scale-95 shadow-md">
                 <i class="fa-solid fa-bolt"></i>
                 <span>${wallbox.isCharging ? 'Interrompi Ricarica' : 'Avvia Ricarica'}</span>
               </button>
@@ -850,6 +884,30 @@ class AdminManager {
 
       </div>
     `;
+  }
+
+  async submitAdminVolvoAuth() {
+    const val = document.getElementById('admin-volvo-token')?.value?.trim();
+    if (!val) {
+      if (typeof window.showToast === 'function') window.showToast('Inserisci Access Token o URL callback', 'error');
+      return;
+    }
+    try {
+      const isCallbackOrCode = val.includes('code=') || !val.includes('.');
+      const endpoint = isCallbackOrCode ? '/api/ev-climate/volvo/oauth-callback' : '/api/ev-climate/volvo/direct-token';
+      const payload = isCallbackOrCode ? { callbackUrl: val } : { accessToken: val };
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Autenticazione Volvo fallita');
+      if (typeof window.showToast === 'function') window.showToast('Volvo EX30 collegata!', 'success');
+      if (typeof window.loadDashboard === 'function') await window.loadDashboard();
+    } catch (err) {
+      if (typeof window.showToast === 'function') window.showToast(err.message, 'error');
+    }
   }
 
   // =========================================================================
