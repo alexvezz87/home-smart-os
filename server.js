@@ -454,6 +454,15 @@ app.post('/api/spatial/move-pin', (req, res) => {
   }
 });
 
+app.delete('/api/spatial/pin/:pin', (req, res) => {
+  try {
+    const result = spatialEngine.removePin(req.params.pin);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
 app.post('/api/spatial/reset-layout', (req, res) => {
   try {
     const result = spatialEngine.resetCustomLayout();

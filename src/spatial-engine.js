@@ -668,6 +668,7 @@ class SpatialEngine {
       }
     ];
 
+    this.hiddenPins = [];
     this.defaultPins = JSON.parse(JSON.stringify(this.pins));
     this.loadCustomLayout();
     this.initDbCustomLayout();
@@ -675,15 +676,44 @@ class SpatialEngine {
   }
 
   /**
-   * Individua pin ridondanti (singole lampadine di lampadari, duplicati o spostati fuori perimetro)
+   * Verifica se una coordinata SVG (x: 0..1000, y: 0..1300) cade dentro il perimetro delle stanze della casa
+   */
+  isInsideHouseSvg(svgX, svgY, margin = 14) {
+    const x = Number(svgX);
+    const y = Number(svgY);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return true;
+    const boxes = [
+      [240, 55, 530, 320],   // Camera da letto
+      [530, 55, 735, 252],   // Balcone Nord
+      [240, 320, 390, 492],  // Bagno
+      [492, 252, 735, 455],  // Cameretta
+      [600, 455, 815, 592],  // Bagno Principale
+      [452, 518, 538, 665],  // Ripostiglio
+      [538, 592, 815, 758],  // Cabina armadio
+      [390, 320, 492, 768],  // Corridoio verticale
+      [492, 455, 600, 592],  // Corridoio snodo
+      [492, 592, 538, 768],  // Corridoio sud
+      [235, 768, 538, 1222], // Salone
+      [538, 1010, 640, 1112],// Salone estensione
+      [538, 758, 748, 1010], // Cucina
+      [538, 1010, 748, 1222] // Balcone Sud
+    ];
+    return boxes.some(([x1, y1, x2, y2]) => (
+      x >= x1 - margin && x <= x2 + margin && y >= y1 - margin && y <= y2 + margin
+    ));
+  }
+
+  /**
+   * Individua pin ridondanti (singole lampadine di lampadari, duplicati, eliminati o fuori perimetro)
    */
   isRedundantOrOutsidePin(p) {
     if (!p) return false;
+    if (this.hiddenPins.includes(Number(p.pin))) return true;
     const name = String(p.name || '').trim();
     if (/^(Giunone|Eglo|Cucina)\s+\d+$/i.test(name)) return true;
     if (p.category === 'other' && /^(Hue Bridge|Salone|TV 1|TV 2|Asciugatrice|Computer)$/i.test(name)) return true;
     if (typeof p.x === 'number' && typeof p.y === 'number') {
-      if (p.x < 23.5 || p.x > 82 || p.y < 5 || p.y > 123) return true;
+      if (!this.isInsideHouseSvg(p.x * 10, p.y * 13.37)) return true;
     }
     return false;
   }
@@ -695,8 +725,13 @@ class SpatialEngine {
     try {
       const saved = await db.get('spatial-custom-layout');
       if (saved && typeof saved === 'object') {
+        if (Array.isArray(saved.__hiddenPins)) {
+          this.hiddenPins = Array.from(new Set([...this.hiddenPins, ...saved.__hiddenPins.map(Number)]));
+        }
         for (const [key, custom] of Object.entries(saved)) {
+          if (key === '__hiddenPins') continue;
           const pinNum = Number(key);
+          if (this.hiddenPins.includes(pinNum)) continue;
           let p = this.pins.find(item => item.pin === pinNum);
           if (p && custom) {
             if (typeof custom.x === 'number') p.x = custom.x;
@@ -727,6 +762,9 @@ class SpatialEngine {
       if (fs.existsSync(CUSTOM_LAYOUT_FILE)) {
         const saved = JSON.parse(fs.readFileSync(CUSTOM_LAYOUT_FILE, 'utf8'));
         if (saved && typeof saved === 'object') {
+          if (Array.isArray(saved.__hiddenPins)) {
+            this.hiddenPins = Array.from(new Set([...this.hiddenPins, ...saved.__hiddenPins.map(Number)]));
+          }
           for (const p of this.pins) {
             const custom = saved[p.pin];
             if (custom) {
@@ -745,7 +783,7 @@ class SpatialEngine {
 
   saveCustomLayout() {
     try {
-      const map = {};
+      const map = { __hiddenPins: this.hiddenPins };
       for (const p of this.pins) {
         map[p.pin] = {
           pin: p.pin,
@@ -822,13 +860,37 @@ class SpatialEngine {
   }
 
   /**
+   * Rimuove/nasconde definitivamente un pin dalla planimetria e dal layout salvato
+   */
+  removePin(pinNum) {
+    const num = Number(pinNum);
+    const idx = this.pins.findIndex(item => item.pin === num);
+    const name = idx >= 0 ? this.pins[idx].name : `Pin #${num}`;
+    if (idx >= 0) {
+      this.pins.splice(idx, 1);
+    }
+    if (!this.hiddenPins.includes(num)) {
+      this.hiddenPins.push(num);
+    }
+    this.recalculateProximityGraph();
+    this.saveCustomLayout();
+    eventLogger.log('spatial_remove', `🗑️ Dispositivo #${num} (${name}) rimosso dalla planimetria`);
+    return { success: true, deleted: true, pin: num, name };
+  }
+
+  /**
    * Sposta un dispositivo (Drag & Drop sulla planimetria) e aggiorna automaticamente stanza e vicini.
-   * Supporta sia ID pin numerici sia nomi di dispositivi non collocati dal cassetto admin.
+   * Se rilasciato fuori dal perimetro della casa, equivale al cestino e rimuove il pin.
    */
   movePin(pinNum, xPct, yPct, clientDetectedRoom = null) {
     let p = this.pins.find(item => item.pin === Number(pinNum));
     if (!p && typeof pinNum === 'string') {
       p = this.pins.find(item => item.name === pinNum || item.googleName === pinNum || item.merossName === pinNum);
+    }
+
+    // Se un pin esistente viene trascinato fuori dal perimetro della casa -> Cestino
+    if (p && !this.isInsideHouseSvg(Number(xPct) * 10, Number(yPct) * 13.37)) {
+      return this.removePin(p.pin);
     }
     
     // Se è un nuovo dispositivo dal cassetto "non collocati"

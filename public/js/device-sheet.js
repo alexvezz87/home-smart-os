@@ -45,6 +45,24 @@ class DeviceSheetManager {
     this.currentPin = null;
   }
 
+  async deletePin(pinNum) {
+    try {
+      const res = await fetch(`/api/spatial/pin/${encodeURIComponent(pinNum)}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Errore rimozione dispositivo');
+      if (window.homeData?.spatial?.pins) {
+        window.homeData.spatial.pins = window.homeData.spatial.pins.filter(p => p.pin !== Number(pinNum));
+      }
+      this.close();
+      if (typeof showToast === 'function') {
+        showToast(`🗑️ #${json.pin} ${json.name} rimosso dalla planimetria.`, 'info');
+      }
+      if (window.floorplan) window.floorplan.render();
+    } catch (e) {
+      if (typeof showToast === 'function') showToast('Errore rimozione: ' + e.message, 'error');
+    }
+  }
+
   /**
    * Renderizza il contenuto specifico del dispositivo
    */
@@ -157,9 +175,14 @@ class DeviceSheetManager {
             </p>
           </div>
         </div>
-        <button type="button" onclick="deviceSheet.close()" class="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors">
-          <i class="fa-solid fa-xmark text-lg"></i>
-        </button>
+        <div class="flex items-center gap-1">
+          <button type="button" onclick="deviceSheet.deletePin(${p.pin})" class="p-2 text-rose-400 hover:text-rose-300 rounded-lg hover:bg-rose-950/50 transition-colors" title="Rimuovi dispositivo dalla piantina">
+            <i class="fa-solid fa-trash-can text-sm"></i>
+          </button>
+          <button type="button" onclick="deviceSheet.close()" class="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors">
+            <i class="fa-solid fa-xmark text-lg"></i>
+          </button>
+        </div>
       </div>
 
       <div class="py-4 space-y-4">

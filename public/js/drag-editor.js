@@ -129,12 +129,13 @@ class DragEditorEngine {
     const svgPt = this.clientEventToSvgCoords(evt);
     if (!svgPt) return;
 
-    const clampedX = Math.max(110, Math.min(890, svgPt.x));
-    const clampedY = Math.max(55, Math.min(1240, svgPt.y));
+    const clampedX = Math.max(50, Math.min(950, svgPt.x));
+    const clampedY = Math.max(20, Math.min(1280, svgPt.y));
     this.dragState.curSvgX = clampedX;
     this.dragState.curSvgY = clampedY;
 
     const roomUnder = this.detectRoomFromSvgCoords(clampedX, clampedY);
+    this.dragState.outsideHouse = !roomUnder;
     if (roomUnder) {
       this.dragState.detectedRoom = roomUnder;
     }
@@ -143,17 +144,27 @@ class DragEditorEngine {
     const gEl = document.getElementById(`spatial-pin-group-${this.dragState.pin}`);
     if (gEl) {
       gEl.setAttribute('transform', `translate(${clampedX.toFixed(1)}, ${clampedY.toFixed(1)})`);
+      gEl.setAttribute('opacity', this.dragState.outsideHouse ? '0.45' : '1');
     }
 
     const hudEl = document.getElementById('drag-pin-live-hud');
     if (hudEl) {
-      const roomChanged = this.dragState.detectedRoom !== this.dragState.oldRoom;
-      hudEl.innerHTML = `
-        <i class="fa-solid fa-up-down-left-right text-amber-400 mr-1.5 animate-pulse"></i>
-        Spostando <strong>#${this.dragState.pin} ${this.dragState.name}</strong>
-        → Nuova Stanza: <strong class="${roomChanged ? 'text-emerald-300 font-bold underline' : 'text-cyan-300'}">${this.dragState.detectedRoom}</strong>
-        ${roomChanged ? `<span class="ml-1.5 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">Cambio da ${this.dragState.oldRoom}</span>` : ''}
-      `;
+      if (this.dragState.outsideHouse) {
+        hudEl.innerHTML = `
+          <span class="text-rose-300 font-bold">
+            <i class="fa-solid fa-trash-can mr-1.5 animate-bounce"></i>
+            Rilascia fuori dal perimetro per eliminare <strong>#${this.dragState.pin} ${this.dragState.name}</strong> dalla piantina
+          </span>
+        `;
+      } else {
+        const roomChanged = this.dragState.detectedRoom !== this.dragState.oldRoom;
+        hudEl.innerHTML = `
+          <i class="fa-solid fa-up-down-left-right text-amber-400 mr-1.5 animate-pulse"></i>
+          Spostando <strong>#${this.dragState.pin} ${this.dragState.name}</strong>
+          → Nuova Stanza: <strong class="${roomChanged ? 'text-emerald-300 font-bold underline' : 'text-cyan-300'}">${this.dragState.detectedRoom}</strong>
+          ${roomChanged ? `<span class="ml-1.5 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">Cambio da ${this.dragState.oldRoom}</span>` : ''}
+        `;
+      }
     }
   }
 
@@ -184,6 +195,15 @@ class DragEditorEngine {
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error || 'Errore salvataggio posizione');
+
+      if (json.deleted) {
+        showToast(`🗑️ #${json.pin} ${json.name} rimosso dalla planimetria.`, 'info');
+        if (window.homeData?.spatial?.pins) {
+          window.homeData.spatial.pins = window.homeData.spatial.pins.filter(p => p.pin !== finalState.pin);
+        }
+        if (window.floorplan) window.floorplan.render();
+        return;
+      }
 
       if (json.roomChanged) {
         showToast(`📦 #${json.pin} ${json.name} spostato in "${json.newRoom}"! Salvo su TiDB Cloud.`, 'success');
