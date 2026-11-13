@@ -45,6 +45,8 @@ class VolvoTripsSync {
   constructor() {
     this.config = {
       folderId: process.env.VOLVO_DRIVE_FOLDER_ID || '',
+      clientId: process.env.GOOGLE_AUTH_CLIENT_ID || '',
+      clientSecret: process.env.GOOGLE_AUTH_CLIENT_SECRET || '',
       email: '',
       accessToken: '',
       refreshToken: '',
@@ -73,8 +75,13 @@ class VolvoTripsSync {
       const fromDb = await db.getSetting(CONFIG_KEY);
       if (fromDb && typeof fromDb === 'object') {
         if (fromDb.folderId) this.config.folderId = fromDb.folderId;
+        if (fromDb.clientId) this.config.clientId = fromDb.clientId;
         if (fromDb.email) this.config.email = fromDb.email;
         if (fromDb.tokenExpiresAt) this.config.tokenExpiresAt = fromDb.tokenExpiresAt;
+        const secret = fromDb.clientSecretEnc && typeof db.decryptSecret === 'function'
+          ? db.decryptSecret(fromDb.clientSecretEnc)
+          : (fromDb.clientSecret || '');
+        if (secret) this.config.clientSecret = secret;
         this.config.accessToken = fromDb.accessTokenEnc && typeof db.decryptSecret === 'function'
           ? db.decryptSecret(fromDb.accessTokenEnc)
           : (fromDb.accessToken || '');
@@ -114,6 +121,10 @@ class VolvoTripsSync {
   async _saveConfig() {
     const dbPayload = {
       folderId: this.config.folderId || '',
+      clientId: this.config.clientId || '',
+      clientSecretEnc: this.config.clientSecret && typeof db.encryptSecret === 'function'
+        ? db.encryptSecret(this.config.clientSecret)
+        : this.config.clientSecret,
       email: this.config.email || '',
       tokenExpiresAt: this.config.tokenExpiresAt || null,
       accessTokenEnc: this.config.accessToken && typeof db.encryptSecret === 'function'
@@ -126,6 +137,26 @@ class VolvoTripsSync {
     };
     try { await db.saveSetting(CONFIG_KEY, dbPayload); } catch (_) {}
     try { fs.writeFileSync(LOCAL_CONFIG_PATH, JSON.stringify(this.config, null, 2), 'utf8'); } catch (_) {}
+  }
+
+  _getGoogleClient() {
+    const clientId = String(this.config.clientId || process.env.GOOGLE_AUTH_CLIENT_ID || '').trim();
+    const clientSecret = String(this.config.clientSecret || process.env.GOOGLE_AUTH_CLIENT_SECRET || '').trim();
+    return { clientId, clientSecret };
+  }
+
+  async saveSetup({ folder, clientId, clientSecret } = {}) {
+    if (folder) {
+      this.config.folderId = extractFolderId(folder);
+    }
+    if (clientId && String(clientId).trim()) {
+      this.config.clientId = String(clientId).trim();
+    }
+    if (clientSecret && String(clientSecret).trim()) {
+      this.config.clientSecret = String(clientSecret).trim();
+    }
+    await this._saveConfig();
+    return this.getStatus();
   }
 
   async _saveData() {
@@ -178,9 +209,9 @@ class VolvoTripsSync {
     if (folderInput) {
       await this.setFolder(folderInput);
     }
-    const clientId = process.env.GOOGLE_AUTH_CLIENT_ID;
-    if (!clientId) {
-      throw new Error('GOOGLE_AUTH_CLIENT_ID non configurato nelle variabili d\'ambiente.');
+    const { clientId, clientSecret } = this._getGoogleClient();
+    if (!clientId || !clientSecret) {
+      throw new Error('Inserisci Google Client ID e Client Secret (da Google Cloud Console) nel riquadro qui sotto oppure in .env (GOOGLE_AUTH_CLIENT_ID / GOOGLE_AUTH_CLIENT_SECRET).');
     }
     const params = new URLSearchParams({
       redirect_uri: this.getGoogleCallbackUri(req),
@@ -198,8 +229,7 @@ class VolvoTripsSync {
   }
 
   async handleDriveOAuthCallback(code, req) {
-    const clientId = process.env.GOOGLE_AUTH_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_AUTH_CLIENT_SECRET;
+    const { clientId, clientSecret } = this._getGoogleClient();
     if (!clientId || !clientSecret) {
       throw new Error('Credenziali Google OAuth2 non configurate sul server.');
     }
@@ -253,10 +283,9 @@ class VolvoTripsSync {
       throw new Error('Google Drive non connesso. Clicca "Connetti Google Drive" per autorizzare la lettura.');
     }
 
-    const clientId = process.env.GOOGLE_AUTH_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_AUTH_CLIENT_SECRET;
+    const { clientId, clientSecret } = this._getGoogleClient();
     if (!clientId || !clientSecret) {
-      throw new Error('GOOGLE_AUTH_CLIENT_ID / SECRET mancanti per il rinnovo token Drive.');
+      throw new Error('Google Client ID / Secret mancanti per il rinnovo token Drive.');
     }
 
     const res = await axios.post(
@@ -524,15 +553,61 @@ class VolvoTripsSync {
     }
   }
 
+  async importUploadedFiles(files = []) {
+    if (!Array.isArray(files) || files.length === 0) {
+      throw new Error('Nessun file inviato per l\'importazione.');
+    }
+    const summaryMap = new Map((this.data.monthlySummaries || []).map((s) => [`${s.year}-${s.monthIndex}`, s]));
+    const tripMap = new Map((this.data.trips || []).map((t) => [t.id, t]));
+    let importedCount = 0;
+
+    for (const f of files) {
+      const name = String(f.filename || 'upload.xlsx');
+      const buf = Buffer.from(String(f.contentBase64 || ''), 'base64');
+      if (!buf.length) continue;
+
+      const yearMatch = name.match(/consumi[\s_-]*(20\d{2})/i);
+      if (yearMatch) {
+        const parsedMonths = this._parseConsumiSheet(buf, Number(yearMatch[1]));
+        for (const m of parsedMonths) summaryMap.set(`${m.year}-${m.monthIndex}`, m);
+        importedCount++;
+      } else {
+        const parsedTrips = this._parseTripsXlsx(buf, name);
+        for (const tr of parsedTrips) tripMap.set(tr.id, tr);
+        importedCount++;
+      }
+    }
+
+    const monthlySummaries = Array.from(summaryMap.values())
+      .sort((a, b) => (b.year - a.year) || (b.monthIndex - a.monthIndex));
+    const trips = Array.from(tripMap.values())
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+
+    this.data = {
+      ...this.data,
+      monthlySummaries,
+      trips,
+      lastSyncAt: new Date().toISOString(),
+      lastSyncError: null,
+      lastSyncStats: { filesProcessed: importedCount, filesSkipped: 0, totalTrips: trips.length, totalMonths: monthlySummaries.length }
+    };
+    await this._saveData();
+    eventLogger.log('volvo_ex30', `📥 [Volvo Viaggi] Importati ${importedCount} file locali (${trips.length} viaggi, ${monthlySummaries.length} mesi)`);
+    return { success: true, importedCount };
+  }
+
   getStatus() {
     const years = Array.from(new Set([
       ...(this.data.monthlySummaries || []).map((m) => m.year),
       ...(this.data.trips || []).map((t) => t.year)
     ])).sort((a, b) => b - a);
+    const { clientId, clientSecret } = this._getGoogleClient();
 
     return {
       configured: this.isConfigured(),
       hasFolderId: Boolean(this.config.folderId),
+      hasGoogleOAuth: Boolean(clientId && clientSecret),
+      clientIdPreview: clientId ? `${clientId.slice(0, 14)}…` : null,
       hasDriveToken: Boolean(this.config.refreshToken || this.config.accessToken),
       driveEmail: this.config.email || null,
       syncing: this._syncing,

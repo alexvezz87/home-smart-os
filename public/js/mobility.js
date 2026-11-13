@@ -49,8 +49,21 @@ class MobilityManager {
 
   async connectDriveFolder() {
     const inputEl = document.getElementById('drive-folder-input');
+    const clientIdEl = document.getElementById('drive-client-id-input');
+    const clientSecretEl = document.getElementById('drive-client-secret-input');
     const folder = inputEl?.value?.trim() || '';
+    const clientId = clientIdEl?.value?.trim() || '';
+    const clientSecret = clientSecretEl?.value?.trim() || '';
     try {
+      if (clientId || clientSecret || folder) {
+        const cfgRes = await fetch('/api/ev-climate/volvo/trips/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folder, clientId, clientSecret })
+        });
+        const cfgJson = await cfgRes.json();
+        if (!cfgJson.success) throw new Error(cfgJson.error || 'Errore salvataggio configurazione Drive');
+      }
       const qs = folder ? `?folder=${encodeURIComponent(folder)}` : '';
       const res = await fetch(`/api/ev-climate/volvo/trips/drive-oauth${qs}`);
       const json = await res.json();
@@ -58,6 +71,38 @@ class MobilityManager {
       window.location.href = json.url;
     } catch (err) {
       if (typeof window.showToast === 'function') window.showToast(err.message, 'error');
+    }
+  }
+
+  async importLocalTripFiles(fileList) {
+    if (!fileList || !fileList.length) return;
+    this.tripsLoading = true;
+    this.renderView();
+    try {
+      const files = [];
+      for (const file of Array.from(fileList)) {
+        const buf = await file.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+        files.push({ filename: file.name, contentBase64: btoa(binary) });
+      }
+      const res = await fetch('/api/ev-climate/volvo/trips/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files })
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Importazione fallita');
+      this.tripsData = json.data;
+      if (typeof window.showToast === 'function') {
+        window.showToast(`Importati ${json.importedCount} file nello storico viaggi`, 'success');
+      }
+    } catch (err) {
+      if (typeof window.showToast === 'function') window.showToast(err.message, 'error');
+    } finally {
+      this.tripsLoading = false;
+      this.renderView();
     }
   }
 
@@ -503,10 +548,24 @@ class MobilityManager {
 
       ${!status.configured ? `
         <div class="glass-panel rounded-3xl p-5 border border-slate-700/60 space-y-3">
-          <div class="text-sm font-bold text-white"><i class="fa-brands fa-google-drive text-emerald-400 mr-2"></i>Collega la cartella "Consumi" di Google Drive</div>
-          <p class="text-xs text-slate-400">Una volta autorizzato, il sistema si aggiornerà automaticamente 1 volta al giorno (o manualmente dal pulsante qui sopra).</p>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div class="text-sm font-bold text-white"><i class="fa-brands fa-google-drive text-emerald-400 mr-2"></i>Collega Google Drive (${status.hasFolderId ? 'Cartella già impostata' : 'Imposta cartella'})</div>
+              <p class="text-xs text-slate-400 mt-0.5">Aggiornamento automatico giornaliero (24h). Redirect URI da autorizzare in Google Cloud: <code class="text-slate-300">${this.escapeHtml(window.location.origin)}/api/auth/google/callback</code></p>
+            </div>
+            <label class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer">
+              <i class="fa-solid fa-file-excel text-emerald-400 mr-1.5"></i>Importa .xlsx / .csv locali
+              <input type="file" multiple accept=".xlsx,.csv" onchange="window.mobilityManager.importLocalTripFiles(this.files)" class="hidden" />
+            </label>
+          </div>
+          ${!status.hasGoogleOAuth ? `
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input id="drive-client-id-input" type="text" placeholder="Google OAuth Client ID (es. ...apps.googleusercontent.com)" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
+              <input id="drive-client-secret-input" type="password" placeholder="Google OAuth Client Secret" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
+            </div>
+          ` : ''}
           <div class="flex flex-col sm:flex-row gap-2">
-            <input id="drive-folder-input" type="text" placeholder="URL o ID cartella Drive (opzionale se già configurata sul server)" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
+            <input id="drive-folder-input" type="text" placeholder="URL o ID cartella Drive (${status.hasFolderId ? 'già configurato sul server' : 'obbligatorio'})" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
             <button onclick="window.mobilityManager.connectDriveFolder()" class="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shrink-0">Autorizza &amp; Sincronizza</button>
           </div>
         </div>

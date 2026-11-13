@@ -71,7 +71,7 @@ app.use(helmet({
 }));
 app.use(cors());
 app.use(cookieParser());
-app.use(express.json());
+app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -589,6 +589,26 @@ app.post('/api/ev-climate/volvo/trips/folder', async (req, res) => {
     const { folder } = req.body || {};
     const result = await volvoTripsSync.setFolder(folder);
     res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/volvo/trips/config', async (req, res) => {
+  try {
+    const { folder, clientId, clientSecret } = req.body || {};
+    const status = await volvoTripsSync.saveSetup({ folder, clientId, clientSecret });
+    res.json({ success: true, status });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/volvo/trips/import', async (req, res) => {
+  try {
+    const { files } = req.body || {};
+    const result = await volvoTripsSync.importUploadedFiles(files);
+    res.json({ success: true, ...result, data: volvoTripsSync.getHistory(req.query || {}) });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
   }
