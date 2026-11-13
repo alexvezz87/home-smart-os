@@ -675,6 +675,20 @@ class SpatialEngine {
   }
 
   /**
+   * Individua pin ridondanti (singole lampadine di lampadari, duplicati o spostati fuori perimetro)
+   */
+  isRedundantOrOutsidePin(p) {
+    if (!p) return false;
+    const name = String(p.name || '').trim();
+    if (/^(Giunone|Eglo|Cucina)\s+\d+$/i.test(name)) return true;
+    if (p.category === 'other' && /^(Hue Bridge|Salone|TV 1|TV 2|Asciugatrice|Computer)$/i.test(name)) return true;
+    if (typeof p.x === 'number' && typeof p.y === 'number') {
+      if (p.x < 23.5 || p.x > 82 || p.y < 5 || p.y > 123) return true;
+    }
+    return false;
+  }
+
+  /**
    * Sincronizza posizioni e stanze salvate su TiDB Cloud (db_home_os)
    */
   async initDbCustomLayout() {
@@ -689,7 +703,7 @@ class SpatialEngine {
             if (typeof custom.y === 'number') p.y = custom.y;
             if (custom.room) p.room = custom.room;
             if (Array.isArray(custom.nearbyPins)) p.nearbyPins = custom.nearbyPins;
-          } else if (!p && custom && custom.name) {
+          } else if (!p && custom && custom.name && !this.isRedundantOrOutsidePin(custom)) {
             this.pins.push({
               pin: pinNum,
               name: custom.name,
@@ -924,7 +938,9 @@ class SpatialEngine {
     const plugs = homeSnapshot.energySummary?.plugs || [];
     const cameras = homeSnapshot.security?.cameras || [];
 
-    const enrichedPins = this.pins.map(p => {
+    const enrichedPins = this.pins
+      .filter(p => !this.isRedundantOrOutsidePin(p))
+      .map(p => {
       const clone = { ...p };
 
       if (p.category === 'light') {

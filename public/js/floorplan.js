@@ -1017,12 +1017,23 @@ class FloorplanEngine {
           <!-- Squircle Base Compatto 26x26 px -->
           <rect x="-13" y="-13" width="26" height="26" rx="7" ry="7" fill="${fill}" stroke="${stroke}" stroke-width="${isSelected ? 2.5 : 1.5}"/>
           
-          <!-- Icona Vettoriale FontAwesome 6 Specifica -->
-          <text x="0" y="1" text-anchor="middle" dominant-baseline="central"
-                fill="${iconColor}"
-                font-family="'Font Awesome 6 Free', 'FontAwesome', sans-serif"
-                font-weight="900"
-                font-size="12.5">${iconGlyph}</text>
+          <!-- Icona Vettoriale Specifica -->
+          ${p.category === 'chandelier' ? `
+            <g fill="none" stroke="${iconColor}" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="0" y1="-7.5" x2="0" y2="-3.5" />
+              <path d="M -6.5 1.5 Q -6.5 -3.5 0 -3.5 Q 6.5 -3.5 6.5 1.5" />
+              <line x1="0" y1="-3.5" x2="0" y2="2" />
+              <circle cx="-6.5" cy="3.5" r="2" fill="${p.isOn ? iconColor : 'none'}" />
+              <circle cx="0" cy="4.2" r="2" fill="${p.isOn ? iconColor : 'none'}" />
+              <circle cx="6.5" cy="3.5" r="2" fill="${p.isOn ? iconColor : 'none'}" />
+            </g>
+          ` : `
+            <text x="0" y="1" text-anchor="middle" dominant-baseline="central"
+                  fill="${iconColor}"
+                  font-family="'Font Awesome 6 Free', 'FontAwesome', sans-serif"
+                  font-weight="900"
+                  font-size="12.5">${iconGlyph}</text>
+          `}
 
           <!-- Micro-Badge Numero Pin in alto a destra -->
           <g transform="translate(9.5, -9.5)">
@@ -1337,7 +1348,16 @@ class FloorplanEngine {
                  onclick="window.floorplan.handlePinClick(${p.pin}, event)">
               <div class="flex items-center gap-2.5 overflow-hidden">
                 <div class="w-8 h-8 rounded-lg ${p.isOn ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-400'} flex items-center justify-center shrink-0">
-                  <i class="fa-solid ${p.category === 'chandelier' ? 'fa-wand-magic-sparkles text-amber-400' : 'fa-lightbulb text-amber-300'} text-xs"></i>
+                  ${p.category === 'chandelier' ? `
+                    <svg class="w-4 h-4" viewBox="-10 -10 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="0" y1="-8" x2="0" y2="-3.5" />
+                      <path d="M -6.5 1.5 Q -6.5 -3.5 0 -3.5 Q 6.5 -3.5 6.5 1.5" />
+                      <line x1="0" y1="-3.5" x2="0" y2="2" />
+                      <circle cx="-6.5" cy="3.8" r="2" fill="${p.isOn ? 'currentColor' : 'none'}" />
+                      <circle cx="0" cy="4.5" r="2" fill="${p.isOn ? 'currentColor' : 'none'}" />
+                      <circle cx="6.5" cy="3.8" r="2" fill="${p.isOn ? 'currentColor' : 'none'}" />
+                    </svg>
+                  ` : `<i class="fa-solid fa-lightbulb text-amber-300 text-xs"></i>`}
                 </div>
                 <div class="truncate">
                   <div class="text-xs font-bold text-white truncate">${p.name}</div>
