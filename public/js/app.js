@@ -96,12 +96,18 @@ async function loadDashboard() {
 
     updateHeaderMetrics(data);
 
-    // Rinfresca vista attiva
+    // Rinfresca vista attiva (evita di sovrascrivere i form se l'utente sta digitando in Amministrazione)
+    const activeTag = document.activeElement?.tagName;
+    const isTypingInForm = activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT';
+    const hasPendingDysonInput = ['dyson-email-input', 'dyson-otp-input', 'dyson-pwd-input'].some(
+      (id) => Boolean(document.getElementById(id)?.value)
+    );
+
     if (window.currentArea === 'home' && window.floorplan) {
       window.floorplan.render();
     } else if (window.currentArea === 'energy' && window.energyManager) {
       window.energyManager.renderView();
-    } else if (window.currentArea === 'admin' && window.adminManager) {
+    } else if (window.currentArea === 'admin' && window.adminManager && !isTypingInForm && !hasPendingDysonInput) {
       window.adminManager.renderView();
     }
   } catch (err) {
