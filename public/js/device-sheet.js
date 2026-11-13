@@ -644,7 +644,7 @@ class DeviceSheetManager {
       <div class="py-2 flex flex-col items-center space-y-4">
         <div id="valve-dial-${p.pin}"
              class="w-60 h-60 rounded-full relative flex items-center justify-center select-none touch-none cursor-grab active:cursor-grabbing overflow-hidden border border-white/15 transition-shadow duration-300"
-             style="background: ${dialBg}; box-shadow: ${dialGlow};">
+             style="background: ${dialBg}; box-shadow: ${dialGlow}; touch-action: none;">
 
           <!-- Tamburo Verticale Scorrevole -->
           <div id="valve-dial-wheel-${p.pin}" class="flex flex-col items-center justify-center will-change-transform" style="transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);">
@@ -760,6 +760,7 @@ class DeviceSheetManager {
 
     let draftTemp = Number(p.setpoint || 20.0);
     let dragging = false;
+    let hasMoved = false;
     let startY = 0;
     let stepAnchorY = 0;
     let commitTimer = null;
@@ -815,6 +816,7 @@ class DeviceSheetManager {
     if (upBtn) {
       upBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (hasMoved) { hasMoved = false; return; }
         stepTemp(0.5, 1);
         scheduleCommit();
       });
@@ -822,24 +824,25 @@ class DeviceSheetManager {
     if (downBtn) {
       downBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (hasMoved) { hasMoved = false; return; }
         stepTemp(-0.5, -1);
         scheduleCommit();
       });
     }
 
-    dial.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('button')) return;
+    const startSwipe = (clientY) => {
       dragging = true;
-      startY = e.clientY;
-      stepAnchorY = e.clientY;
-      dial.setPointerCapture(e.pointerId);
+      hasMoved = false;
+      startY = clientY;
+      stepAnchorY = clientY;
       wheel.style.transition = 'none';
-    });
+    };
 
-    dial.addEventListener('pointermove', (e) => {
+    const moveSwipe = (clientY) => {
       if (!dragging) return;
-      const dySinceAnchor = e.clientY - stepAnchorY;
-      const stepPx = 30;
+      if (Math.abs(clientY - startY) > 6) hasMoved = true;
+      const dySinceAnchor = clientY - stepAnchorY;
+      const stepPx = 28;
       // Swipe verso l'alto (dy < 0) -> abbassa temperatura (-0.5)
       // Swipe verso il basso (dy > 0) -> aumenta temperatura (+0.5)
       if (dySinceAnchor <= -stepPx) {
@@ -851,7 +854,7 @@ class DeviceSheetManager {
       } else {
         wheel.style.transform = `translateY(${(dySinceAnchor * 0.45).toFixed(1)}px)`;
       }
-    });
+    };
 
     const endSwipe = () => {
       if (!dragging) return;
@@ -863,8 +866,27 @@ class DeviceSheetManager {
       }
     };
 
-    dial.addEventListener('pointerup', endSwipe);
-    dial.addEventListener('pointercancel', endSwipe);
+    if (window.PointerEvent) {
+      dial.addEventListener('pointerdown', (e) => {
+        startSwipe(e.clientY);
+        try { dial.setPointerCapture(e.pointerId); } catch (_) {}
+      });
+      dial.addEventListener('pointermove', (e) => moveSwipe(e.clientY));
+      dial.addEventListener('pointerup', endSwipe);
+      dial.addEventListener('pointercancel', endSwipe);
+    } else {
+      dial.addEventListener('mousedown', (e) => startSwipe(e.clientY));
+      window.addEventListener('mousemove', (e) => moveSwipe(e.clientY));
+      window.addEventListener('mouseup', endSwipe);
+      dial.addEventListener('touchstart', (e) => {
+        if (e.touches[0]) startSwipe(e.touches[0].clientY);
+      }, { passive: true });
+      dial.addEventListener('touchmove', (e) => {
+        if (dragging) e.preventDefault();
+        if (e.touches[0]) moveSwipe(e.touches[0].clientY);
+      }, { passive: false });
+      dial.addEventListener('touchend', endSwipe);
+    }
 
     dial.addEventListener('wheel', (e) => {
       e.preventDefault();
