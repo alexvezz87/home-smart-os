@@ -239,10 +239,30 @@ async function processAssistantCommand(input) {
     return { success: true, action: 'thinq_status', thinq: st, reply };
   }
 
-  // 0h. Purificatore Dyson HP11 (MQTT Locale)
+  // 0h. Purificatore Dyson HP11 (MQTT Locale o fallback Google Home MCP)
   if (text.includes('purificatore') || text.includes('dyson') || text.includes('qualità aria') || text.includes('pm2')) {
     const st = await dysonPurifier.refreshStatus();
     if (!st.configured || !st.mqttConnected) {
+      const snap = await mcp.getHomeSnapshot();
+      const pur = snap.devices.find((d) => d.name.toLowerCase().includes('purificatore'));
+      if (pur) {
+        if (text.includes('accendi')) {
+          await mcp.toggleDevice(pur.id, true);
+          const reply = '🌬️ Purificatore Dyson HP11 acceso tramite Google Home.';
+          eventLogger.log('assistant', reply, { source: 'Assistente AI' });
+          return { success: true, action: 'dyson_control', via: 'google_home', reply };
+        }
+        if (text.includes('spegni')) {
+          await mcp.toggleDevice(pur.id, false);
+          const reply = '🌬️ Purificatore Dyson HP11 spento tramite Google Home.';
+          eventLogger.log('assistant', reply, { source: 'Assistente AI' });
+          return { success: true, action: 'dyson_control', via: 'google_home', reply };
+        }
+        const fanSpd = pur.extra?.fanSpeed ? `, ventola ${pur.extra.fanSpeed}` : '';
+        const reply = `🌬️ Dyson HP11 (${pur.connectivity || 'ONLINE'} via Google Home): ${pur.isOn ? 'Acceso' : 'Standby'}${fanSpd}.`;
+        eventLogger.log('assistant', reply, { source: 'Assistente AI' });
+        return { success: true, action: 'dyson_status', via: 'google_home', dyson: st, reply };
+      }
       const reply = st.configured
         ? 'Il purificatore Dyson HP11 è configurato ma non è attualmente raggiungibile in MQTT locale.'
         : 'Il purificatore Dyson HP11 non ha ancora completato l\'autenticazione MyDyson in Amministrazione.';

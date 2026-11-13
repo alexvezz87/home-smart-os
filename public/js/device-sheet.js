@@ -487,6 +487,8 @@ class DeviceSheetManager {
    */
   renderDysonControls(p) {
     const connected = Boolean(p.mqttConnected);
+    const hasGoogleHome = Boolean(p.deviceId);
+    const canPower = connected || hasGoogleHome;
     const isOn = Boolean(p.isOn);
 
     return `
@@ -498,8 +500,8 @@ class DeviceSheetManager {
               ${p.statusLabel || (isOn ? 'Attivo' : 'Standby')}
             </div>
           </div>
-          <span class="px-2.5 py-1 rounded-full text-[11px] font-bold ${connected ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'}">
-            ${connected ? 'MQTT LAN' : (p.configured ? 'OFFLINE' : 'DA AUTENTICARE')}
+          <span class="px-2.5 py-1 rounded-full text-[11px] font-bold ${connected ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : (hasGoogleHome ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30' : 'bg-amber-500/15 text-amber-400 border border-amber-500/30')}">
+            ${connected ? 'MQTT LAN' : (hasGoogleHome ? 'GOOGLE HOME' : (p.configured ? 'OFFLINE' : 'DA AUTENTICARE'))}
           </span>
         </div>
 
@@ -533,8 +535,8 @@ class DeviceSheetManager {
 
       <div class="p-3 rounded-xl bg-slate-900/70 border border-slate-800 space-y-2.5">
         <div class="grid grid-cols-2 gap-2">
-          <button onclick="window.controlDysonUi(${p.pin}, { power: ${!isOn} })" ${!connected ? 'disabled' : ''}
-                  class="py-2 px-3 rounded-xl text-xs font-bold transition-all ${connected ? (isOn ? 'bg-rose-600 hover:bg-rose-500 text-white' : 'bg-emerald-600 hover:bg-emerald-500 text-white') : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
+          <button onclick="window.controlDysonUi(${p.pin}, { power: ${!isOn} })" ${!canPower ? 'disabled' : ''}
+                  class="py-2 px-3 rounded-xl text-xs font-bold transition-all ${canPower ? (isOn ? 'bg-rose-600 hover:bg-rose-500 text-white' : 'bg-emerald-600 hover:bg-emerald-500 text-white') : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
             <i class="fa-solid fa-power-off mr-1"></i> ${isOn ? 'Spegni' : 'Accendi'}
           </button>
           <button onclick="window.controlDysonUi(${p.pin}, { auto: ${!p.autoMode} })" ${!connected ? 'disabled' : ''}

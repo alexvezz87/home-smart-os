@@ -362,7 +362,16 @@ app.post('/api/dyson/refresh', async (req, res) => {
 
 app.post('/api/dyson/control', async (req, res) => {
   try {
-    const result = await dysonPurifier.sendControl(req.body || {});
+    const body = req.body || {};
+    if (!dysonPurifier.getStatus().mqttConnected && typeof body.power === 'boolean') {
+      const snap = await mcp.getHomeSnapshot();
+      const pur = snap.devices.find((d) => d.name.toLowerCase().includes('purificatore'));
+      if (pur) {
+        const mcpRes = await mcp.toggleDevice(pur.id, body.power);
+        return res.json({ success: true, data: { ok: true, via: 'google_home', isOn: body.power, mcpRes } });
+      }
+    }
+    const result = await dysonPurifier.sendControl(body);
     res.json({ success: true, data: result });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
