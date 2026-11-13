@@ -72,6 +72,15 @@ const VOLVO_OAUTH_SCOPES = [
   'conve:climatization_start_stop',
   'conve:lock',
   'conve:unlock',
+  'conve:honk_flash',
+  'conve:doors_status',
+  'conve:windows_status',
+  'conve:tyre_status',
+  'conve:diagnostics_engine_status',
+  'conve:diagnostics_workshop',
+  'conve:warnings',
+  'conve:trip_statistics',
+  'conve:vehicle_relation',
   'location:read'
 ].join(' ');
 
@@ -235,6 +244,15 @@ class EvClimateHub {
       avgConsumptionKwh100: null,
       carLocked: null,
       climatizationActive: null,
+      vehicleDetails: null,
+      capabilities: null,
+      doors: null,
+      windows: null,
+      tyres: null,
+      diagnostics: null,
+      warnings: null,
+      statistics: null,
+      apiScopeStatus: {},
       location: null, // { latitude, longitude, altitude, heading, timestamp, googleMapsUrl }
       locationError: null,
       lastUpdated: null,
@@ -818,29 +836,146 @@ class EvClimateHub {
 
       const d = res.data?.data || res.data || {};
 
-      // Tentativo opzionale di leggere odometro, consumo medio, porte e localizzazione GPS
+      // Lettura completa telemetria Volvo Energy v2 + Connected Vehicle v2 + Location v1
       let odoKm = this.volvoState.odometerKm;
       let avgCons = this.volvoState.avgConsumptionKwh100;
       let locked = this.volvoState.carLocked;
       let locData = this.volvoState.location;
       let locErr = null;
+      let vehicleDetails = this.volvoState.vehicleDetails;
+      let capabilities = this.volvoState.capabilities;
+      let doorsData = this.volvoState.doors;
+      let windowsData = this.volvoState.windows;
+      let tyresData = this.volvoState.tyres;
+      let diagnosticsData = this.volvoState.diagnostics;
+      let warningsData = this.volvoState.warnings;
+      let statisticsData = this.volvoState.statistics;
+      const scopeStatus = { energyState: 'ok' };
+      const encodedVin = encodeURIComponent(vin);
+      const getVolvo = (path) => axios.get(`${VOLVO_API_BASE}${path}`, { headers, timeout: 6000, validateStatus: () => true }).catch(() => null);
+      const trackScope = (key, res) => {
+        if (!res) { scopeStatus[key] = 'network_error'; return false; }
+        if (res.status === 200) { scopeStatus[key] = 'ok'; return true; }
+        scopeStatus[key] = (res.status === 401 || res.status === 403) ? 'scope_missing' : `http_${res.status}`;
+        return false;
+      };
+
       try {
-        const [odoRes, statRes, doorRes, locRes] = await Promise.all([
-          axios.get(`${VOLVO_API_BASE}/connected-vehicle/v2/vehicles/${encodeURIComponent(vin)}/odometer`, { headers, timeout: 6000, validateStatus: () => true }).catch(() => null),
-          axios.get(`${VOLVO_API_BASE}/connected-vehicle/v2/vehicles/${encodeURIComponent(vin)}/statistics`, { headers, timeout: 6000, validateStatus: () => true }).catch(() => null),
-          axios.get(`${VOLVO_API_BASE}/connected-vehicle/v2/vehicles/${encodeURIComponent(vin)}/doors`, { headers, timeout: 6000, validateStatus: () => true }).catch(() => null),
-          axios.get(`${VOLVO_API_BASE}/location/v1/vehicles/${encodeURIComponent(vin)}/location`, { headers, timeout: 6000, validateStatus: () => true }).catch(() => null)
+        const [
+          odoRes, statRes, doorRes, locRes,
+          capRes, detailsRes, winRes, tyreRes, diagRes, warnRes
+        ] = await Promise.all([
+          getVolvo(`/connected-vehicle/v2/vehicles/${encodedVin}/odometer`),
+          getVolvo(`/connected-vehicle/v2/vehicles/${encodedVin}/statistics`),
+          getVolvo(`/connected-vehicle/v2/vehicles/${encodedVin}/doors`),
+          getVolvo(`/location/v1/vehicles/${encodedVin}/location`),
+          getVolvo(`/energy/v2/vehicles/${encodedVin}/capabilities`),
+          getVolvo(`/connected-vehicle/v2/vehicles/${encodedVin}`),
+          getVolvo(`/connected-vehicle/v2/vehicles/${encodedVin}/windows`),
+          getVolvo(`/connected-vehicle/v2/vehicles/${encodedVin}/tyres`),
+          getVolvo(`/connected-vehicle/v2/vehicles/${encodedVin}/diagnostics`),
+          getVolvo(`/connected-vehicle/v2/vehicles/${encodedVin}/warnings`)
         ]);
-        if (odoRes?.status === 200 && odoRes.data?.data?.odometer?.value !== undefined) {
+
+        if (trackScope('odometer', odoRes) && odoRes.data?.data?.odometer?.value !== undefined) {
           odoKm = Math.round(Number(odoRes.data.data.odometer.value));
         }
-        if (statRes?.status === 200 && statRes.data?.data?.averageEnergyConsumption?.value !== undefined) {
-          avgCons = +Number(statRes.data.data.averageEnergyConsumption.value).toFixed(1);
+
+        if (trackScope('statistics', statRes) && statRes.data?.data) {
+          const s = statRes.data.data;
+          if (s.averageEnergyConsumption?.value !== undefined) {
+            avgCons = +Number(s.averageEnergyConsumption.value).toFixed(1);
+          }
+          statisticsData = {
+            averageEnergyConsumption: s.averageEnergyConsumption?.value !== undefined ? +Number(s.averageEnergyConsumption.value).toFixed(1) : null,
+            averageEnergyConsumptionUnit: s.averageEnergyConsumption?.unit || 'kWh/100km',
+            averageSpeed: s.averageSpeed?.value !== undefined ? Math.round(Number(s.averageSpeed.value)) : null,
+            averageSpeedUnit: s.averageSpeed?.unit || 'km/h',
+            tripMeter1: s.tripMeter1?.value !== undefined ? +Number(s.tripMeter1.value).toFixed(1) : null,
+            tripMeter2: s.tripMeter2?.value !== undefined ? +Number(s.tripMeter2.value).toFixed(1) : null,
+            distanceToEmpty: s.distanceToEmpty?.value !== undefined ? Math.round(Number(s.distanceToEmpty.value)) : null
+          };
         }
-        if (doorRes?.status === 200 && doorRes.data?.data?.centralLock?.value !== undefined) {
-          locked = doorRes.data.data.centralLock.value === 'LOCKED';
+
+        if (trackScope('doors', doorRes) && doorRes.data?.data) {
+          const dr = doorRes.data.data;
+          if (dr.centralLock?.value !== undefined) {
+            locked = dr.centralLock.value === 'LOCKED';
+          }
+          doorsData = {
+            centralLock: dr.centralLock?.value || null,
+            frontLeftDoor: dr.frontLeftDoor?.value || null,
+            frontRightDoor: dr.frontRightDoor?.value || null,
+            rearLeftDoor: dr.rearLeftDoor?.value || null,
+            rearRightDoor: dr.rearRightDoor?.value || null,
+            hood: dr.hood?.value || null,
+            tailgate: dr.tailgate?.value || null,
+            tankLid: dr.tankLid?.value || null
+          };
         }
-        if (locRes?.status === 200 && locRes.data?.data?.geometry?.coordinates) {
+
+        if (trackScope('windows', winRes) && winRes.data?.data) {
+          const w = winRes.data.data;
+          windowsData = {
+            frontLeftWindow: w.frontLeftWindow?.value || null,
+            frontRightWindow: w.frontRightWindow?.value || null,
+            rearLeftWindow: w.rearLeftWindow?.value || null,
+            rearRightWindow: w.rearRightWindow?.value || null,
+            sunroof: w.sunroof?.value || null
+          };
+        }
+
+        if (trackScope('tyres', tyreRes) && tyreRes.data?.data) {
+          const t = tyreRes.data.data;
+          tyresData = {
+            frontLeft: t.frontLeft || null,
+            frontRight: t.frontRight || null,
+            rearLeft: t.rearLeft || null,
+            rearRight: t.rearRight || null
+          };
+        }
+
+        if (trackScope('diagnostics', diagRes) && diagRes.data?.data) {
+          const dg = diagRes.data.data;
+          diagnosticsData = {
+            serviceWarning: dg.serviceWarning?.value || null,
+            engineHoursToService: dg.engineHoursToService?.value ?? null,
+            distanceToServiceKm: dg.distanceToService?.value ?? null,
+            timeToServiceMonths: dg.timeToService?.value ?? null,
+            washerFluidLevelWarning: dg.washerFluidLevelWarning?.value || null
+          };
+        }
+
+        if (trackScope('warnings', warnRes) && warnRes.data?.data) {
+          const wr = warnRes.data.data;
+          warningsData = {
+            bulbFailure: wr.bulbFailure?.value || null,
+            brakeFluidLevelWarning: wr.brakeFluidLevelWarning?.value || null,
+            washerFluidLevelWarning: wr.washerFluidLevelWarning?.value || null,
+            coolantLevelWarning: wr.coolantLevelWarning?.value || null,
+            oilLevelWarning: wr.oilLevelWarning?.value || null
+          };
+        }
+
+        if (trackScope('capabilities', capRes) && capRes.data) {
+          capabilities = capRes.data;
+        }
+
+        if (trackScope('vehicleDetails', detailsRes) && detailsRes.data?.data) {
+          const vd = detailsRes.data.data;
+          vehicleDetails = {
+            modelYear: vd.modelYear || null,
+            externalColour: vd.externalColour || null,
+            batteryCapacityKWH: vd.batteryCapacityKWH || null,
+            upholstery: vd.upholstery || null,
+            fuelType: vd.fuelType || null,
+            gearbox: vd.gearbox || null,
+            steering: vd.steering || null,
+            descriptions: vd.descriptions || null
+          };
+        }
+
+        if (trackScope('location', locRes) && locRes.data?.data?.geometry?.coordinates) {
           const [lon, lat, alt] = locRes.data.data.geometry.coordinates;
           const heading = locRes.data.data.properties?.heading !== undefined ? Number(locRes.data.data.properties.heading) : null;
           const ts = locRes.data.data.properties?.timestamp || null;
@@ -889,6 +1024,15 @@ class EvClimateHub {
         odometerKm: odoKm,
         avgConsumptionKwh100: avgCons,
         carLocked: locked,
+        vehicleDetails,
+        capabilities,
+        doors: doorsData,
+        windows: windowsData,
+        tyres: tyresData,
+        diagnostics: diagnosticsData,
+        warnings: warningsData,
+        statistics: statisticsData,
+        apiScopeStatus: scopeStatus,
         location: locData,
         locationError: locErr,
         tokenExpiresAt: tokenExp,
@@ -925,7 +1069,9 @@ class EvClimateHub {
       climatization_stop: 'climatization-stop',
       lock: 'lock',
       unlock: 'unlock',
-      flash: 'flash'
+      flash: 'flash',
+      honk: 'honk',
+      honk_flash: 'honk-flash'
     };
 
     if (cmdMap[action]) {

@@ -115,5 +115,16 @@ Riorganizzata con un'architettura **modulare a schede (Tab Switcher)** con persi
 | `public/js/device-sheet.js` | Rendering drawer/bottom sheet per tutti i dispositivi supportati e player streaming JSMpeg. |
 | `public/js/drag-editor.js` | Logica drag & drop mouse/touch, rilevamento coordinate SVG, cassetto non collocati e persistenza. |
 | `public/js/energy.js` | Cruscotto energetico, grafici Chart.js per Bosch e simulatori di risparmio ARERA/EV. |
+| `public/js/mobility.js` | Centro Diagnostico Volvo EX30 & Wallbox ABB Terra AC (wireframe pneumatici, manutenzione, liquidi, porte/finestrini, comandi remoti e ricarica). |
 | `public/js/admin.js` | Hub diagnostico, stato integrazioni, controlli editor e audit log. |
+
+---
+
+## 🚗 5. Centro Diagnostico Volvo EX30 & Wallbox ABB (`area-mobility`)
+- **Accesso dal Menu Hamburger**: voce dedicata *"Volvo EX30 & Wallbox"* nella sidebar sinistra (`#left-sidebar`) con vista dedicata `#area-mobility`.
+- **Telemetria Completa Volvo API v2 (`src/ev-climate-hub.js`)**:
+  - **Energy v2**: batteria (`%`), target di ricarica, autonomia residua (`km`), stato cavo/ricarica, potenza e tempo stimato al target.
+  - **Connected Vehicle v2**: odometro, statistiche viaggio (`averageEnergyConsumption`, `averageSpeed`, `tripMeter1/2`), stato dettagliato di tutte le portiere, cofano, portellone, sportello ricarica, finestrini e tetto panoramico, pressioni pneumatici (`bar` / `kPa` / `psi`), diagnostica tagliando (`distanceToService`, `timeToService`, `serviceWarning`), avvisi liquidi e lampadine (`brakeFluidLevelWarning`, `washerFluidLevelWarning`, `coolantLevelWarning`, `bulbFailure`), e dettagli veicolo.
+  - **Comandi Remoti & Location v1**: blocco/sblocco porte, climatizzazione ON/OFF, lampeggio luci, clacson & luci (`honk-flash`), posizione GPS con indirizzo e link Google Maps.
+- **Wallbox ABB Terra AC**: potenza istantanea, corrente/tensione, energia sessione, avvio/stop ricarica, regolazione limite corrente (`6A–32A`) e Auto Load Balance Casa + EV.
 

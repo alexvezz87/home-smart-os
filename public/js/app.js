@@ -28,11 +28,13 @@ function switchArea(area) {
 
   const areaHome = document.getElementById('area-home');
   const areaEnergy = document.getElementById('area-energy');
+  const areaMobility = document.getElementById('area-mobility');
   const areaAdmin = document.getElementById('area-admin');
 
   // Gestione visibilità sezioni
   if (areaHome) areaHome.classList.toggle('hidden', area !== 'home');
   if (areaEnergy) areaEnergy.classList.toggle('hidden', area !== 'energy');
+  if (areaMobility) areaMobility.classList.toggle('hidden', area !== 'mobility');
   if (areaAdmin) areaAdmin.classList.toggle('hidden', area !== 'admin');
 
   // Aggiorna pulsanti Navigazione nella Sidebar Sinistra
@@ -67,6 +69,8 @@ function switchArea(area) {
     window.floorplan.render();
   } else if (area === 'energy' && window.energyManager) {
     window.energyManager.renderView();
+  } else if (area === 'mobility' && window.mobilityManager) {
+    window.mobilityManager.renderView();
   } else if (area === 'admin' && window.adminManager) {
     window.adminManager.renderView();
   }
@@ -161,6 +165,8 @@ async function loadDashboard() {
       window.floorplan.render();
     } else if (window.currentArea === 'energy' && window.energyManager) {
       window.energyManager.renderView();
+    } else if (window.currentArea === 'mobility' && window.mobilityManager) {
+      window.mobilityManager.renderView();
     } else if (window.currentArea === 'admin' && window.adminManager && !isTypingInForm && !hasPendingDysonInput) {
       window.adminManager.renderView();
     }

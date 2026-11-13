@@ -152,6 +152,10 @@
           <i class="fa-solid fa-bolt-lightning text-amber-400 w-4 text-center"></i>
           <span>Consumi &amp; Energia</span>
         </button>
+        <button data-area="mobility" class="nav-area-btn w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-slate-900/80 text-slate-300 hover:text-white hover:bg-slate-800 transition-all flex items-center gap-3">
+          <i class="fa-solid fa-car-side text-emerald-400 w-4 text-center"></i>
+          <span>Volvo EX30 &amp; Wallbox</span>
+        </button>
         <button data-area="admin" class="nav-area-btn w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-slate-900/80 text-slate-300 hover:text-white hover:bg-slate-800 transition-all flex items-center gap-3">
           <i class="fa-solid fa-screwdriver-wrench text-sky-400 w-4 text-center"></i>
           <span>Amministrazione</span>
@@ -281,7 +285,10 @@
     <!-- MACRO-AREA 2: ⚡ Consumi & Energia (Energy Intelligence) -->
     <section id="area-energy" class="hidden"></section>
 
-    <!-- MACRO-AREA 3: ⚙️ Amministrazione & Hub (Diagnostica & Gestione) -->
+    <!-- MACRO-AREA 3: 🚗 Volvo EX30 & Wallbox ABB (Centro Diagnostico & Ricarica) -->
+    <section id="area-mobility" class="hidden"></section>
+
+    <!-- MACRO-AREA 4: ⚙️ Amministrazione & Hub (Diagnostica & Gestione) -->
     <section id="area-admin" class="hidden"></section>
 
   </main>
@@ -333,6 +340,7 @@
   <script src="/js/floorplan.js"></script>
   <script src="/js/drag-editor.js"></script>
   <script src="/js/energy.js"></script>
+  <script src="/js/mobility.js"></script>
   <script src="/js/admin.js"></script>
   <script src="/js/app.js"></script>
 </body>
