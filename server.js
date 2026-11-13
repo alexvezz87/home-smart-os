@@ -377,6 +377,15 @@ app.post('/api/dyson/auth/verify', async (req, res) => {
   }
 });
 
+app.post('/api/dyson/config', async (req, res) => {
+  try {
+    const result = await dysonPurifier.saveStickerConfig(req.body || {});
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
 // 1. Snapshot completo casa con arricchimento telemetria Meross, Sicurezza e Mappa Spaziale 32 Pin
 app.get(['/api/home', '/api/dashboard'], async (req, res) => {
   try {
