@@ -68,7 +68,7 @@ Per garantire scalabilità, pulizia del codice e massima reattività su Smartpho
 - **Heatmap Energetica sulla Piantina**: Aloni colorati sui dispositivi proporzionali ai Watt assorbiti (blu < 100W, ambra 100-1000W, rosso intenso > 1000W).
 - **Anti-Distacco Contatore 3.0 kW**: Indicatore di carico in tempo reale con soglie di allerta (*SAFE*, *WARNING*, *CRITICAL*) e margine disponibile.
 - **Simulatore Bolletta ARERA (F1/F2/F3)**: Rilevamento automatico della fascia attiva e consigli AI di ottimizzazione carichi.
-- **Analisi Metano Caldaia Bosch CT200**: Grafici interattivi Chart.js (orari e giornalieri) con calcolo costi basato su tariffa Dolomiti Energia (0.87 €/m³).
+- **Analisi Metano Caldaia Bosch CT200**: Acquisizione completa dello storico multi-anno da `/energy/history` (dal 2022) e `/energy/historyHourly` con conversione calibrata (`8.125 kWh/m³`), viste navigabili *3 Giorni / Mese / Anno / Anni*, toggle `m³ / €`, barre impilate Riscaldamento + Acqua Calda e linea sovrapposta Temperatura esterna media (°C) con tariffa reale da bollette Dolomiti Energia.
 - **Confronto Ricarica EV Volvo EX30 / Wallbox ABB**: Calcolo risparmio economico rispetto ai veicoli termici tradizionali (~72% di risparmio medio).
 
 ### C. ⚙️ Amministrazione & Hub (Gestione Modulare per Servizi & Diagnostica)

@@ -10,8 +10,11 @@
 
 class EnergyManager {
   constructor() {
-    this.boschTimeframe = 'all'; // '24h' | '48h' | 'all' | 'daily'
-    this.boschViewMode = 'chart';
+    this.boschTimeframe = 'month'; // '3d' | 'month' | 'year' | 'years'
+    this.boschUnit = 'm3'; // 'm3' | 'eur'
+    this.boschSelectedDay = null;
+    this.boschSelectedMonth = null;
+    this.boschSelectedYear = null;
     this.boschChart = null;
 
     this.volvoHistoryYear = '2026';
@@ -219,47 +222,73 @@ class EnergyManager {
         <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
           <div class="flex items-center justify-between flex-wrap gap-3 border-b border-slate-800 pb-4">
             <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center justify-center text-lg">
+              <div class="w-10 h-10 rounded-xl bg-rose-500/15 text-rose-400 border border-rose-500/30 flex items-center justify-center text-lg">
                 <i class="fa-solid fa-fire-flame-curved"></i>
               </div>
               <div>
                 <h3 class="text-base font-bold text-white">Consumi Gas Caldaia Bosch EasyControl CT200</h3>
-                <p class="text-xs text-slate-400">Tariffa Dolomiti Energia (${(Number(window.homeData?.evClimate?.bosch?.energyHistory?.totals?.dolomitiTariffEurPerSmc) || 0.87).toFixed(3)} €/Smc da bollette) · Riscaldamento e ACS</p>
+                <p class="text-xs text-slate-400">Tariffa Dolomiti Energia (${(Number(window.homeData?.evClimate?.bosch?.energyHistory?.totals?.dolomitiTariffEurPerSmc) || 0.87).toFixed(3)} €/Smc da bollette) · Storico dal 2022</p>
               </div>
             </div>
 
-            <!-- Timeframe selector -->
-            <div class="flex items-center gap-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
-              <button onclick="window.energyManager.switchBoschTimeframe('24h')" class="bosch-tf-btn px-2.5 py-1 rounded-lg ${this.boschTimeframe === '24h' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all">24 Ore</button>
-              <button onclick="window.energyManager.switchBoschTimeframe('48h')" class="bosch-tf-btn px-2.5 py-1 rounded-lg ${this.boschTimeframe === '48h' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all">48 Ore</button>
-              <button onclick="window.energyManager.switchBoschTimeframe('daily')" class="bosch-tf-btn px-2.5 py-1 rounded-lg ${this.boschTimeframe === 'daily' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all">Giornaliero</button>
-              <button onclick="window.energyManager.switchBoschTimeframe('all')" class="bosch-tf-btn px-2.5 py-1 rounded-lg ${this.boschTimeframe === 'all' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all">Tutto</button>
+            <div class="flex items-center flex-wrap gap-2">
+              <!-- Timeframe selector -->
+              <div class="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
+                <button onclick="window.energyManager.switchBoschTimeframe('3d')" data-bosch-tf="3d" class="bosch-tf-btn px-2.5 py-1 rounded-lg ${this.boschTimeframe === '3d' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all">3 Giorni</button>
+                <button onclick="window.energyManager.switchBoschTimeframe('month')" data-bosch-tf="month" class="bosch-tf-btn px-2.5 py-1 rounded-lg ${this.boschTimeframe === 'month' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all">Mese</button>
+                <button onclick="window.energyManager.switchBoschTimeframe('year')" data-bosch-tf="year" class="bosch-tf-btn px-2.5 py-1 rounded-lg ${this.boschTimeframe === 'year' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all">Anno</button>
+                <button onclick="window.energyManager.switchBoschTimeframe('years')" data-bosch-tf="years" class="bosch-tf-btn px-2.5 py-1 rounded-lg ${this.boschTimeframe === 'years' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all">Anni</button>
+              </div>
+
+              <!-- Unit toggle m³ / € -->
+              <div class="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
+                <button onclick="window.energyManager.switchBoschUnit('m3')" data-bosch-unit="m3" class="bosch-unit-btn px-2.5 py-1 rounded-lg ${this.boschUnit === 'm3' ? 'bg-slate-200 text-slate-900 font-bold' : 'text-slate-400 hover:text-white'} transition-all">m³</button>
+                <button onclick="window.energyManager.switchBoschUnit('eur')" data-bosch-unit="eur" class="bosch-unit-btn px-2.5 py-1 rounded-lg ${this.boschUnit === 'eur' ? 'bg-emerald-500 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all">€</button>
+              </div>
             </div>
           </div>
 
-          <!-- KPI Cards Gas -->
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-              <span class="text-[10px] text-slate-400 uppercase font-semibold">Riscaldamento</span>
-              <div id="kpi-bosch-ch" class="text-lg font-black text-amber-400 mt-1">-- m³</div>
-            </div>
-            <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-              <span class="text-[10px] text-slate-400 uppercase font-semibold">Sanitario ACS</span>
-              <div id="kpi-bosch-hw" class="text-lg font-black text-sky-400 mt-1">-- m³</div>
-            </div>
-            <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-              <span class="text-[10px] text-slate-400 uppercase font-semibold">Totale Metano</span>
-              <div id="kpi-bosch-tot" class="text-lg font-black text-white mt-1">-- m³</div>
-            </div>
-            <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-              <span class="text-[10px] text-slate-400 uppercase font-semibold">Spesa Stimata Gas</span>
-              <div id="kpi-bosch-cost" class="text-lg font-black text-emerald-400 mt-1">-- €</div>
-            </div>
+          <!-- Period Navigator -->
+          <div class="flex items-center justify-between px-1">
+            <button id="bosch-nav-prev" onclick="window.energyManager.stepBoschPeriod(-1)" class="w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 flex items-center justify-center transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+              <i class="fa-solid fa-chevron-left text-xs"></i>
+            </button>
+            <div id="bosch-period-label" class="text-sm font-bold text-white tracking-wide">--</div>
+            <button id="bosch-nav-next" onclick="window.energyManager.stepBoschPeriod(1)" class="w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 flex items-center justify-center transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+              <i class="fa-solid fa-chevron-right text-xs"></i>
+            </button>
           </div>
 
           <!-- Chart Gas Canvas -->
           <div class="h-64 sm:h-72 w-full relative">
             <canvas id="boschGasChart"></canvas>
+          </div>
+
+          <!-- KPI Cards Gas (allineate allo stile Bosch) -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+            <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+              <span class="text-[10px] text-slate-400 uppercase font-semibold">Totale consumata</span>
+              <div id="kpi-bosch-tot" class="text-lg font-black text-white mt-0.5">-- m³</div>
+              <div id="kpi-bosch-cost" class="text-xs font-mono text-emerald-400 mt-0.5">-- €</div>
+            </div>
+            <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+              <span class="text-[10px] text-slate-400 uppercase font-semibold flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-sm bg-red-500 inline-block"></span> Riscaldamento
+              </span>
+              <div id="kpi-bosch-ch" class="text-lg font-black text-red-400 mt-0.5">-- m³</div>
+            </div>
+            <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+              <span class="text-[10px] text-slate-400 uppercase font-semibold flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-sm bg-fuchsia-500 inline-block"></span> Acqua calda
+              </span>
+              <div id="kpi-bosch-hw" class="text-lg font-black text-fuchsia-400 mt-0.5">-- m³</div>
+            </div>
+            <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+              <span class="text-[10px] text-slate-400 uppercase font-semibold flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-white inline-block"></span> Temp. esterna media
+              </span>
+              <div id="kpi-bosch-temp" class="text-lg font-black text-slate-100 mt-0.5">-- °C</div>
+            </div>
           </div>
         </div>
 
@@ -375,6 +404,52 @@ class EnergyManager {
 
   switchBoschTimeframe(tf) {
     this.boschTimeframe = tf;
+    document.querySelectorAll('.bosch-tf-btn').forEach(btn => {
+      const active = btn.getAttribute('data-bosch-tf') === tf;
+      btn.className = `bosch-tf-btn px-2.5 py-1 rounded-lg ${active ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all`;
+    });
+    this.renderBoschGasChart();
+  }
+
+  switchBoschUnit(unit) {
+    this.boschUnit = unit;
+    document.querySelectorAll('.bosch-unit-btn').forEach(btn => {
+      const active = btn.getAttribute('data-bosch-unit') === unit;
+      const activeCls = unit === 'eur' ? 'bg-emerald-500 text-white font-bold' : 'bg-slate-200 text-slate-900 font-bold';
+      btn.className = `bosch-unit-btn px-2.5 py-1 rounded-lg ${active ? activeCls : 'text-slate-400 hover:text-white'} transition-all`;
+    });
+    this.renderBoschGasChart();
+  }
+
+  stepBoschPeriod(delta) {
+    const rawHist = window.homeData?.evClimate?.bosch?.energyHistory || {};
+    const hourly = Array.isArray(rawHist) ? rawHist : (rawHist.hourly || []);
+    const daily = rawHist.daily || [];
+    const monthly = rawHist.monthly || [];
+    const yearly = rawHist.yearly || [];
+
+    if (this.boschTimeframe === '3d') {
+      const days = [...new Set(hourly.map(h => h.date).filter(Boolean))];
+      if (days.length === 0) return;
+      const cur = this.boschSelectedDay || days[days.length - 1];
+      const idx = days.indexOf(cur);
+      const nextIdx = Math.max(0, Math.min(days.length - 1, (idx === -1 ? days.length - 1 : idx) + delta));
+      this.boschSelectedDay = days[nextIdx];
+    } else if (this.boschTimeframe === 'month') {
+      const months = [...new Set(daily.map(d => d.yearMonth).filter(Boolean))].sort();
+      if (months.length === 0) return;
+      const cur = this.boschSelectedMonth || months[months.length - 1];
+      const idx = months.indexOf(cur);
+      const nextIdx = Math.max(0, Math.min(months.length - 1, (idx === -1 ? months.length - 1 : idx) + delta));
+      this.boschSelectedMonth = months[nextIdx];
+    } else if (this.boschTimeframe === 'year') {
+      const years = yearly.map(y => y.year).filter(Boolean);
+      if (years.length === 0) return;
+      const cur = this.boschSelectedYear || years[years.length - 1];
+      const idx = years.indexOf(cur);
+      const nextIdx = Math.max(0, Math.min(years.length - 1, (idx === -1 ? years.length - 1 : idx) + delta));
+      this.boschSelectedYear = years[nextIdx];
+    }
     this.renderBoschGasChart();
   }
 
@@ -385,89 +460,264 @@ class EnergyManager {
     const rawHist = window.homeData?.evClimate?.bosch?.energyHistory || {};
     const hourly = Array.isArray(rawHist) ? rawHist : (rawHist.hourly || []);
     const daily = rawHist.daily || [];
+    const monthly = rawHist.monthly || [];
+    const yearly = rawHist.yearly || [];
 
-    let series = [];
-    const isDaily = this.boschTimeframe === 'daily';
+    const MONTH_SHORT = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
+    const MONTH_LOWER = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
+    const defaultTariff = Number(rawHist?.totals?.dolomitiTariffEurPerSmc) || 0.87;
+    const isEur = this.boschUnit === 'eur';
 
-    if (isDaily) {
-      series = daily;
-    } else if (this.boschTimeframe === '24h') {
-      series = hourly.slice(-24);
-    } else if (this.boschTimeframe === '48h') {
-      series = hourly.slice(-48);
-    } else {
-      series = hourly;
+    let labels = [];
+    let heatingData = [];
+    let dhwData = [];
+    let tempData = [];
+    let periodTitle = '--';
+    let canPrev = false;
+    let canNext = false;
+    let sumChM3 = 0;
+    let sumHwM3 = 0;
+    let sumCostEur = 0;
+    let tempSum = 0;
+    let tempCnt = 0;
+
+    if (this.boschTimeframe === '3d') {
+      const days = [...new Set(hourly.map(h => h.date).filter(Boolean))];
+      if (days.length > 0) {
+        if (!this.boschSelectedDay || !days.includes(this.boschSelectedDay)) {
+          this.boschSelectedDay = days[days.length - 1];
+        }
+        const idx = days.indexOf(this.boschSelectedDay);
+        canPrev = idx > 0;
+        canNext = idx < days.length - 1;
+
+        const [dd, mm, yyyy] = this.boschSelectedDay.split('-');
+        periodTitle = `${parseInt(dd, 10)} ${MONTH_LOWER[parseInt(mm, 10) - 1] || mm} ${yyyy}`;
+
+        const dayHours = hourly.filter(h => h.date === this.boschSelectedDay);
+        const byHour = {};
+        dayHours.forEach(h => { byHour[Number(h.hour)] = h; });
+
+        for (let hr = 0; hr < 24; hr++) {
+          labels.push(`${hr}h`);
+          const rec = byHour[hr];
+          const ch = Number(rec?.gasHeating) || 0;
+          const hw = Number(rec?.gasDhw) || 0;
+          const t = typeof rec?.outdoorTemp === 'number' ? rec.outdoorTemp : null;
+          const rate = rec && rec.gasTotal > 0 && rec.costEur > 0 ? (rec.costEur / rec.gasTotal) : defaultTariff;
+          sumChM3 += ch;
+          sumHwM3 += hw;
+          sumCostEur += (ch + hw) * rate;
+          if (t !== null) { tempSum += t; tempCnt++; }
+          heatingData.push(isEur ? +(ch * rate).toFixed(3) : +ch.toFixed(3));
+          dhwData.push(isEur ? +(hw * rate).toFixed(3) : +hw.toFixed(3));
+          tempData.push(t);
+        }
+      }
+    } else if (this.boschTimeframe === 'month') {
+      const months = [...new Set(daily.map(d => d.yearMonth).filter(Boolean))].sort();
+      if (months.length > 0) {
+        if (!this.boschSelectedMonth || !months.includes(this.boschSelectedMonth)) {
+          this.boschSelectedMonth = months[months.length - 1];
+        }
+        const idx = months.indexOf(this.boschSelectedMonth);
+        canPrev = idx > 0;
+        canNext = idx < months.length - 1;
+
+        const [yrStr, moStr] = this.boschSelectedMonth.split('-');
+        const yr = parseInt(yrStr, 10);
+        const mo = parseInt(moStr, 10);
+        periodTitle = `${MONTH_LOWER[mo - 1] || moStr} ${yr}`;
+
+        const daysInMonth = new Date(yr, mo, 0).getDate();
+        const dayMap = {};
+        daily.filter(d => d.yearMonth === this.boschSelectedMonth).forEach(d => {
+          const dayNum = parseInt(String(d.date).split('-')[0], 10);
+          dayMap[dayNum] = d;
+        });
+
+        for (let dNum = 1; dNum <= daysInMonth; dNum++) {
+          labels.push(String(dNum));
+          const rec = dayMap[dNum];
+          const ch = Number(rec?.gasHeating) || 0;
+          const hw = Number(rec?.gasDhw) || 0;
+          const rate = Number(rec?.tariffEurPerSmc) || defaultTariff;
+          const t = typeof rec?.outdoorTempAvg === 'number' ? rec.outdoorTempAvg : null;
+          sumChM3 += ch;
+          sumHwM3 += hw;
+          sumCostEur += (ch + hw) * rate;
+          if (t !== null) { tempSum += t; tempCnt++; }
+          heatingData.push(isEur ? +(ch * rate).toFixed(2) : +ch.toFixed(2));
+          dhwData.push(isEur ? +(hw * rate).toFixed(2) : +hw.toFixed(2));
+          tempData.push(t);
+        }
+      }
+    } else if (this.boschTimeframe === 'year') {
+      const years = yearly.map(y => y.year).filter(Boolean);
+      if (years.length > 0) {
+        if (!this.boschSelectedYear || !years.includes(this.boschSelectedYear)) {
+          this.boschSelectedYear = years[years.length - 1];
+        }
+        const idx = years.indexOf(this.boschSelectedYear);
+        canPrev = idx > 0;
+        canNext = idx < years.length - 1;
+        periodTitle = String(this.boschSelectedYear);
+
+        const moMap = {};
+        monthly.filter(m => m.year === this.boschSelectedYear).forEach(m => { moMap[m.month] = m; });
+
+        for (let mNum = 1; mNum <= 12; mNum++) {
+          labels.push(MONTH_SHORT[mNum - 1]);
+          const rec = moMap[mNum];
+          const ch = Number(rec?.gasHeating) || 0;
+          const hw = Number(rec?.gasDhw) || 0;
+          const rate = Number(rec?.tariffEurPerSmc) || defaultTariff;
+          const t = typeof rec?.outdoorTempAvg === 'number' ? rec.outdoorTempAvg : null;
+          sumChM3 += ch;
+          sumHwM3 += hw;
+          sumCostEur += (ch + hw) * rate;
+          if (t !== null) { tempSum += t; tempCnt++; }
+          heatingData.push(isEur ? +(ch * rate).toFixed(2) : +ch.toFixed(1));
+          dhwData.push(isEur ? +(hw * rate).toFixed(2) : +hw.toFixed(1));
+          tempData.push(t);
+        }
+      }
+    } else if (this.boschTimeframe === 'years') {
+      if (yearly.length > 0) {
+        periodTitle = `${yearly[0].year} - ${yearly[yearly.length - 1].year}`;
+        yearly.forEach(y => {
+          labels.push(String(y.year));
+          const ch = Number(y.gasHeating) || 0;
+          const hw = Number(y.gasDhw) || 0;
+          const totM3 = ch + hw;
+          const cost = Number(y.costEur) || (totM3 * defaultTariff);
+          const ratio = totM3 > 0 ? cost / totM3 : defaultTariff;
+          const t = typeof y.outdoorTempAvg === 'number' ? y.outdoorTempAvg : null;
+          sumChM3 += ch;
+          sumHwM3 += hw;
+          sumCostEur += cost;
+          if (t !== null) { tempSum += t; tempCnt++; }
+          heatingData.push(isEur ? +(ch * ratio).toFixed(2) : +ch.toFixed(1));
+          dhwData.push(isEur ? +(hw * ratio).toFixed(2) : +hw.toFixed(1));
+          tempData.push(t);
+        });
+      }
     }
 
-    if (!series || series.length === 0) return;
+    const prevBtn = document.getElementById('bosch-nav-prev');
+    const nextBtn = document.getElementById('bosch-nav-next');
+    const lblEl = document.getElementById('bosch-period-label');
+    if (prevBtn) prevBtn.disabled = !canPrev;
+    if (nextBtn) nextBtn.disabled = !canNext;
+    if (lblEl) lblEl.innerText = periodTitle;
 
-    let selCh = 0;
-    let selHw = 0;
-    let selGas = 0;
+    const sumTotM3 = sumChM3 + sumHwM3;
+    const avgTemp = tempCnt > 0 ? (tempSum / tempCnt) : null;
+    const fmt = (v, dec = 1) => v.toLocaleString('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 
-    series.forEach(item => {
-      selCh += Number(item.gasHeating) || 0;
-      selHw += Number(item.gasDhw) || 0;
-      selGas += Number(item.gasTotal) || ((Number(item.gasHeating) || 0) + (Number(item.gasDhw) || 0));
-    });
-
-    const elCh = document.getElementById('kpi-bosch-ch');
-    const elHw = document.getElementById('kpi-bosch-hw');
     const elTot = document.getElementById('kpi-bosch-tot');
     const elCost = document.getElementById('kpi-bosch-cost');
+    const elCh = document.getElementById('kpi-bosch-ch');
+    const elHw = document.getElementById('kpi-bosch-hw');
+    const elTemp = document.getElementById('kpi-bosch-temp');
 
-    if (elCh) elCh.innerText = selCh.toFixed(2) + ' m³';
-    if (elHw) elHw.innerText = selHw.toFixed(2) + ' m³';
-    if (elTot) elTot.innerText = selGas.toFixed(2) + ' m³';
-    const gasTariff = Number(rawHist?.totals?.dolomitiTariffEurPerSmc) || 0.87;
-    if (elCost) elCost.innerText = (selGas * gasTariff).toFixed(2) + ' €';
+    const ratio = sumTotM3 > 0 ? (sumCostEur / sumTotM3) : defaultTariff;
+    if (isEur) {
+      if (elTot) elTot.innerText = `${fmt(sumCostEur, 2)} €`;
+      if (elCost) elCost.innerText = `${fmt(sumTotM3, 1)} m³`;
+      if (elCh) elCh.innerText = `${fmt(sumChM3 * ratio, 2)} €`;
+      if (elHw) elHw.innerText = `${fmt(sumHwM3 * ratio, 2)} €`;
+    } else {
+      if (elTot) elTot.innerText = `${fmt(sumTotM3, 1)} m³`;
+      if (elCost) elCost.innerText = `~${fmt(sumCostEur, 2)} €`;
+      if (elCh) elCh.innerText = `${fmt(sumChM3, 1)} m³`;
+      if (elHw) elHw.innerText = `${fmt(sumHwM3, 1)} m³`;
+    }
+    if (elTemp) elTemp.innerText = avgTemp !== null ? `${fmt(avgTemp, 1)} °C` : '-- °C';
 
-    const labels = series.map(item => isDaily ? item.date : `${item.date?.slice(0, 5) || ''} h${item.hour || 0}`);
-    const heatingData = series.map(item => Number(item.gasHeating) || 0);
-    const dhwData = series.map(item => Number(item.gasDhw) || 0);
+    if (labels.length === 0) return;
 
     if (this.boschChart) {
       this.boschChart.destroy();
       this.boschChart = null;
     }
 
+    const unitSuffix = isEur ? '€' : 'm³';
     this.boschChart = new Chart(ctx, {
       type: 'bar',
       data: {
         labels,
         datasets: [
           {
-            label: 'Riscaldamento (m³)',
-            data: heatingData,
-            backgroundColor: 'rgba(245, 158, 11, 0.85)',
-            borderColor: '#f59e0b',
+            label: `Acqua calda (${unitSuffix})`,
+            data: dhwData,
+            backgroundColor: 'rgba(217, 70, 239, 0.85)',
+            borderColor: '#d946ef',
             borderWidth: 1,
-            borderRadius: 4,
-            stack: 'gas'
+            borderRadius: 3,
+            stack: 'gas',
+            order: 2
           },
           {
-            label: 'Sanitario ACS (m³)',
-            data: dhwData,
-            backgroundColor: 'rgba(56, 189, 248, 0.85)',
-            borderColor: '#38bdf8',
+            label: `Riscaldamento (${unitSuffix})`,
+            data: heatingData,
+            backgroundColor: 'rgba(239, 68, 68, 0.85)',
+            borderColor: '#ef4444',
             borderWidth: 1,
-            borderRadius: 4,
-            stack: 'gas'
+            borderRadius: 3,
+            stack: 'gas',
+            order: 1
+          },
+          {
+            type: 'line',
+            label: 'Temp. esterna media (°C)',
+            data: tempData,
+            yAxisID: 'yTemp',
+            borderColor: '#f8fafc',
+            backgroundColor: '#0f172a',
+            borderWidth: 2,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            pointBackgroundColor: '#0f172a',
+            pointBorderColor: '#f8fafc',
+            pointBorderWidth: 2,
+            tension: 0.25,
+            spanGaps: true,
+            order: 0
           }
         ]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
         plugins: {
           legend: {
             position: 'top',
-            labels: { color: '#cbd5e1', font: { size: 11, weight: 'bold' } }
+            labels: { color: '#cbd5e1', font: { size: 11, weight: 'bold' }, boxWidth: 12 }
           }
         },
         scales: {
-          x: { ticks: { color: '#94a3b8', font: { size: 10 }, maxTicksLimit: 12 }, grid: { display: false } },
-          y: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.06)' } }
+          x: {
+            stacked: true,
+            ticks: { color: '#94a3b8', font: { size: 10 }, maxRotation: 0 },
+            grid: { display: false }
+          },
+          y: {
+            stacked: true,
+            position: 'left',
+            title: { display: true, text: unitSuffix, color: '#94a3b8', font: { size: 10, weight: 'bold' } },
+            ticks: { color: '#94a3b8', font: { size: 10 } },
+            grid: { color: 'rgba(255,255,255,0.06)' }
+          },
+          yTemp: {
+            position: 'right',
+            suggestedMin: -5,
+            suggestedMax: 35,
+            title: { display: true, text: '°C', color: '#e2e8f0', font: { size: 10, weight: 'bold' } },
+            ticks: { color: '#e2e8f0', font: { size: 10 } },
+            grid: { drawOnChartArea: false }
+          }
         }
       }
     });

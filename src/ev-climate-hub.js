@@ -1720,22 +1720,110 @@ class EvClimateHub {
     }
   }
 
+  // Fattore di conversione Bosch EasyControl (kWh termici -> m³ gas naturale) verificato sullo storico 2022-2026
+  static BOSCH_KWH_PER_M3 = 8.125;
+
+  _parseBoschDateTimestamp(dateStr, hour = 0) {
+    const parts = String(dateStr || '').split('-');
+    if (parts.length !== 3) return 0;
+    const day = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const year = parseInt(parts[2], 10);
+    return new Date(year, month, day, hour).getTime();
+  }
+
+  async _fetchBoschDailyArchive(forceFull = false) {
+    const kwhPerM3 = EvClimateHub.BOSCH_KWH_PER_M3;
+    const archivePath = path.resolve(__dirname, '../data/bosch-daily-history.json');
+    let records = {};
+    let totalEntriesSeen = 0;
+
+    if (!forceFull && fs.existsSync(archivePath)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(archivePath, 'utf8'));
+        if (parsed?.schemaVersion === 2 && parsed.records && typeof parsed.records === 'object') {
+          records = parsed.records;
+          totalEntriesSeen = Number(parsed.totalEntriesSeen) || Object.keys(records).length;
+        }
+      } catch (_) {}
+    }
+
+    const entriesRes = await this._boschPointtGet('/energy/historyEntries').catch(() => null);
+    const totalEntries = Number(entriesRes?.value) || 0;
+    const cachedCount = Object.keys(records).length;
+
+    const needsSync = forceFull || (totalEntries > 0 && (cachedCount < totalEntries || totalEntries > totalEntriesSeen));
+    if (needsSync && totalEntries > 0) {
+      // Se vuoto, scarica tutto a batch paralleli da 5; altrimenti solo le ultime pagine nuove
+      const startEntry = cachedCount === 0 ? 0 : Math.max(0, cachedCount - 20);
+      const offsets = [];
+      for (let off = startEntry; off < totalEntries; off += 20) {
+        offsets.push(off);
+      }
+
+      for (let i = 0; i < offsets.length; i += 5) {
+        const batch = offsets.slice(i, i + 5);
+        const pages = await Promise.all(
+          batch.map((off) => this._boschPointtGet(`/energy/history?entry=${off}`).catch(() => null))
+        );
+        for (const p of pages) {
+          const items = p?.value;
+          if (!Array.isArray(items)) continue;
+          for (const e of items) {
+            if (!e.d) continue;
+            const gChM3 = +((Number(e.gCh) || 0) / kwhPerM3).toFixed(3);
+            const gHwM3 = +((Number(e.gHw) || 0) / kwhPerM3).toFixed(3);
+            records[e.d] = {
+              date: e.d,
+              timestamp: this._parseBoschDateTimestamp(e.d, 12),
+              outdoorTempAvg: typeof e.T === 'number' ? +e.T.toFixed(1) : null,
+              gasHeating: gChM3,
+              gasDhw: gHwM3,
+              gasTotal: +(gChM3 + gHwM3).toFixed(3)
+            };
+          }
+        }
+      }
+
+      try {
+        const dataDir = path.dirname(archivePath);
+        if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+        const payload = {
+          schemaVersion: 2,
+          lastUpdated: new Date().toISOString(),
+          totalEntriesSeen: totalEntries,
+          recordCount: Object.keys(records).length,
+          records
+        };
+        fs.writeFileSync(archivePath, JSON.stringify(payload, null, 2), 'utf8');
+        try {
+          db.setHistory('bosch-daily-history', payload).catch(() => {});
+        } catch (_) {}
+      } catch (_) {}
+    }
+
+    return records;
+  }
+
   async fetchBoschFullEnergyHistory(forceAllPages = false) {
     try {
+      const kwhPerM3 = EvClimateHub.BOSCH_KWH_PER_M3;
       const historyFilePath = path.resolve(__dirname, '../data/bosch-energy-history.json');
       let persistedRecords = {};
+      let hourlySchemaValid = false;
       if (fs.existsSync(historyFilePath)) {
         try {
           const raw = fs.readFileSync(historyFilePath, 'utf8');
           const parsed = JSON.parse(raw);
-          if (parsed && typeof parsed.records === 'object') {
+          if (parsed && parsed.schemaVersion === 2 && typeof parsed.records === 'object') {
             persistedRecords = parsed.records;
+            hourlySchemaValid = true;
           }
         } catch (_) {}
       }
 
       const recCount = Object.keys(persistedRecords).length;
-      const shouldFetchAll = forceAllPages || recCount < 50 || (!this._lastFullEnergyFetch || (Date.now() - this._lastFullEnergyFetch > 3600000));
+      const shouldFetchAll = forceAllPages || !hourlySchemaValid || recCount < 50 || (!this._lastFullEnergyFetch || (Date.now() - this._lastFullEnergyFetch > 3600000));
       if (shouldFetchAll) {
         this._lastFullEnergyFetch = Date.now();
       }
@@ -1754,13 +1842,15 @@ class EvClimateHub {
           if (!e.d || e.h === undefined) continue;
           const padH = String(e.h).padStart(2, '0');
           const key = `${e.d}T${padH}`;
+          const gChM3 = +((typeof e.gCh === 'number' ? e.gCh : 0) / kwhPerM3).toFixed(4);
+          const gHwM3 = +((typeof e.gHw === 'number' ? e.gHw : 0) / kwhPerM3).toFixed(4);
           persistedRecords[key] = {
             date: e.d,
             hour: Number(e.h),
-            outdoorTemp: typeof e.T === 'number' ? e.T : null,
-            gasHeating: typeof e.gCh === 'number' ? e.gCh : 0,
-            gasDhw: typeof e.gHw === 'number' ? e.gHw : 0,
-            gasTotal: +((e.gCh || 0) + (e.gHw || 0)).toFixed(2)
+            outdoorTemp: typeof e.T === 'number' ? +e.T.toFixed(1) : null,
+            gasHeating: gChM3,
+            gasDhw: gHwM3,
+            gasTotal: +(gChM3 + gHwM3).toFixed(4)
           };
         }
 
@@ -1774,6 +1864,7 @@ class EvClimateHub {
         const dataDir = path.dirname(historyFilePath);
         if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
         const historyData = {
+          schemaVersion: 2,
           lastUpdated: new Date().toISOString(),
           recordCount: Object.keys(persistedRecords).length,
           records: persistedRecords
@@ -1784,101 +1875,174 @@ class EvClimateHub {
         } catch (_) {}
       } catch (_) {}
 
-      function parseRecordTimestamp(key, r) {
-        const parts = r.date.split('-');
-        if (parts.length === 3) {
-          const day = parseInt(parts[0], 10);
-          const month = parseInt(parts[1], 10) - 1;
-          const year = parseInt(parts[2], 10);
-          const hour = r.hour || 0;
-          return new Date(year, month, day, hour).getTime();
-        }
-        return 0;
-      }
-
-      // Tariffa reale Dolomiti Energia Gas calcolata dalle bollette (escluse quote fisse, IVA/accise incluse)
       const dolomitiRates = dolomitiBillsSync.getCurrentRates();
       const DOLOMITI_GAS_EUR_PER_SMC = dolomitiRates.gasEurPerSmc || 0.87;
 
-      const hourlySeries = Object.entries(persistedRecords).map(([key, r]) => ({
-        key,
-        timestamp: parseRecordTimestamp(key, r),
-        date: r.date,
-        hour: r.hour,
-        outdoorTemp: r.outdoorTemp,
-        gasHeating: r.gasHeating,
-        gasDhw: r.gasDhw,
-        gasTotal: r.gasTotal,
-        costEur: +(r.gasTotal * DOLOMITI_GAS_EUR_PER_SMC).toFixed(3)
-      })).sort((a, b) => a.timestamp - b.timestamp);
+      const hourlySeries = Object.entries(persistedRecords).map(([key, r]) => {
+        const parts = String(r.date || '').split('-');
+        const rateInfo = parts.length === 3
+          ? dolomitiBillsSync.getGasRateForMonth(parseInt(parts[2], 10), parseInt(parts[1], 10))
+          : { pricePerSmc: DOLOMITI_GAS_EUR_PER_SMC };
+        const rate = rateInfo.pricePerSmc || DOLOMITI_GAS_EUR_PER_SMC;
+        return {
+          key,
+          timestamp: this._parseBoschDateTimestamp(r.date, r.hour || 0),
+          date: r.date,
+          hour: r.hour,
+          outdoorTemp: r.outdoorTemp,
+          gasHeating: r.gasHeating,
+          gasDhw: r.gasDhw,
+          gasTotal: r.gasTotal,
+          costEur: +(r.gasTotal * rate).toFixed(3)
+        };
+      }).sort((a, b) => a.timestamp - b.timestamp);
 
-      // Aggregato per Giorno
-      const dailyMap = {};
+      // Storico archivio giornaliero completo dal 2022 (/energy/history)
+      const dailyArchiveRecords = await this._fetchBoschDailyArchive(forceAllPages);
+      const dailyMergedMap = { ...dailyArchiveRecords };
+
+      // Integra il giorno corrente (o eventuali giorni non ancora chiusi in /energy/history) dai dati orari
+      const hourlyByDay = {};
       for (const h of hourlySeries) {
-        if (!dailyMap[h.date]) {
-          dailyMap[h.date] = {
-            date: h.date,
+        if (!hourlyByDay[h.date]) {
+          hourlyByDay[h.date] = { gasHeating: 0, gasDhw: 0, temps: [], hours: 0 };
+        }
+        hourlyByDay[h.date].gasHeating += h.gasHeating;
+        hourlyByDay[h.date].gasDhw += h.gasDhw;
+        if (typeof h.outdoorTemp === 'number') hourlyByDay[h.date].temps.push(h.outdoorTemp);
+        hourlyByDay[h.date].hours++;
+      }
+      for (const [dStr, hd] of Object.entries(hourlyByDay)) {
+        if (!dailyMergedMap[dStr]) {
+          const avgT = hd.temps.length > 0 ? +(hd.temps.reduce((a, b) => a + b, 0) / hd.temps.length).toFixed(1) : null;
+          const gCh = +hd.gasHeating.toFixed(3);
+          const gHw = +hd.gasDhw.toFixed(3);
+          dailyMergedMap[dStr] = {
+            date: dStr,
+            timestamp: this._parseBoschDateTimestamp(dStr, 12),
+            outdoorTempAvg: avgT,
+            gasHeating: gCh,
+            gasDhw: gHw,
+            gasTotal: +(gCh + gHw).toFixed(3),
+            hoursRecorded: hd.hours,
+            isLiveToday: true
+          };
+        }
+      }
+
+      const dailySeries = Object.values(dailyMergedMap).map((d) => {
+        const parts = String(d.date || '').split('-');
+        const year = parts.length === 3 ? parseInt(parts[2], 10) : new Date().getFullYear();
+        const month = parts.length === 3 ? parseInt(parts[1], 10) : (new Date().getMonth() + 1);
+        const rateInfo = dolomitiBillsSync.getGasRateForMonth(year, month);
+        const rate = rateInfo.pricePerSmc || DOLOMITI_GAS_EUR_PER_SMC;
+        const gCh = +(Number(d.gasHeating) || 0).toFixed(2);
+        const gHw = +(Number(d.gasDhw) || 0).toFixed(2);
+        const gTot = +(gCh + gHw).toFixed(2);
+        return {
+          date: d.date,
+          year,
+          month,
+          yearMonth: `${year}-${String(month).padStart(2, '0')}`,
+          timestamp: d.timestamp || this._parseBoschDateTimestamp(d.date, 12),
+          gasHeating: gCh,
+          gasDhw: gHw,
+          gasTotal: gTot,
+          outdoorTempAvg: d.outdoorTempAvg ?? null,
+          costEur: +(gTot * rate).toFixed(2),
+          tariffEurPerSmc: rate,
+          isLiveToday: Boolean(d.isLiveToday)
+        };
+      }).sort((a, b) => a.timestamp - b.timestamp);
+
+      // Aggregato Mensile (YYYY-MM)
+      const monthlyMap = {};
+      for (const d of dailySeries) {
+        const ym = d.yearMonth;
+        if (!monthlyMap[ym]) {
+          monthlyMap[ym] = {
+            yearMonth: ym,
+            year: d.year,
+            month: d.month,
             gasHeating: 0,
             gasDhw: 0,
             gasTotal: 0,
+            costEur: 0,
             temps: [],
-            hoursRecorded: 0
+            days: 0,
+            tariffEurPerSmc: d.tariffEurPerSmc
           };
         }
-        dailyMap[h.date].gasHeating += h.gasHeating;
-        dailyMap[h.date].gasDhw += h.gasDhw;
-        dailyMap[h.date].gasTotal += h.gasTotal;
-        if (typeof h.outdoorTemp === 'number') {
-          dailyMap[h.date].temps.push(h.outdoorTemp);
-        }
-        dailyMap[h.date].hoursRecorded++;
+        monthlyMap[ym].gasHeating += d.gasHeating;
+        monthlyMap[ym].gasDhw += d.gasDhw;
+        monthlyMap[ym].gasTotal += d.gasTotal;
+        monthlyMap[ym].costEur += d.costEur;
+        if (typeof d.outdoorTempAvg === 'number') monthlyMap[ym].temps.push(d.outdoorTempAvg);
+        monthlyMap[ym].days++;
       }
+      const monthlySeries = Object.values(monthlyMap).map((m) => ({
+        yearMonth: m.yearMonth,
+        year: m.year,
+        month: m.month,
+        gasHeating: +m.gasHeating.toFixed(1),
+        gasDhw: +m.gasDhw.toFixed(1),
+        gasTotal: +m.gasTotal.toFixed(1),
+        costEur: +m.costEur.toFixed(2),
+        outdoorTempAvg: m.temps.length > 0 ? +(m.temps.reduce((a, b) => a + b, 0) / m.temps.length).toFixed(1) : null,
+        days: m.days,
+        tariffEurPerSmc: m.tariffEurPerSmc
+      })).sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
 
-      const dailySeries = Object.values(dailyMap).map(d => {
-        const avgT = d.temps.length > 0 ? +(d.temps.reduce((a, b) => a + b, 0) / d.temps.length).toFixed(1) : null;
-        const minT = d.temps.length > 0 ? Math.min(...d.temps) : null;
-        const maxT = d.temps.length > 0 ? Math.max(...d.temps) : null;
-        const gTotal = +d.gasTotal.toFixed(2);
-        return {
-          date: d.date,
-          gasHeating: +d.gasHeating.toFixed(2),
-          gasDhw: +d.gasDhw.toFixed(2),
-          gasTotal: gTotal,
-          outdoorTempAvg: avgT,
-          outdoorTempMin: minT,
-          outdoorTempMax: maxT,
-          hoursRecorded: d.hoursRecorded,
-          costEur: +(gTotal * DOLOMITI_GAS_EUR_PER_SMC).toFixed(2)
-        };
-      });
+      // Aggregato Annuale (YYYY)
+      const yearlyMap = {};
+      for (const m of monthlySeries) {
+        const y = String(m.year);
+        if (!yearlyMap[y]) {
+          yearlyMap[y] = { year: m.year, gasHeating: 0, gasDhw: 0, gasTotal: 0, costEur: 0, temps: [], days: 0 };
+        }
+        yearlyMap[y].gasHeating += m.gasHeating;
+        yearlyMap[y].gasDhw += m.gasDhw;
+        yearlyMap[y].gasTotal += m.gasTotal;
+        yearlyMap[y].costEur += m.costEur;
+        if (typeof m.outdoorTempAvg === 'number') yearlyMap[y].temps.push(m.outdoorTempAvg);
+        yearlyMap[y].days += m.days;
+      }
+      const yearlySeries = Object.values(yearlyMap).map((y) => ({
+        year: y.year,
+        gasHeating: +y.gasHeating.toFixed(1),
+        gasDhw: +y.gasDhw.toFixed(1),
+        gasTotal: +y.gasTotal.toFixed(1),
+        costEur: +y.costEur.toFixed(2),
+        outdoorTempAvg: y.temps.length > 0 ? +(y.temps.reduce((a, b) => a + b, 0) / y.temps.length).toFixed(1) : null,
+        days: y.days
+      })).sort((a, b) => a.year - b.year);
 
       let totCh = 0;
       let totHw = 0;
+      let totCost = 0;
       let tempSum = 0;
       let tempCount = 0;
-      for (const h of hourlySeries) {
-        totCh += h.gasHeating;
-        totHw += h.gasDhw;
-        if (typeof h.outdoorTemp === 'number') {
-          tempSum += h.outdoorTemp;
+      for (const d of dailySeries) {
+        totCh += d.gasHeating;
+        totHw += d.gasDhw;
+        totCost += d.costEur;
+        if (typeof d.outdoorTempAvg === 'number') {
+          tempSum += d.outdoorTempAvg;
           tempCount++;
         }
       }
-      const totGas = +(totCh + totHw).toFixed(2);
-      const estCost = +(totGas * DOLOMITI_GAS_EUR_PER_SMC).toFixed(2);
+      const totGas = +(totCh + totHw).toFixed(1);
       const avgOutdoor = tempCount > 0 ? +(tempSum / tempCount).toFixed(1) : null;
-
-      // Storico archivio giornaliero (/energy/history)
-      const rawDaily = await this._boschPointtGet('/energy/history').catch(() => null);
 
       return {
         totals: {
-          totalGasHeatingM3: +totCh.toFixed(2),
-          totalGasDhwM3: +totHw.toFixed(2),
+          totalGasHeatingM3: +totCh.toFixed(1),
+          totalGasDhwM3: +totHw.toFixed(1),
           totalGasM3: totGas,
-          estimatedGasCostEur: estCost,
+          estimatedGasCostEur: +totCost.toFixed(2),
           avgOutdoorTemp: avgOutdoor,
           totalHoursRecorded: hourlySeries.length,
+          totalDaysRecorded: dailySeries.length,
           dolomitiTariffEurPerSmc: DOLOMITI_GAS_EUR_PER_SMC,
           gasRateSource: dolomitiRates.gasSource,
           gasBillsCount: dolomitiRates.gasBillsCount,
@@ -1889,7 +2053,8 @@ class EvClimateHub {
         },
         hourly: hourlySeries,
         daily: dailySeries,
-        rawDailyArchive: Array.isArray(rawDaily?.value) ? rawDaily.value : []
+        monthly: monthlySeries,
+        yearly: yearlySeries
       };
     } catch (err) {
       console.warn('[Bosch Energy History Fetch Error]:', err.message);
