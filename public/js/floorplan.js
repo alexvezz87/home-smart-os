@@ -395,13 +395,23 @@ class FloorplanEngine {
    * Evidenzia/Spotlight una stanza sulla piantina fissa (senza zoom o spostamento viewBox)
    * Se la stanza è già selezionata, torna alla vista globale di tutta la casa.
    */
-  selectRoom(roomName) {
+  selectRoom(roomName, openDrawer = false) {
+    if (openDrawer && this.hasDragged) {
+      this.hasDragged = false;
+      return;
+    }
     if (this.selectedRoom === roomName || !roomName) {
       this.selectedRoom = null;
     } else {
       this.selectedRoom = roomName;
     }
+    if (openDrawer && this.selectedRoom) {
+      this.rightDrawerTab = 'devices';
+    }
     this.render();
+    if (openDrawer) {
+      this.toggleRightDrawer(Boolean(this.selectedRoom));
+    }
   }
 
   // Alias per retrocompatibilità
@@ -738,7 +748,7 @@ class FloorplanEngine {
       return `
         <g class="${r.interactive ? 'cursor-pointer group' : ''} transition-opacity duration-300"
            opacity="${roomOpacity}"
-           onclick="${r.interactive ? `window.floorplan.selectRoom('${r.id}')` : ''}">
+           onclick="${r.interactive ? `window.floorplan.selectRoom('${r.id}', true)` : ''}">
           <path d="${r.path}"
                 fill="${fillPattern}"
                 stroke="${isSelected ? '#22d3ee' : 'rgba(148, 163, 184, 0.22)'}"
