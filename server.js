@@ -33,6 +33,7 @@ let pantumPrinter = null;
 let lgThinq = null;
 let dysonPurifier = null;
 let volvoTripsSync = null;
+let wallboxSync = null;
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -619,6 +620,36 @@ app.post('/api/ev-climate/volvo/trips/sync', async (req, res) => {
     const { force } = req.body || {};
     const result = await volvoTripsSync.syncFromDrive({ force: Boolean(force) });
     res.json({ success: true, ...result, data: volvoTripsSync.getHistory(req.query || {}) });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// Storico Consumi Wallbox ABB Terra AC (Google Drive PDF sync)
+app.get('/api/ev-climate/wallbox/history', async (req, res) => {
+  try {
+    const { year = 'all', month = 'all', limit = 60 } = req.query;
+    res.json({ success: true, data: wallboxSync.getHistoryData({ year, month, limit }) });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/wallbox/history/config', async (req, res) => {
+  try {
+    const { folder } = req.body || {};
+    const folderId = await wallboxSync.setFolder(folder);
+    res.json({ success: true, folderId, status: wallboxSync.getStatus() });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/wallbox/history/sync', async (req, res) => {
+  try {
+    const { force } = req.body || {};
+    const result = await wallboxSync.syncFromDrive({ force: Boolean(force) });
+    res.json({ success: true, ...result, data: wallboxSync.getHistoryData(req.query || {}) });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
   }
@@ -1311,6 +1342,7 @@ async function bootstrap() {
   lgThinq = require('./src/lg-thinq');
   dysonPurifier = require('./src/dyson-purifier');
   volvoTripsSync = require('./src/volvo-trips-sync');
+  wallboxSync = require('./src/wallbox-sync');
 
   // Inizializza servizi hardware e telemetria
   merossEnergy.init();
@@ -1319,6 +1351,7 @@ async function bootstrap() {
   lgThinq.init().catch((err) => console.warn('⚠️ [LG ThinQ] Init background:', err.message));
   dysonPurifier.init().catch((err) => console.warn('⚠️ [Dyson HP11] Init background:', err.message));
   volvoTripsSync.init().catch((err) => console.warn('⚠️ [Volvo Drive] Init background:', err.message));
+  wallboxSync.init().catch((err) => console.warn('⚠️ [Wallbox Drive] Init background:', err.message));
   evClimateHub.syncAll().catch((err) => console.warn('⚠️ [EV-Climate Hub] Primo sync background:', err.message));
   setInterval(() => evClimateHub.syncAll().catch(() => {}), 60000);
 

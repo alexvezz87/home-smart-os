@@ -22,6 +22,7 @@
     "meross-cloud": "^3.1.2",
     "mysql2": "^3.24.6",
     "onvif": "^0.8.3",
+    "pdf-parse": "^1.1.1",
     "puppeteer-core": "^25.16.0",
     "rtsp-relay": "^1.9.0",
     "tapo-camera-client": "^1.0.1",

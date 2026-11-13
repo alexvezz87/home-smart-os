@@ -17,6 +17,7 @@ class AdminManager {
     this.currentBoschOAuthUrl = BOSCH_DEFAULT_OAUTH_URL;
     this.activeTab = localStorage.getItem('admin_active_tab') || 'climate';
     this.driveStatus = null;
+    this.wallboxDriveStatus = null;
     this.driveLoading = false;
   }
 
@@ -972,9 +973,33 @@ class AdminManager {
           </div>
         ` : ''}
 
+        <div class="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2.5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <span class="text-xs font-bold text-slate-200"><i class="fa-solid fa-charging-station text-emerald-400 mr-1.5"></i>Wallbox ABB Drive (Report PDF Mensili)</span>
+              <div class="text-[10.5px] text-slate-400 mt-0.5">
+                Sessioni: <strong class="text-slate-200">${this.wallboxDriveStatus?.totalSessions ?? '--'}</strong> (${this.wallboxDriveStatus?.totalMonths ?? '--'} mesi) •
+                Stato: <span class="${this.wallboxDriveStatus?.configured ? 'text-emerald-400' : 'text-amber-400'}">${this.wallboxDriveStatus?.configured ? 'Connesso' : 'Da configurare'}</span>
+              </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button onclick="window.adminManager.syncAdminWallboxDriveNow(true)" ${this.driveLoading ? 'disabled' : ''} class="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold flex items-center gap-1.5">
+                <i class="fa-solid fa-rotate ${this.driveLoading ? 'fa-spin' : ''}"></i> Sincronizza Wallbox Ora
+              </button>
+              <button onclick="if(window.mobilityManager){ window.mobilityManager.activeTab='wallbox'; } if(typeof switchArea==='function'){ switchArea('mobility'); }" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5">
+                <i class="fa-solid fa-chart-column text-emerald-400"></i> Apri Storico Wallbox
+              </button>
+            </div>
+          </div>
+          <div class="flex flex-col sm:flex-row gap-2">
+            <input id="admin-wallbox-drive-folder" type="text" placeholder="URL o ID cartella Drive Wallbox (${this.wallboxDriveStatus?.hasFolderId ? 'già impostato sul server' : 'opzionale'})" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
+            <button onclick="window.adminManager.saveWallboxDriveFolder()" ${this.driveLoading ? 'disabled' : ''} class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold shrink-0">Salva Cartella Wallbox</button>
+          </div>
+        </div>
+
         <div class="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <span class="text-xs font-bold text-slate-200"><i class="fa-solid fa-sliders text-sky-400 mr-1.5"></i>Cartella Drive &amp; Credenziali OAuth2 (alternativa al Service Account)</span>
+            <span class="text-xs font-bold text-slate-200"><i class="fa-solid fa-sliders text-sky-400 mr-1.5"></i>Cartella Drive Volvo &amp; Credenziali OAuth2 (alternativa al Service Account)</span>
             <span class="text-[10.5px] text-slate-400">Redirect URI: <code class="text-slate-300">${this.escapeHtml(redirectUri)}</code></span>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5">
@@ -998,14 +1023,70 @@ class AdminManager {
   async loadDriveTripsStatus() {
     this.driveLoading = true;
     try {
-      const res = await fetch('/api/ev-climate/volvo/trips?limit=1');
-      const json = await res.json();
-      if (json.success) this.driveStatus = json.data?.status || null;
+      const [volvoRes, wbRes] = await Promise.all([
+        fetch('/api/ev-climate/volvo/trips?limit=1'),
+        fetch('/api/ev-climate/wallbox/history?limit=1')
+      ]);
+      const volvoJson = await volvoRes.json();
+      const wbJson = await wbRes.json();
+      if (volvoJson.success) this.driveStatus = volvoJson.data?.status || null;
+      if (wbJson.success) this.wallboxDriveStatus = wbJson.data?.status || null;
     } catch (_) {
       // silent
     } finally {
       this.driveLoading = false;
       if (this.activeTab === 'ev') this.renderView();
+    }
+  }
+
+  async saveWallboxDriveFolder() {
+    const folder = document.getElementById('admin-wallbox-drive-folder')?.value?.trim() || '';
+    if (!folder) {
+      if (typeof window.showToast === 'function') window.showToast('Inserisci URL o ID cartella Wallbox Drive', 'error');
+      return;
+    }
+    this.driveLoading = true;
+    this.renderView();
+    try {
+      const res = await fetch('/api/ev-climate/wallbox/history/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder })
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Errore salvataggio cartella Wallbox');
+      this.wallboxDriveStatus = json.status || this.wallboxDriveStatus;
+      await this.syncAdminWallboxDriveNow(true);
+    } catch (err) {
+      if (typeof window.showToast === 'function') window.showToast(err.message, 'error');
+    } finally {
+      this.driveLoading = false;
+      this.renderView();
+    }
+  }
+
+  async syncAdminWallboxDriveNow(force = true) {
+    this.driveLoading = true;
+    this.renderView();
+    try {
+      const res = await fetch('/api/ev-climate/wallbox/history/sync?limit=1', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force })
+      });
+      const json = await res.json();
+      this.wallboxDriveStatus = json.data?.status || this.wallboxDriveStatus;
+      if (!json.success) throw new Error(json.error || 'Sincronizzazione Wallbox fallita');
+      if (window.mobilityManager) window.mobilityManager.wallboxHistoryData = null;
+      if (typeof window.showToast === 'function') {
+        window.showToast(`Wallbox sincronizzata: ${json.data?.status?.totalSessions || 0} sessioni`, 'success');
+      }
+    } catch (err) {
+      if (typeof window.showToast === 'function') window.showToast(err.message, 'error');
+      await this.loadDriveTripsStatus();
+    } finally {
+      this.driveLoading = false;
+      this.renderView();
     }
   }
 

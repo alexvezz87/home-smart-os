@@ -15,6 +15,11 @@ class MobilityManager {
     this.tripsFilter = { year: 'all', month: 'all', search: '', limit: 60 };
     this.showTripsList = false;
     this._tripsCharts = {};
+    this.wallboxHistoryData = null;
+    this.wallboxHistoryLoading = false;
+    this.wallboxFilter = { year: 'all', month: 'all', limit: 60 };
+    this.showWallboxSessions = false;
+    this._wallboxCharts = {};
   }
 
   destroyTripsCharts() {
@@ -24,18 +29,88 @@ class MobilityManager {
     this._tripsCharts = {};
   }
 
+  destroyWallboxCharts() {
+    Object.values(this._wallboxCharts || {}).forEach((ch) => {
+      try { ch?.destroy(); } catch (_) {}
+    });
+    this._wallboxCharts = {};
+  }
+
   toggleTripsList() {
     this.showTripsList = !this.showTripsList;
     this.renderView();
   }
 
+  toggleWallboxSessions() {
+    this.showWallboxSessions = !this.showWallboxSessions;
+    this.renderView();
+  }
+
   setTab(tab) {
-    if (!['live', 'trips'].includes(tab)) return;
+    if (!['live', 'trips', 'wallbox'].includes(tab)) return;
     this.activeTab = tab;
     if (tab === 'trips' && !this.tripsData && !this.tripsLoading) {
       this.loadTripsData();
+    } else if (tab === 'wallbox' && !this.wallboxHistoryData && !this.wallboxHistoryLoading) {
+      this.loadWallboxHistory();
     }
     this.renderView();
+  }
+
+  async loadWallboxHistory() {
+    this.wallboxHistoryLoading = true;
+    this.renderView();
+    try {
+      const qs = new URLSearchParams({
+        year: this.wallboxFilter.year,
+        month: this.wallboxFilter.month,
+        limit: String(this.wallboxFilter.limit)
+      });
+      const res = await fetch(`/api/ev-climate/wallbox/history?${qs.toString()}`);
+      const json = await res.json();
+      if (json.success) {
+        this.wallboxHistoryData = json.data;
+      }
+    } catch (err) {
+      console.warn('Errore caricamento storico Wallbox:', err);
+    } finally {
+      this.wallboxHistoryLoading = false;
+      this.renderView();
+    }
+  }
+
+  async syncWallboxFromDrive(force = false) {
+    if (this.wallboxHistoryLoading) return;
+    this.wallboxHistoryLoading = true;
+    this.renderView();
+    try {
+      const qs = new URLSearchParams({
+        year: this.wallboxFilter.year,
+        month: this.wallboxFilter.month,
+        limit: String(this.wallboxFilter.limit)
+      });
+      const res = await fetch(`/api/ev-climate/wallbox/history/sync?${qs.toString()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force })
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Sincronizzazione Wallbox fallita');
+      this.wallboxHistoryData = json.data;
+      if (typeof window.showToast === 'function') {
+        window.showToast(`Wallbox sincronizzata: ${json.data?.status?.totalSessions || 0} sessioni`, 'success');
+      }
+    } catch (err) {
+      if (typeof window.showToast === 'function') window.showToast(err.message, 'error');
+    } finally {
+      this.wallboxHistoryLoading = false;
+      this.renderView();
+    }
+  }
+
+  updateWallboxFilter(patch) {
+    this.wallboxFilter = { ...this.wallboxFilter, ...patch };
+    this.loadWallboxHistory();
   }
 
   async loadTripsData() {
@@ -770,29 +845,280 @@ class MobilityManager {
     }
   }
 
+  renderWallboxTab() {
+    const wd = this.wallboxHistoryData || {};
+    const status = wd.status || {};
+    const totals = wd.totals || {};
+    const months = wd.monthlySummaries || [];
+    const sessions = wd.sessions || [];
+    const years = status.years || [];
+    const IT_MONTHS = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+
+    const lastSyncText = status.lastSyncAt
+      ? `Agg. ${new Date(status.lastSyncAt).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+      : 'Mai sincronizzato';
+
+    return `
+      <!-- BARRA FILTRI & SYNC WALLBOX -->
+      <div class="glass-panel rounded-2xl p-3.5 border border-slate-700/60 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="inline-flex rounded-xl bg-slate-900/90 p-1 border border-slate-800">
+            <button onclick="window.mobilityManager.updateWallboxFilter({ year: 'all', month: 'all' })" class="px-3 py-1 rounded-lg text-xs font-semibold ${this.wallboxFilter.year === 'all' ? 'bg-sky-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-white'}">Tutti</button>
+            ${years.map(y => `
+              <button onclick="window.mobilityManager.updateWallboxFilter({ year: '${y}', month: 'all' })" class="px-3 py-1 rounded-lg text-xs font-semibold ${String(this.wallboxFilter.year) === String(y) ? 'bg-sky-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-white'}">${y}</button>
+            `).join('')}
+          </div>
+
+          <select onchange="window.mobilityManager.updateWallboxFilter({ month: this.value })" class="bg-slate-900/90 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500">
+            <option value="all" ${this.wallboxFilter.month === 'all' ? 'selected' : ''}>Tutti i mesi</option>
+            ${IT_MONTHS.map((m, idx) => `<option value="${idx + 1}" ${String(this.wallboxFilter.month) === String(idx + 1) ? 'selected' : ''}>${m}</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="flex items-center gap-2.5">
+          <span class="text-[11px] text-slate-400">${lastSyncText}</span>
+          ${status.configured ? `
+            <button onclick="window.mobilityManager.syncWallboxFromDrive(false)" ${this.wallboxHistoryLoading ? 'disabled' : ''} class="px-3.5 py-2 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white transition-all flex items-center gap-1.5">
+              <i class="fa-solid fa-rotate ${this.wallboxHistoryLoading ? 'fa-spin' : ''}"></i> Aggiorna da Drive
+            </button>
+          ` : `
+            <button onclick="window.mobilityManager.openDriveAdminSettings()" class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5">
+              <i class="fa-solid fa-sliders text-sky-400"></i> Configura in Admin
+            </button>
+          `}
+        </div>
+      </div>
+
+      ${status.lastSyncError ? `
+        <div class="px-4 py-2.5 rounded-2xl bg-rose-950/50 border border-rose-500/40 text-xs text-rose-200 flex flex-wrap items-center justify-between gap-2">
+          <span><i class="fa-solid fa-triangle-exclamation mr-1.5"></i>${this.escapeHtml(status.lastSyncError)}</span>
+          <button onclick="window.mobilityManager.openDriveAdminSettings()" class="text-rose-200 underline hover:text-white font-semibold shrink-0">Verifica in Admin</button>
+        </div>
+      ` : ''}
+
+      <!-- 4 KPI ESSENZIALI WALLBOX -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="glass-panel rounded-2xl p-4 border border-slate-700/60">
+          <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Energia Erogata</div>
+          <div class="text-2xl font-black text-sky-300 mt-1 tabular-nums">${Math.round(totals.energyKwh || 0).toLocaleString('it-IT')} <span class="text-xs font-semibold text-slate-400">kWh</span></div>
+          <div class="text-[11px] text-slate-400 mt-0.5">Media: ${totals.avgKwhPerSession ?? '--'} kWh/sessione</div>
+        </div>
+        <div class="glass-panel rounded-2xl p-4 border border-slate-700/60">
+          <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Costo Totale</div>
+          <div class="text-2xl font-black text-white mt-1 tabular-nums">${(totals.costEur || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>
+          <div class="text-[11px] text-slate-400 mt-0.5">Media: ${totals.avgCostPerKwh !== null && totals.avgCostPerKwh !== undefined ? Number(totals.avgCostPerKwh).toFixed(3) : '--'} €/kWh</div>
+        </div>
+        <div class="glass-panel rounded-2xl p-4 border border-slate-700/60">
+          <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Sessioni Ricarica</div>
+          <div class="text-2xl font-black text-emerald-300 mt-1 tabular-nums">${(totals.sessionsCount || 0).toLocaleString('it-IT')}</div>
+          <div class="text-[11px] text-slate-400 mt-0.5">${months.length} mesi analizzati</div>
+        </div>
+        <div class="glass-panel rounded-2xl p-4 border border-slate-700/60">
+          <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Tempo Collegamento</div>
+          <div class="text-2xl font-black text-white mt-1 tabular-nums">${Math.round(totals.durationHours || 0).toLocaleString('it-IT')} <span class="text-xs font-semibold text-slate-400">ore</span></div>
+          <div class="text-[11px] text-slate-400 mt-0.5">Media effettiva: ${totals.avgPowerKw ?? '--'} kW</div>
+        </div>
+      </div>
+
+      <!-- GRAFICI RIASSUNTIVI WALLBOX -->
+      ${months.length > 0 ? `
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <div class="lg:col-span-6 glass-panel rounded-3xl p-5 border border-slate-700/60">
+            <div class="mb-3">
+              <h3 class="text-sm font-bold text-white">Energia Mensile (kWh) &amp; Sessioni</h3>
+              <p class="text-[11px] text-slate-400">kWh erogati dalla Wallbox ABB (barre) e numero ricariche (linea)</p>
+            </div>
+            <div class="relative h-64 w-full">
+              <canvas id="wallbox-chart-energy-sessions"></canvas>
+            </div>
+          </div>
+
+          <div class="lg:col-span-6 glass-panel rounded-3xl p-5 border border-slate-700/60">
+            <div class="mb-3">
+              <h3 class="text-sm font-bold text-white">Spesa Mensile (€) &amp; Costo Medio (€/kWh)</h3>
+              <p class="text-[11px] text-slate-400">Costo mensile stimato in bolletta (barre) e tariffa media (linea)</p>
+            </div>
+            <div class="relative h-64 w-full">
+              <canvas id="wallbox-chart-cost-tariff"></canvas>
+            </div>
+          </div>
+        </div>
+      ` : `
+        <div class="glass-panel rounded-3xl p-8 text-center border border-slate-700/60 text-xs text-slate-400">
+          ${this.wallboxHistoryLoading ? '<i class="fa-solid fa-spinner fa-spin mr-1.5"></i>Sincronizzazione PDF Wallbox in corso...' : 'Nessun report PDF Wallbox disponibile per i filtri selezionati.'}
+        </div>
+      `}
+
+      <!-- DETTAGLIO SINGOLE SESSIONI (CHIUSO DI DEFAULT) -->
+      <div class="glass-panel rounded-2xl border border-slate-700/60 overflow-hidden">
+        <button onclick="window.mobilityManager.toggleWallboxSessions()" class="w-full px-4 py-3 flex items-center justify-between text-xs font-semibold text-slate-300 hover:bg-slate-800/40 transition-colors">
+          <span><i class="fa-solid fa-charging-station text-emerald-400 mr-2"></i>Dettaglio singole sessioni (${(wd.sessionsCount || 0).toLocaleString('it-IT')})</span>
+          <span class="text-[11px] text-slate-400">${this.showWallboxSessions ? 'Nascondi ▲' : 'Mostra ▼'}</span>
+        </button>
+
+        ${this.showWallboxSessions ? `
+          <div class="px-5 pb-5 border-t border-slate-800/80">
+            ${sessions.length > 0 ? `
+              <div class="divide-y divide-slate-800/70">
+                ${sessions.map(s => `
+                  <div class="py-2.5 flex items-center justify-between gap-3 text-xs">
+                    <div class="min-w-0">
+                      <div class="font-mono text-slate-200">${this.escapeHtml(s.startedAt)} <i class="fa-solid fa-arrow-right text-slate-500 mx-1 text-[10px]"></i> ${this.escapeHtml(s.stoppedAt)}</div>
+                      <div class="text-[11px] text-slate-400 mt-0.5">Durata: ${this.escapeHtml(s.duration)} • ${this.escapeHtml(s.sourceFile)}</div>
+                    </div>
+                    <div class="flex items-center gap-4 shrink-0 text-right tabular-nums">
+                      <div class="font-bold text-sky-300">${s.energyKwh} kWh</div>
+                      <div class="w-16 font-bold text-white">${s.costEur.toFixed(2)} €</div>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+              ${(wd.sessionsCount || 0) > sessions.length ? `
+                <div class="mt-4 text-center">
+                  <button onclick="window.mobilityManager.updateWallboxFilter({ limit: ${this.wallboxFilter.limit + 80} })" class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
+                    Carica altre sessioni (${sessions.length} di ${wd.sessionsCount})
+                  </button>
+                </div>
+              ` : ''}
+            ` : `
+              <div class="py-6 text-center text-xs text-slate-400">Nessuna sessione disponibile.</div>
+            `}
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  renderWallboxCharts() {
+    this.destroyWallboxCharts();
+    if (typeof window.Chart === 'undefined') return;
+    const months = [...(this.wallboxHistoryData?.monthlySummaries || [])].reverse();
+    if (!months.length) return;
+
+    const labels = months.map((m) => `${m.monthName.slice(0, 3)} ${String(m.year).slice(-2)}`);
+    const baseTicks = { color: '#94a3b8', font: { size: 10 } };
+    const gridColor = 'rgba(148, 163, 184, 0.1)';
+
+    const ctx1 = document.getElementById('wallbox-chart-energy-sessions');
+    if (ctx1) {
+      this._wallboxCharts.energy = new window.Chart(ctx1, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Energia (kWh)',
+              data: months.map((m) => +(m.energyKwh || 0).toFixed(1)),
+              backgroundColor: 'rgba(56, 189, 248, 0.8)',
+              borderRadius: 4,
+              yAxisID: 'y'
+            },
+            {
+              label: 'Sessioni',
+              type: 'line',
+              data: months.map((m) => m.sessionsCount || 0),
+              borderColor: '#fbbf24',
+              backgroundColor: '#fbbf24',
+              borderWidth: 2,
+              pointRadius: 2.5,
+              tension: 0.3,
+              yAxisID: 'y1'
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { labels: { color: '#cbd5e1', boxWidth: 10, font: { size: 11 } } } },
+          scales: {
+            x: { ticks: baseTicks, grid: { display: false } },
+            y: { position: 'left', ticks: baseTicks, grid: { color: gridColor } },
+            y1: { position: 'right', beginAtZero: true, ticks: { ...baseTicks, color: '#fbbf24', precision: 0 }, grid: { display: false } }
+          }
+        }
+      });
+    }
+
+    const ctx2 = document.getElementById('wallbox-chart-cost-tariff');
+    if (ctx2) {
+      this._wallboxCharts.cost = new window.Chart(ctx2, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Costo (€)',
+              data: months.map((m) => +(m.costEur || 0).toFixed(2)),
+              backgroundColor: 'rgba(16, 185, 129, 0.82)',
+              borderRadius: 4,
+              yAxisID: 'y'
+            },
+            {
+              label: '€/kWh',
+              type: 'line',
+              data: months.map((m) => (m.avgCostPerKwh !== null && m.avgCostPerKwh !== undefined ? Number(m.avgCostPerKwh.toFixed(3)) : null)),
+              borderColor: '#c084fc',
+              backgroundColor: '#c084fc',
+              borderWidth: 2,
+              pointRadius: 2.5,
+              tension: 0.25,
+              yAxisID: 'y1'
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { labels: { color: '#cbd5e1', boxWidth: 10, font: { size: 11 } } } },
+          scales: {
+            x: { ticks: baseTicks, grid: { display: false } },
+            y: { position: 'left', ticks: baseTicks, grid: { color: gridColor } },
+            y1: { position: 'right', min: 0.1, max: 0.4, ticks: { ...baseTicks, color: '#c084fc' }, grid: { display: false } }
+          }
+        }
+      });
+    }
+  }
+
   renderView() {
     const container = document.getElementById('area-mobility');
     if (!container) return;
 
     const navBarHtml = `
       <div class="flex items-center justify-between flex-wrap gap-3">
-        <div class="inline-flex rounded-2xl bg-slate-900/90 p-1 border border-slate-800">
+        <div class="inline-flex flex-wrap rounded-2xl bg-slate-900/90 p-1 border border-slate-800 gap-1">
           <button onclick="window.mobilityManager.setTab('live')" class="px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${this.activeTab === 'live' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/25' : 'text-slate-400 hover:text-white'}">
             <i class="fa-solid fa-stethoscope"></i> Stato &amp; Diagnostica
           </button>
           <button onclick="window.mobilityManager.setTab('trips')" class="px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${this.activeTab === 'trips' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/25' : 'text-slate-400 hover:text-white'}">
             <i class="fa-solid fa-route"></i> Storico Viaggi
           </button>
+          <button onclick="window.mobilityManager.setTab('wallbox')" class="px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${this.activeTab === 'wallbox' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/25' : 'text-slate-400 hover:text-white'}">
+            <i class="fa-solid fa-charging-station"></i> Storico Wallbox
+          </button>
         </div>
       </div>
     `;
 
     if (this.activeTab === 'trips') {
+      this.destroyWallboxCharts();
       if (!this.tripsData && !this.tripsLoading) {
         this.loadTripsData();
       }
       container.innerHTML = `<div class="max-w-7xl mx-auto px-4 md:px-6 py-5 space-y-5">${navBarHtml}${this.renderTripsTab()}</div>`;
       requestAnimationFrame(() => this.renderTripsCharts());
+      return;
+    }
+
+    if (this.activeTab === 'wallbox') {
+      this.destroyTripsCharts();
+      if (!this.wallboxHistoryData && !this.wallboxHistoryLoading) {
+        this.loadWallboxHistory();
+      }
+      container.innerHTML = `<div class="max-w-7xl mx-auto px-4 md:px-6 py-5 space-y-5">${navBarHtml}${this.renderWallboxTab()}</div>`;
+      requestAnimationFrame(() => this.renderWallboxCharts());
       return;
     }
 

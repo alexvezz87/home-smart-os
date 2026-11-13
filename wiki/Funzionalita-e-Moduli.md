@@ -13,6 +13,7 @@ Il backend di **Home Smart OS** è strutturato in moduli indipendenti all'intern
 | **Database TiDB Cloud** | `src/db.js` | Persistenza centralizzata su TiDB Cloud `db_home_os`, cifratura trasparente AES-256-GCM, seed e idratazione automatica. |
 | **EV & Climate Hub** | `src/ev-climate-hub.js` | Integrazione unificata **Caldaia Bosch CT200**, **Wallbox ABB Terra AC**, **Volvo EX30** e bilanciamento dinamico dei carichi domestici. |
 | **Volvo Trips & Consumi** | `src/volvo-trips-sync.js` | Sincronizzazione automatica (24h) da Google Drive e parsing `.xlsx` / `.csv` per **Storico Viaggi**, costi ricarica e risparmio vs termico (Service Account / OAuth2). |
+| **Wallbox Consumi Sync** | `src/wallbox-sync.js` | Sincronizzazione automatica (24h) da Google Drive dei report PDF mensili **ABB ChargerSync** con parsing sessioni, energia (kWh), durata, costi e grafici riassuntivi. |
 | **Meross Energy AI** | `src/meross-energy.js` | Telemetria in tempo reale prese smart (W, V, A), fasce orarie ARERA (F1/F2/F3), anti-stacco contatore e rilevamento automatico cicli lavatrice. |
 | **Digital Twin 32 Pin** | `src/spatial-engine.js` | Motore spaziale 1:1 sulla planimetria di casa: controllo lampadari multi-bulbo, micro-zone di prossimità, scia luminosa corridoio e puntamento telecamera sui pin. |
 | **Sicurezza & Tapo** | `src/security-system.js` | Gestione modalità *A Casa / Fuori Casa*, controllo ONVIF PTZ, modalità Privacy, ronda automatica e cattura snapshot HD. |

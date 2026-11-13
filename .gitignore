@@ -26,6 +26,8 @@ lg-thinq-config.json
 dyson-config.json
 volvo-drive-config.json
 volvo-trips-cache.json
+wallbox-drive-config.json
+wallbox-consumi-cache.json
 activity-log.json
 appliance-cycles.json
 local-states-cache.json
