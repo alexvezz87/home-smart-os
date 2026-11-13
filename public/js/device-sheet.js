@@ -26,6 +26,8 @@ class DeviceSheetManager {
     // Se telecamera, inizializza player RTSP
     if (pinData.category === 'camera') {
       this.initCameraStream(pinData.cameraId || 'salone');
+    } else if (pinData.category === 'valve') {
+      this.initValveDialListeners(pinData);
     }
   }
 
@@ -220,10 +222,6 @@ class DeviceSheetManager {
         </div>
       </div>
     `;
-
-    if (p.category === 'valve') {
-      this.initValveDialListeners(p);
-    }
   }
 
   /**
