@@ -12,6 +12,9 @@ Il backend di **Home Smart OS** è strutturato in moduli indipendenti all'intern
 | **Autenticazione & Sicurezza** | `src/auth.js` | Gestione sessioni (Cookie HttpOnly / JWT HMAC-SHA256), Google OAuth2 con Whitelist, Login PIN Tablet Kiosk e Rate Limiting. |
 | **Database TiDB Cloud** | `src/db.js` | Persistenza centralizzata su TiDB Cloud `db_home_os`, cifratura trasparente AES-256-GCM, seed e idratazione automatica. |
 | **EV & Climate Hub** | `src/ev-climate-hub.js` | Integrazione unificata **Caldaia Bosch CT200**, **Wallbox ABB Terra AC**, **Volvo EX30** e bilanciamento dinamico dei carichi domestici. |
+| **Volvo Trips & Consumi** | `src/volvo-trips-sync.js` | Sincronizzazione automatica (24h) da Google Drive e parsing `.xlsx` / `.csv` per **Storico Viaggi**, costi ricarica e risparmio vs termico (Service Account / OAuth2). |
+| **Wallbox Consumi Sync** | `src/wallbox-sync.js` | Sincronizzazione automatica (24h) da Google Drive dei report PDF mensili **ABB ChargerSync** con parsing sessioni, energia (kWh), durata, costi calcolati da bollette reali e grafici riassuntivi. |
+| **Bollette Dolomiti Sync** | `src/dolomiti-bills-sync.js` | Sincronizzazione automatica (24h) da Google Drive delle bollette PDF **Dolomiti Energia (Luce & Gas)**: estrazione costi reali €/kWh e €/Smc al netto di quote fisse, quota potenza e canone TV (con media automatica per i mesi non ancora fatturati). |
 | **Meross Energy AI** | `src/meross-energy.js` | Telemetria in tempo reale prese smart (W, V, A), fasce orarie ARERA (F1/F2/F3), anti-stacco contatore e rilevamento automatico cicli lavatrice. |
 | **Digital Twin 32 Pin** | `src/spatial-engine.js` | Motore spaziale 1:1 sulla planimetria di casa: controllo lampadari multi-bulbo, micro-zone di prossimità, scia luminosa corridoio e puntamento telecamera sui pin. |
 | **Sicurezza & Tapo** | `src/security-system.js` | Gestione modalità *A Casa / Fuori Casa*, controllo ONVIF PTZ, modalità Privacy, ronda automatica e cattura snapshot HD. |
@@ -85,6 +88,7 @@ Riorganizzata con un'architettura **modulare a schede (Tab Switcher)** con persi
    - Focus dedicato e isolamento linee **Presa Cucina (Pin #32)**: alimenta esclusivamente l'angolo colazione/snack (tostapane, bollitore, microonde, friggitrice ad aria), escludendo forno e piano a induzione cablati su linee di potenza separate da 16A/25A.
 4. 🚗 **Mobilità EV (Volvo EX30 & Wallbox ABB Terra AC)**:
    - Telemetria veicolo via Volvo Cars Connected API v2: percentuale batteria (SOC), autonomia stimata in km, blocco/sblocco portiere e preriscaldamento/climatizzazione abitacolo.
+   - Configurazione sorgente **Google Drive & Storico Viaggi** (Service Account JWT / OAuth2 Client ID & Secret, URL cartella, importazione manuale `.xlsx`/`.csv`, sincronizzazione giornaliera automatica), mantenendo la vista *Storico Viaggi* (`public/js/mobility.js`) pulita e dedicata alla sola consultazione.
    - Stazione di ricarica ABB Terra AC via ChargerSync Cloud: potenza istantanea erogata, selezione corrente (6-32A) e dynamic load balancing con anti-distacco contatore 3 kW.
 5. 📹 **Sicurezza & Cam (Tapo C210 & go2rtc WebRTC)**:
    - Streaming video HD WebRTC/MSE a latenza ultra-bassa (< 0.3s) tramite server go2rtc integrato (porta 1984) e fallback JSMpeg WebSocket.
@@ -115,5 +119,17 @@ Riorganizzata con un'architettura **modulare a schede (Tab Switcher)** con persi
 | `public/js/device-sheet.js` | Rendering drawer/bottom sheet per tutti i dispositivi supportati e player streaming JSMpeg. |
 | `public/js/drag-editor.js` | Logica drag & drop mouse/touch, rilevamento coordinate SVG, cassetto non collocati e persistenza. |
 | `public/js/energy.js` | Cruscotto energetico, grafici Chart.js per Bosch e simulatori di risparmio ARERA/EV. |
+| `public/js/mobility.js` | Centro Diagnostico Volvo EX30 & Wallbox ABB Terra AC (wireframe pneumatici, manutenzione, liquidi, porte/finestrini, comandi remoti e ricarica). |
 | `public/js/admin.js` | Hub diagnostico, stato integrazioni, controlli editor e audit log. |
+
+---
+
+## 🚗 5. Centro Diagnostico Volvo EX30 & Wallbox ABB (`area-mobility`)
+- **Accesso dal Menu Hamburger**: voce dedicata *"Volvo EX30 & Wallbox"* nella sidebar sinistra (`#left-sidebar`) con vista dedicata `#area-mobility`.
+- **Telemetria Completa Volvo API v2 (`src/ev-climate-hub.js`)**:
+  - **Energy v2**: batteria (`%`), target di ricarica, autonomia residua (`km`), stato cavo/ricarica, potenza e tempo stimato al target.
+  - **Connected Vehicle v2**: odometro, statistiche viaggio (`averageEnergyConsumption`, `averageSpeed`, `tripMeter1/2`), stato dettagliato di tutte le portiere, cofano, portellone, sportello ricarica, finestrini e tetto panoramico, pressioni pneumatici (`bar` / `kPa` / `psi`), diagnostica tagliando (`distanceToService`, `timeToService`, `serviceWarning`), avvisi liquidi e lampadine (`brakeFluidLevelWarning`, `washerFluidLevelWarning`, `coolantLevelWarning`, `bulbFailure`), e dettagli veicolo.
+  - **Comandi Remoti & Location v1**: blocco/sblocco porte, climatizzazione ON/OFF, lampeggio luci, clacson & luci (`honk-flash`), posizione GPS con indirizzo e link Google Maps.
+- **Wallbox ABB Terra AC**: potenza istantanea, corrente/tensione, energia sessione, avvio/stop ricarica, regolazione limite corrente (`6A–32A`) e Auto Load Balance Casa + EV.
+- **Storico Viaggi & Consumi (`src/volvo-trips-sync.js`)**: tab dedicata in `#area-mobility` con sincronizzazione automatica giornaliera (24h) e pulsante manuale da Google Drive OAuth2 (`drive.readonly`), parser per i Google Sheets annuali (`Consumi YYYY`) e per gli export mensili Volvo (`.xlsx`), filtri anno/mese/ricerca, riepilogo costi/risparmio vs termico, ripartizione Alex/Cinzia e registro viaggi deduplicato su TiDB Cloud.
 

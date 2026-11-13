@@ -16,6 +16,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   await checkAuth();
   await loadDashboard();
 
+  // Gestione deep-link post-callback OAuth (es. Google Drive sync)
+  const urlParams = new URLSearchParams(window.location.search);
+  const reqArea = urlParams.get('area');
+  const reqTab = urlParams.get('tab');
+  if (reqArea) {
+    if (reqArea === 'mobility' && reqTab && window.mobilityManager) {
+      window.mobilityManager.activeTab = reqTab;
+    }
+    switchArea(reqArea);
+    if (urlParams.get('drive_connected') === '1') {
+      showToast('Google Drive collegato! Sincronizzazione viaggi avviata.', 'success');
+      if (window.mobilityManager) window.mobilityManager.loadTripsData();
+    } else if (urlParams.get('drive_error')) {
+      showToast('Errore Google Drive: ' + urlParams.get('drive_error'), 'error');
+    }
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+
   // Polling automatico ogni 30 secondi
   setInterval(loadDashboard, 30000);
 });
@@ -28,11 +46,13 @@ function switchArea(area) {
 
   const areaHome = document.getElementById('area-home');
   const areaEnergy = document.getElementById('area-energy');
+  const areaMobility = document.getElementById('area-mobility');
   const areaAdmin = document.getElementById('area-admin');
 
   // Gestione visibilità sezioni
   if (areaHome) areaHome.classList.toggle('hidden', area !== 'home');
   if (areaEnergy) areaEnergy.classList.toggle('hidden', area !== 'energy');
+  if (areaMobility) areaMobility.classList.toggle('hidden', area !== 'mobility');
   if (areaAdmin) areaAdmin.classList.toggle('hidden', area !== 'admin');
 
   // Aggiorna pulsanti Navigazione nella Sidebar Sinistra
@@ -67,6 +87,8 @@ function switchArea(area) {
     window.floorplan.render();
   } else if (area === 'energy' && window.energyManager) {
     window.energyManager.renderView();
+  } else if (area === 'mobility' && window.mobilityManager) {
+    window.mobilityManager.renderView();
   } else if (area === 'admin' && window.adminManager) {
     window.adminManager.renderView();
   }
@@ -161,6 +183,8 @@ async function loadDashboard() {
       window.floorplan.render();
     } else if (window.currentArea === 'energy' && window.energyManager) {
       window.energyManager.renderView();
+    } else if (window.currentArea === 'mobility' && window.mobilityManager) {
+      window.mobilityManager.renderView();
     } else if (window.currentArea === 'admin' && window.adminManager && !isTypingInForm && !hasPendingDysonInput) {
       window.adminManager.renderView();
     }

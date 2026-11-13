@@ -3,6 +3,7 @@ const path = require('path');
 const MerossCloud = require('meross-cloud');
 const eventLogger = require('./event-logger');
 const db = require('./db');
+const dolomitiBillsSync = require('./dolomiti-bills-sync');
 
 class MerossEnergyService {
   constructor() {
@@ -59,20 +60,40 @@ class MerossEnergyService {
     } catch (_) {}
   }
 
+  getEffectiveTariffs() {
+    try {
+      const rates = dolomitiBillsSync.getCurrentRates();
+      if (rates && rates.electricitySource !== 'default' && rates.electricityEurPerKwh > 0) {
+        const base = rates.electricityEurPerKwh;
+        return {
+          F1: +(base + 0.015).toFixed(4),
+          F2: +base.toFixed(4),
+          F3: +(Math.max(0.05, base - 0.015)).toFixed(4),
+          baseRate: +base.toFixed(4),
+          source: rates.electricitySource,
+          billsCount: rates.electricityBillsCount,
+          latestPeriod: rates.latestElectricityPeriod
+        };
+      }
+    } catch (_) {}
+    return { ...this.tariffs, baseRate: this.tariffs.F2, source: 'default', billsCount: 0, latestPeriod: null };
+  }
+
   /**
    * Calcola la fascia oraria corrente (F1, F2, F3) e il relativo costo €/kWh
    */
   getCurrentTariffBand(date = new Date()) {
     const day = date.getDay(); // 0 = Dom, 1..5 = Lun..Ven, 6 = Sab
     const hour = date.getHours();
+    const eff = this.getEffectiveTariffs();
 
     if (day === 0 || hour >= 23 || hour < 7) {
-      return { band: 'F3', label: 'Fascia F3 (Notte/Festivi - Economica)', priceKwh: this.tariffs.F3, color: 'emerald' };
+      return { band: 'F3', label: 'Fascia F3 (Notte/Festivi - Economica)', priceKwh: eff.F3, color: 'emerald', source: eff.source };
     }
     if (day >= 1 && day <= 5 && hour >= 8 && hour < 19) {
-      return { band: 'F1', label: 'Fascia F1 (Punta Diurna)', priceKwh: this.tariffs.F1, color: 'rose' };
+      return { band: 'F1', label: 'Fascia F1 (Punta Diurna)', priceKwh: eff.F1, color: 'rose', source: eff.source };
     }
-    return { band: 'F2', label: 'Fascia F2 (Intermedia Sera/Sabato)', priceKwh: this.tariffs.F2, color: 'amber' };
+    return { band: 'F2', label: 'Fascia F2 (Intermedia Sera/Sabato)', priceKwh: eff.F2, color: 'amber', source: eff.source };
   }
 
   init() {
@@ -403,7 +424,7 @@ class MerossEnergyService {
       },
       tariff: {
         ...tariff,
-        allBands: this.tariffs,
+        allBands: this.getEffectiveTariffs(),
         currentHourlyCostEur: +((totalWatts / 1000) * tariff.priceKwh).toFixed(3),
         advice: tariff.band === 'F1'
           ? 'Sei in Fascia F1 (più cara). Avviando Lavatrice/Lavastoviglie dopo le 19:00 (F2) o le 23:00 (F3) risparmi fino al 28%.'
@@ -414,7 +435,7 @@ class MerossEnergyService {
       vampireAnalysis: {
         standbyWatts: +standbyWatts.toFixed(1),
         annualWasteKwh: +((standbyWatts * 24 * 365) / 1000).toFixed(1),
-        annualWasteEur: +(((standbyWatts * 24 * 365) / 1000) * 0.25).toFixed(2),
+        annualWasteEur: +(((standbyWatts * 24 * 365) / 1000) * (this.getEffectiveTariffs().baseRate || 0.25)).toFixed(2),
         vampireDevices: plugs.filter(p => p.isStandbyVampire)
       },
       plugs,

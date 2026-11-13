@@ -70,13 +70,15 @@ class EnergyManager {
           const rawHist = window.homeData?.evClimate?.bosch?.energyHistory || {};
           const daily = rawHist.daily || [];
           const totals = rawHist.totals || {};
+          const gasTariff = Number(totals.dolomitiTariffEurPerSmc) || 0.87;
+          const bands = tariff.allBands || { F1: 0.29, F2: 0.25, F3: 0.21 };
           const todayRecord = daily.length > 0 ? daily[daily.length - 1] : null;
           const gasM3Today = todayRecord ? todayRecord.gasTotal : (totals.totalGasM3 || 1.84);
-          const gasCostToday = todayRecord ? todayRecord.costEur : +(gasM3Today * 0.87).toFixed(2);
+          const gasCostToday = todayRecord ? todayRecord.costEur : +(gasM3Today * gasTariff).toFixed(2);
           
           const currentPowerW = mg.currentW || 380;
           const estElecKwh = +((currentPowerW * 14 / 1000) + 2.5).toFixed(1);
-          const elecCostToday = +(estElecKwh * (tariff.priceKwh || 0.24)).toFixed(2);
+          const elecCostToday = +(estElecKwh * (tariff.priceKwh || bands.F2 || 0.24)).toFixed(2);
           const totalCostToday = +(gasCostToday + elecCostToday).toFixed(2);
           const gasPct = Math.min(100, Math.max(0, Math.round((gasCostToday / (totalCostToday || 1)) * 100)));
           const elecPct = 100 - gasPct;
@@ -93,7 +95,7 @@ class EnergyManager {
                       <span>Sintesi Energetica Casa Unificata</span>
                       <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Gas Metano + Elettricità</span>
                     </h3>
-                    <p class="text-xs text-slate-400">Dolomiti Energia Mitica Gas 24 Web (0.87 €/Smc) + Tariffa Elettrica ARERA (${tariff.priceKwh} €/kWh)</p>
+                    <p class="text-xs text-slate-400">Dolomiti Energia Gas (${gasTariff.toFixed(3)} €/Smc da bollette) + Luce (${Number(tariff.priceKwh).toFixed(3)} €/kWh netto fissi)</p>
                   </div>
                 </div>
 
@@ -199,15 +201,15 @@ class EnergyManager {
             <div class="grid grid-cols-3 gap-2 text-center text-xs">
               <div class="p-2 rounded-lg bg-slate-900 border ${tariff.band === 'F1' ? 'border-rose-500/50 text-rose-300 font-bold' : 'border-slate-800 text-slate-400'}">
                 <div class="font-bold">F1 (Picco)</div>
-                <div>0.29 €/kWh</div>
+                <div>${Number(tariff.allBands?.F1 ?? 0.29).toFixed(3)} €/kWh</div>
               </div>
               <div class="p-2 rounded-lg bg-slate-900 border ${tariff.band === 'F2' ? 'border-amber-500/50 text-amber-300 font-bold' : 'border-slate-800 text-slate-400'}">
                 <div class="font-bold">F2 (Interm.)</div>
-                <div>0.25 €/kWh</div>
+                <div>${Number(tariff.allBands?.F2 ?? 0.25).toFixed(3)} €/kWh</div>
               </div>
               <div class="p-2 rounded-lg bg-slate-900 border ${tariff.band === 'F3' ? 'border-emerald-500/50 text-emerald-300 font-bold' : 'border-slate-800 text-slate-400'}">
                 <div class="font-bold">F3 (Notte/Fest)</div>
-                <div>0.21 €/kWh</div>
+                <div>${Number(tariff.allBands?.F3 ?? 0.21).toFixed(3)} €/kWh</div>
               </div>
             </div>
           </div>
@@ -222,7 +224,7 @@ class EnergyManager {
               </div>
               <div>
                 <h3 class="text-base font-bold text-white">Consumi Gas Caldaia Bosch EasyControl CT200</h3>
-                <p class="text-xs text-slate-400">Tariffa Dolomiti Energia (0.87 €/m³) · Riscaldamento e Acqua Calda Sanitaria</p>
+                <p class="text-xs text-slate-400">Tariffa Dolomiti Energia (${(Number(window.homeData?.evClimate?.bosch?.energyHistory?.totals?.dolomitiTariffEurPerSmc) || 0.87).toFixed(3)} €/Smc da bollette) · Riscaldamento e ACS</p>
               </div>
             </div>
 
@@ -281,8 +283,8 @@ class EnergyManager {
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-800 space-y-1">
               <span class="text-xs text-slate-400 font-medium">Costo 100 km (Ricarica Domestica)</span>
-              <div class="text-2xl font-black text-emerald-400">~3.57 €</div>
-              <span class="text-[10px] text-slate-400 block font-mono">17 kWh/100km @ 0.21 €/kWh (F3)</span>
+              <div class="text-2xl font-black text-emerald-400">~${(17 * Number(tariff.allBands?.F3 ?? tariff.priceKwh ?? 0.21)).toFixed(2)} €</div>
+              <span class="text-[10px] text-slate-400 block font-mono">17 kWh/100km @ ${Number(tariff.allBands?.F3 ?? tariff.priceKwh ?? 0.21).toFixed(3)} €/kWh (F3)</span>
             </div>
 
             <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-800 space-y-1">
@@ -417,7 +419,8 @@ class EnergyManager {
     if (elCh) elCh.innerText = selCh.toFixed(2) + ' m³';
     if (elHw) elHw.innerText = selHw.toFixed(2) + ' m³';
     if (elTot) elTot.innerText = selGas.toFixed(2) + ' m³';
-    if (elCost) elCost.innerText = (selGas * 0.87).toFixed(2) + ' €';
+    const gasTariff = Number(rawHist?.totals?.dolomitiTariffEurPerSmc) || 0.87;
+    if (elCost) elCost.innerText = (selGas * gasTariff).toFixed(2) + ' €';
 
     const labels = series.map(item => isDaily ? item.date : `${item.date?.slice(0, 5) || ''} h${item.hour || 0}`);
     const heatingData = series.map(item => Number(item.gasHeating) || 0);

@@ -32,6 +32,9 @@ let geminiVision = null;
 let pantumPrinter = null;
 let lgThinq = null;
 let dysonPurifier = null;
+let volvoTripsSync = null;
+let wallboxSync = null;
+let dolomitiBillsSync = null;
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -70,7 +73,7 @@ app.use(helmet({
 }));
 app.use(cors());
 app.use(cookieParser());
-app.use(express.json());
+app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -136,7 +139,7 @@ app.get('/api/auth/google', (req, res) => {
 
 // Callback Google OAuth2
 app.get('/api/auth/google/callback', async (req, res) => {
-  const { code, error } = req.query;
+  const { code, error, state } = req.query;
   if (error) {
     return res.redirect(`/?auth_error=${encodeURIComponent(error)}`);
   }
@@ -144,6 +147,10 @@ app.get('/api/auth/google/callback', async (req, res) => {
     return res.redirect('/?auth_error=missing_code');
   }
   try {
+    if (state === 'drive_sync' && volvoTripsSync) {
+      await volvoTripsSync.handleDriveOAuthCallback(code, req);
+      return res.redirect('/?area=mobility&tab=trips&drive_connected=1');
+    }
     const result = await auth.handleGoogleCallback(code, req);
     if (!result.authorized) {
       return res.redirect(`/?auth_error=${encodeURIComponent(result.error || 'unauthorized')}`);
@@ -152,6 +159,9 @@ app.get('/api/auth/google/callback', async (req, res) => {
     res.redirect('/');
   } catch (err) {
     console.error('[Google OAuth Error]:', err.message);
+    if (state === 'drive_sync') {
+      return res.redirect(`/?area=mobility&tab=trips&drive_error=${encodeURIComponent(err.message)}`);
+    }
     res.redirect(`/?auth_error=${encodeURIComponent(err.message)}`);
   }
 });
@@ -352,7 +362,16 @@ app.post('/api/dyson/refresh', async (req, res) => {
 
 app.post('/api/dyson/control', async (req, res) => {
   try {
-    const result = await dysonPurifier.sendControl(req.body || {});
+    const body = req.body || {};
+    if (!dysonPurifier.getStatus().mqttConnected && typeof body.power === 'boolean') {
+      const snap = await mcp.getHomeSnapshot();
+      const pur = snap.devices.find((d) => d.name.toLowerCase().includes('purificatore'));
+      if (pur) {
+        const mcpRes = await mcp.toggleDevice(pur.id, body.power);
+        return res.json({ success: true, data: { ok: true, via: 'google_home', isOn: body.power, mcpRes } });
+      }
+    }
+    const result = await dysonPurifier.sendControl(body);
     res.json({ success: true, data: result });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
@@ -551,6 +570,115 @@ app.post('/api/ev-climate/volvo/direct-token', async (req, res) => {
     const { accessToken, refreshToken } = req.body || {};
     const result = await evClimateHub.setVolvoDirectToken(accessToken, refreshToken);
     res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// Storico Viaggi & Consumi Volvo da Google Drive (sync giornaliero + manuale)
+app.get('/api/ev-climate/volvo/trips', (req, res) => {
+  try {
+    const { year, month, search, limit } = req.query || {};
+    res.json({ success: true, data: volvoTripsSync.getHistory({ year, month, search, limit }) });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/ev-climate/volvo/trips/drive-oauth', async (req, res) => {
+  try {
+    const { folder } = req.query || {};
+    const url = await volvoTripsSync.getDriveOAuthUrl(req, folder || null);
+    res.json({ success: true, url });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/volvo/trips/folder', async (req, res) => {
+  try {
+    const { folder } = req.body || {};
+    const result = await volvoTripsSync.setFolder(folder);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/volvo/trips/config', async (req, res) => {
+  try {
+    const { folder, clientId, clientSecret } = req.body || {};
+    const status = await volvoTripsSync.saveSetup({ folder, clientId, clientSecret });
+    res.json({ success: true, status });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/volvo/trips/import', async (req, res) => {
+  try {
+    const { files } = req.body || {};
+    const result = await volvoTripsSync.importUploadedFiles(files);
+    res.json({ success: true, ...result, data: volvoTripsSync.getHistory(req.query || {}) });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/volvo/trips/sync', async (req, res) => {
+  try {
+    const { force } = req.body || {};
+    const result = await volvoTripsSync.syncFromDrive({ force: Boolean(force) });
+    res.json({ success: true, ...result, data: volvoTripsSync.getHistory(req.query || {}) });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// Storico Consumi Wallbox ABB Terra AC (Google Drive PDF sync)
+app.get('/api/ev-climate/wallbox/history', async (req, res) => {
+  try {
+    const { year = 'all', month = 'all', limit = 60 } = req.query;
+    res.json({ success: true, data: wallboxSync.getHistoryData({ year, month, limit }) });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/wallbox/history/config', async (req, res) => {
+  try {
+    const { folder } = req.body || {};
+    const folderId = await wallboxSync.setFolder(folder);
+    res.json({ success: true, folderId, status: wallboxSync.getStatus() });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/wallbox/history/sync', async (req, res) => {
+  try {
+    const { force } = req.body || {};
+    const result = await wallboxSync.syncFromDrive({ force: Boolean(force) });
+    res.json({ success: true, ...result, data: wallboxSync.getHistoryData(req.query || {}) });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// Bollette Dolomiti Energia Luce & Gas (Google Drive PDF sync)
+app.get('/api/ev-climate/dolomiti/bills', async (req, res) => {
+  try {
+    res.json({ success: true, data: dolomitiBillsSync.getFullData() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/dolomiti/bills/sync', async (req, res) => {
+  try {
+    const { force } = req.body || {};
+    const result = await dolomitiBillsSync.syncFromDrive({ force: Boolean(force) });
+    res.json({ success: true, ...result, data: dolomitiBillsSync.getFullData() });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
   }
@@ -1242,6 +1370,9 @@ async function bootstrap() {
   pantumPrinter = require('./src/pantum-printer');
   lgThinq = require('./src/lg-thinq');
   dysonPurifier = require('./src/dyson-purifier');
+  volvoTripsSync = require('./src/volvo-trips-sync');
+  wallboxSync = require('./src/wallbox-sync');
+  dolomitiBillsSync = require('./src/dolomiti-bills-sync');
 
   // Inizializza servizi hardware e telemetria
   merossEnergy.init();
@@ -1249,6 +1380,9 @@ async function bootstrap() {
   pantumPrinter.init().catch((err) => console.warn('⚠️ [Pantum] Init background:', err.message));
   lgThinq.init().catch((err) => console.warn('⚠️ [LG ThinQ] Init background:', err.message));
   dysonPurifier.init().catch((err) => console.warn('⚠️ [Dyson HP11] Init background:', err.message));
+  dolomitiBillsSync.init().catch((err) => console.warn('⚠️ [Dolomiti Bollette] Init background:', err.message));
+  volvoTripsSync.init().catch((err) => console.warn('⚠️ [Volvo Drive] Init background:', err.message));
+  wallboxSync.init().catch((err) => console.warn('⚠️ [Wallbox Drive] Init background:', err.message));
   evClimateHub.syncAll().catch((err) => console.warn('⚠️ [EV-Climate Hub] Primo sync background:', err.message));
   setInterval(() => evClimateHub.syncAll().catch(() => {}), 60000);
 
