@@ -21,14 +21,21 @@ class MobilityManager {
   }
 
   formatPressure(tyreObj) {
-    if (!tyreObj) return { text: '--', status: null, warn: false };
+    if (!tyreObj) return { text: '--', status: null, warn: false, statusOnly: false };
     const rawVal = tyreObj.value ?? tyreObj.pressure ?? null;
     const rawUnit = String(tyreObj.unit || 'kPa').toLowerCase();
-    const status = tyreObj.status || tyreObj.warning || null;
-    const warn = Boolean(status && !['NO_WARNING', 'NORMAL', 'OK'].includes(String(status).toUpperCase()));
+    const status = tyreObj.status || tyreObj.warning || (typeof rawVal === 'string' ? rawVal : null);
+    const upperStatus = status ? String(status).toUpperCase() : '';
+    const warn = Boolean(upperStatus && !['NO_WARNING', 'NORMAL', 'OK', 'UNSPECIFIED'].includes(upperStatus));
 
-    if (rawVal === null || rawVal === undefined || Number.isNaN(Number(rawVal))) {
-      return { text: '--', status, warn };
+    if (rawVal === null || rawVal === undefined) {
+      return { text: '--', status, warn, statusOnly: false };
+    }
+
+    // Volvo EX30 /tyres restituisce stato ("NO_WARNING" / warning) anziché pressione numerica
+    if (typeof rawVal === 'string' && Number.isNaN(Number(rawVal))) {
+      const label = upperStatus === 'NO_WARNING' ? 'Pressione OK' : (upperStatus === 'UNSPECIFIED' ? 'N/D' : rawVal);
+      return { text: label, status, warn, statusOnly: true };
     }
 
     let kpa = Number(rawVal);
@@ -36,12 +43,12 @@ class MobilityManager {
     else if (rawUnit === 'psi') kpa = kpa * 6.89476;
 
     if (this.tyreUnit === 'bar') {
-      return { text: `${(kpa / 100).toFixed(1)} bar`, status, warn };
+      return { text: `${(kpa / 100).toFixed(1)} bar`, status, warn, statusOnly: false };
     }
     if (this.tyreUnit === 'psi') {
-      return { text: `${Math.round(kpa / 6.89476)} psi`, status, warn };
+      return { text: `${Math.round(kpa / 6.89476)} psi`, status, warn, statusOnly: false };
     }
-    return { text: `${Math.round(kpa)} kPa`, status, warn };
+    return { text: `${Math.round(kpa)} kPa`, status, warn, statusOnly: false };
   }
 
   formatWarningBadge(val, okLabel = 'OK') {
@@ -49,6 +56,9 @@ class MobilityManager {
       return '<span class="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-800/80 text-slate-400 border border-slate-700/60">N/D</span>';
     }
     const upper = String(val).toUpperCase();
+    if (upper === 'UNSPECIFIED') {
+      return '<span class="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-800/80 text-slate-300 border border-slate-700/60">Nessun avviso</span>';
+    }
     const isOk = ['NO_WARNING', 'NONE', 'OK', 'NORMAL', 'FALSE', 'CLOSED', 'LOCKED'].includes(upper);
     if (isOk) {
       return `<span class="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">${this.escapeHtml(okLabel)}</span>`;
@@ -211,8 +221,8 @@ class MobilityManager {
     const renderTyreBox = (label, data) => `
       <div class="px-2.5 py-2 rounded-xl border ${data.warn ? 'bg-amber-950/50 border-amber-500/50' : 'bg-slate-900/90 border-slate-700/70'} backdrop-blur-md">
         <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">${label}</div>
-        <div class="text-sm font-bold ${data.warn ? 'text-amber-300' : 'text-white'} mt-0.5 tabular-nums">${this.escapeHtml(data.text)}</div>
-        <div class="text-[10px] ${data.warn ? 'text-amber-400' : 'text-emerald-400'}">${data.text === '--' ? 'N/D' : (data.warn ? 'Controlla' : 'OK')}</div>
+        <div class="text-sm font-bold ${data.warn ? 'text-amber-300' : (data.statusOnly && data.text === 'Pressione OK' ? 'text-emerald-300' : 'text-white')} mt-0.5 tabular-nums">${this.escapeHtml(data.text)}</div>
+        <div class="text-[10px] ${data.warn ? 'text-amber-400' : 'text-emerald-400'}">${data.text === '--' ? 'N/D' : (data.warn ? 'Controlla' : (data.statusOnly ? 'Sensore TPMS' : 'OK'))}</div>
       </div>
     `;
 
@@ -468,20 +478,21 @@ class MobilityManager {
                   <span class="text-xs font-bold text-slate-200"><i class="fa-solid fa-wrench text-sky-400 mr-1.5"></i>Manutenzione</span>
                   ${this.formatWarningBadge(volvo.diagnostics?.serviceWarning, 'Regolare')}
                 </div>
-                <div class="grid grid-cols-2 gap-2 text-xs pt-1">
+                <div class="grid grid-cols-3 gap-2 text-xs pt-1">
                   <div><div class="text-[10px] text-slate-500">Km al tagliando</div><div class="font-bold text-slate-100">${volvo.diagnostics?.distanceToServiceKm ?? '--'} km</div></div>
-                  <div><div class="text-[10px] text-slate-500">Mesi al tagliando</div><div class="font-bold text-slate-100">${volvo.diagnostics?.timeToServiceMonths ?? '--'} mesi</div></div>
+                  <div><div class="text-[10px] text-slate-500">Mesi</div><div class="font-bold text-slate-100">${volvo.diagnostics?.timeToServiceMonths ?? '--'} mesi</div></div>
+                  <div><div class="text-[10px] text-slate-500">Ore motore</div><div class="font-bold text-slate-100">${volvo.diagnostics?.engineHoursToService ?? '--'} h</div></div>
                 </div>
               </div>
 
               <!-- Luci & Segnalazioni -->
               <div class="p-3.5 rounded-2xl bg-slate-900/75 border border-slate-800/90 space-y-2">
                 <div class="flex items-center justify-between">
-                  <span class="text-xs font-bold text-slate-200"><i class="fa-solid fa-lightbulb text-amber-400 mr-1.5"></i>Luci & Lampadine</span>
+                  <span class="text-xs font-bold text-slate-200"><i class="fa-solid fa-lightbulb text-amber-400 mr-1.5"></i>Luci &amp; Lampadine</span>
                   ${this.formatWarningBadge(volvo.warnings?.bulbFailure, 'Tutte OK')}
                 </div>
                 <div class="grid grid-cols-2 gap-2 text-xs pt-1">
-                  <div><div class="text-[10px] text-slate-500">Sportello Ricarica</div><div class="font-bold text-slate-100">${this.formatOpenClosed(volvo.doors?.tankLid).label}</div></div>
+                  <div><div class="text-[10px] text-slate-500">Circuiti monitorati</div><div class="font-bold text-slate-100">${volvo.warnings?.monitoredLightsCount ?? '--'}</div></div>
                   <div><div class="text-[10px] text-slate-500">Blocco Centrale</div><div class="font-bold text-slate-100">${this.escapeHtml(volvo.doors?.centralLock || 'N/D')}</div></div>
                 </div>
               </div>

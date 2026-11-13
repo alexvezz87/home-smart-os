@@ -72,6 +72,7 @@ const VOLVO_OAUTH_SCOPES = [
   'conve:climatization_start_stop',
   'conve:lock',
   'conve:unlock',
+  'conve:lock_status',
   'conve:honk_flash',
   'conve:doors_status',
   'conve:windows_status',
@@ -883,17 +884,23 @@ class EvClimateHub {
 
         if (trackScope('statistics', statRes) && statRes.data?.data) {
           const s = statRes.data.data;
-          if (s.averageEnergyConsumption?.value !== undefined) {
-            avgCons = +Number(s.averageEnergyConsumption.value).toFixed(1);
+          const consObj = s.averageEnergyConsumptionAutomatic || s.averageEnergyConsumption;
+          const spdObj = s.averageSpeedAutomatic || s.averageSpeed;
+          const trip1Obj = s.tripMeterAutomatic || s.tripMeter1;
+          const trip2Obj = s.tripMeterManual || s.tripMeter2;
+          const dteObj = s.distanceToEmptyBattery || s.distanceToEmpty;
+
+          if (consObj?.value !== undefined) {
+            avgCons = +Number(consObj.value).toFixed(1);
           }
           statisticsData = {
-            averageEnergyConsumption: s.averageEnergyConsumption?.value !== undefined ? +Number(s.averageEnergyConsumption.value).toFixed(1) : null,
-            averageEnergyConsumptionUnit: s.averageEnergyConsumption?.unit || 'kWh/100km',
-            averageSpeed: s.averageSpeed?.value !== undefined ? Math.round(Number(s.averageSpeed.value)) : null,
-            averageSpeedUnit: s.averageSpeed?.unit || 'km/h',
-            tripMeter1: s.tripMeter1?.value !== undefined ? +Number(s.tripMeter1.value).toFixed(1) : null,
-            tripMeter2: s.tripMeter2?.value !== undefined ? +Number(s.tripMeter2.value).toFixed(1) : null,
-            distanceToEmpty: s.distanceToEmpty?.value !== undefined ? Math.round(Number(s.distanceToEmpty.value)) : null
+            averageEnergyConsumption: consObj?.value !== undefined ? +Number(consObj.value).toFixed(1) : null,
+            averageEnergyConsumptionUnit: consObj?.unit || 'kWh/100km',
+            averageSpeed: spdObj?.value !== undefined ? Math.round(Number(spdObj.value)) : null,
+            averageSpeedUnit: spdObj?.unit || 'km/h',
+            tripMeter1: trip1Obj?.value !== undefined ? +Number(trip1Obj.value).toFixed(1) : null,
+            tripMeter2: trip2Obj?.value !== undefined ? +Number(trip2Obj.value).toFixed(1) : null,
+            distanceToEmpty: dteObj?.value !== undefined ? Math.round(Number(dteObj.value)) : null
           };
         }
 
@@ -948,8 +955,17 @@ class EvClimateHub {
 
         if (trackScope('warnings', warnRes) && warnRes.data?.data) {
           const wr = warnRes.data.data;
+          const entries = Object.entries(wr);
+          const activeWarnings = entries
+            .filter(([, obj]) => obj?.value && !['NO_WARNING', 'UNSPECIFIED', 'NONE', 'OK'].includes(String(obj.value).toUpperCase()))
+            .map(([k, obj]) => `${k}: ${obj.value}`);
+          const allUnspecified = entries.length > 0 && entries.every(([, obj]) => String(obj?.value || '').toUpperCase() === 'UNSPECIFIED');
+
           warningsData = {
-            bulbFailure: wr.bulbFailure?.value || null,
+            ...wr,
+            bulbFailure: wr.bulbFailure?.value || (activeWarnings.length > 0 ? activeWarnings.join(', ') : (allUnspecified ? 'UNSPECIFIED' : 'NO_WARNING')),
+            monitoredLightsCount: entries.length,
+            activeWarnings,
             brakeFluidLevelWarning: wr.brakeFluidLevelWarning?.value || null,
             washerFluidLevelWarning: wr.washerFluidLevelWarning?.value || null,
             coolantLevelWarning: wr.coolantLevelWarning?.value || null,
