@@ -48,8 +48,16 @@ class DeviceSheetManager {
   async deletePin(pinNum) {
     try {
       const res = await fetch(`/api/spatial/pin/${encodeURIComponent(pinNum)}`, { method: 'DELETE' });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error || 'Errore rimozione dispositivo');
+      const text = await res.text();
+      let json = {};
+      try {
+        json = JSON.parse(text);
+      } catch (_) {
+        throw new Error(res.status === 404
+          ? 'Endpoint non trovato (riavvia il server Node per attivare la nuova API)'
+          : `Risposta non valida dal server (HTTP ${res.status})`);
+      }
+      if (!res.ok || !json.success) throw new Error(json.error || `Errore rimozione dispositivo (HTTP ${res.status})`);
       if (window.homeData?.spatial?.pins) {
         window.homeData.spatial.pins = window.homeData.spatial.pins.filter(p => p.pin !== Number(pinNum));
       }
