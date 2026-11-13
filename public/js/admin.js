@@ -16,6 +16,24 @@ class AdminManager {
     this.isCapturingBosch = false;
     this.currentBoschOAuthUrl = BOSCH_DEFAULT_OAUTH_URL;
     this.activeTab = localStorage.getItem('admin_active_tab') || 'climate';
+    this.driveStatus = null;
+    this.driveLoading = false;
+  }
+
+  escapeHtml(str) {
+    return String(str ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  formatErrorWithLinks(str) {
+    const escaped = this.escapeHtml(str);
+    return escaped.replace(/(https:\/\/[^\s<]+)/g, url =>
+      `<a href="${url}" target="_blank" rel="noopener noreferrer" class="underline text-sky-300 hover:text-white break-all">${url}</a>`
+    );
   }
 
   /**
@@ -182,6 +200,9 @@ class AdminManager {
     // Post-rendering hooks specifici per scheda
     if (this.activeTab === 'floorplan' && window.dragEditor) {
       window.dragEditor.renderUnplacedTray();
+    }
+    if (this.activeTab === 'ev' && !this.driveStatus && !this.driveLoading) {
+      this.loadDriveTripsStatus();
     }
     if (this.activeTab === 'system') {
       this.loadHistory();
@@ -882,8 +903,211 @@ class AdminManager {
           </div>
         </div>
 
+        ${this.renderDriveTripsAdminCard()}
+
       </div>
     `;
+  }
+
+  renderDriveTripsAdminCard() {
+    const st = this.driveStatus;
+    const badgeHtml = !st
+      ? '<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400">Verifica...</span>'
+      : st.authMode === 'service_account'
+        ? '<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Service Account Attivo</span>'
+        : st.hasDriveToken
+          ? `<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">OAuth2 (${this.escapeHtml(st.driveEmail || 'Connesso')})</span>`
+          : st.configured
+            ? '<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-300 border border-sky-500/30">Pronto</span>'
+            : '<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">Da Configurare</span>';
+
+    const lastSyncStr = st?.lastSyncAt ? new Date(st.lastSyncAt).toLocaleString('it-IT') : 'Mai';
+    const redirectUri = `${window.location.origin}/api/auth/google/callback`;
+
+    return `
+      <div class="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+          <div class="flex items-center gap-2.5">
+            <i class="fa-brands fa-google-drive text-emerald-400 text-lg"></i>
+            <div>
+              <div class="flex items-center gap-2">
+                <h4 class="text-sm font-bold text-white">Google Drive &amp; Storico Viaggi Volvo</h4>
+                ${badgeHtml}
+              </div>
+              <span class="text-[10.5px] text-slate-400">Sync automatico ogni 24h • Viaggi: <strong class="text-slate-200">${st?.totalTrips ?? '--'}</strong> (${st?.totalMonths ?? '--'} mesi) • Ultimo sync: ${this.escapeHtml(lastSyncStr)}</span>
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button onclick="window.adminManager.syncAdminDriveNow(true)" ${this.driveLoading ? 'disabled' : ''} class="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold flex items-center gap-1.5">
+              <i class="fa-solid fa-rotate ${this.driveLoading ? 'fa-spin' : ''}"></i> Sincronizza Drive Ora
+            </button>
+            <label class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold cursor-pointer flex items-center gap-1.5">
+              <i class="fa-solid fa-file-excel text-emerald-400"></i> Importa .xlsx / .csv
+              <input type="file" multiple accept=".xlsx,.csv" onchange="window.adminManager.importAdminLocalTripFiles(this.files)" class="hidden" />
+            </label>
+            <button onclick="if(window.mobilityManager){ window.mobilityManager.activeTab='trips'; } if(typeof switchArea==='function'){ switchArea('mobility'); }" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5">
+              <i class="fa-solid fa-route text-sky-400"></i> Apri Storico Viaggi
+            </button>
+          </div>
+        </div>
+
+        ${st?.serviceAccountEmail ? `
+          <div class="p-3.5 rounded-xl bg-emerald-950/25 border border-emerald-500/25 text-xs space-y-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <span class="font-bold text-emerald-300"><i class="fa-solid fa-robot mr-1.5"></i>Service Account Google rilevato sul server (consigliato — senza Client ID/Secret)</span>
+              <button onclick="window.adminManager.copyDriveText('${this.escapeHtml(st.serviceAccountEmail)}')" class="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 text-[11px] font-semibold">
+                <i class="fa-regular fa-copy mr-1"></i>Copia Email Service Account
+              </button>
+            </div>
+            <div class="text-[11px] text-slate-300 font-mono bg-slate-950/70 px-2.5 py-1.5 rounded-lg border border-slate-800 break-all">${this.escapeHtml(st.serviceAccountEmail)}</div>
+            <p class="text-[11px] text-slate-400 leading-relaxed">
+              Per usarlo: 1) Abilita la <strong>Google Drive API</strong> nel tuo progetto Google Cloud Console • 2) Apri Google Drive e condividi la cartella <em>Consumi</em> con l'email qui sopra impostandola come <strong>Visualizzatore</strong> • 3) Clicca <strong>Sincronizza Drive Ora</strong>.
+            </p>
+          </div>
+        ` : ''}
+
+        ${st?.lastSyncError ? `
+          <div class="p-3 rounded-xl bg-rose-950/40 border border-rose-500/30 text-[11px] text-rose-200 leading-relaxed">
+            <i class="fa-solid fa-triangle-exclamation mr-1.5"></i>${this.formatErrorWithLinks(st.lastSyncError)}
+          </div>
+        ` : ''}
+
+        <div class="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="text-xs font-bold text-slate-200"><i class="fa-solid fa-sliders text-sky-400 mr-1.5"></i>Cartella Drive &amp; Credenziali OAuth2 (alternativa al Service Account)</span>
+            <span class="text-[10.5px] text-slate-400">Redirect URI: <code class="text-slate-300">${this.escapeHtml(redirectUri)}</code></span>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+            <input id="admin-drive-folder" type="text" placeholder="URL o ID cartella Drive (${st?.hasFolderId ? 'già impostato sul server' : 'obbligatorio'})" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
+            <input id="admin-drive-client-id" type="text" placeholder="${st?.clientIdPreview ? 'Client ID: ' + this.escapeHtml(st.clientIdPreview) : 'Google OAuth Client ID (...apps.googleusercontent.com)'}" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
+            <input id="admin-drive-client-secret" type="password" placeholder="${st?.hasGoogleOAuth ? 'Client Secret già presente (lascia vuoto per mantenere)' : 'Google OAuth Client Secret'}" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
+          </div>
+          <div class="flex flex-wrap items-center justify-end gap-2">
+            <button onclick="window.adminManager.saveAndSyncDriveConfig(false)" ${this.driveLoading ? 'disabled' : ''} class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold">
+              Salva &amp; Sincronizza
+            </button>
+            <button onclick="window.adminManager.saveAndSyncDriveConfig(true)" ${this.driveLoading ? 'disabled' : ''} class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5">
+              <i class="fa-brands fa-google-drive"></i> Autorizza OAuth2 Google
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  async loadDriveTripsStatus() {
+    this.driveLoading = true;
+    try {
+      const res = await fetch('/api/ev-climate/volvo/trips?limit=1');
+      const json = await res.json();
+      if (json.success) this.driveStatus = json.data?.status || null;
+    } catch (_) {
+      // silent
+    } finally {
+      this.driveLoading = false;
+      if (this.activeTab === 'ev') this.renderView();
+    }
+  }
+
+  async copyDriveText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      if (typeof window.showToast === 'function') window.showToast('Email Service Account copiata', 'success');
+    } catch (_) {
+      if (typeof window.showToast === 'function') window.showToast(text, 'info');
+    }
+  }
+
+  async saveAndSyncDriveConfig(triggerOAuth = false) {
+    const folder = document.getElementById('admin-drive-folder')?.value?.trim() || '';
+    const clientId = document.getElementById('admin-drive-client-id')?.value?.trim() || '';
+    const clientSecret = document.getElementById('admin-drive-client-secret')?.value?.trim() || '';
+    this.driveLoading = true;
+    this.renderView();
+    try {
+      if (folder || clientId || clientSecret) {
+        const cfgRes = await fetch('/api/ev-climate/volvo/trips/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folder, clientId, clientSecret })
+        });
+        const cfgJson = await cfgRes.json();
+        if (!cfgJson.success) throw new Error(cfgJson.error || 'Errore salvataggio configurazione Drive');
+        this.driveStatus = cfgJson.status || this.driveStatus;
+      }
+      if (triggerOAuth) {
+        const qs = folder ? `?folder=${encodeURIComponent(folder)}` : '';
+        const res = await fetch(`/api/ev-climate/volvo/trips/drive-oauth${qs}`);
+        const json = await res.json();
+        if (!json.success || !json.url) throw new Error(json.error || 'Impossibile generare URL Google OAuth2');
+        window.location.href = json.url;
+        return;
+      }
+      await this.syncAdminDriveNow(true);
+    } catch (err) {
+      if (typeof window.showToast === 'function') window.showToast(err.message, 'error');
+    } finally {
+      this.driveLoading = false;
+      this.renderView();
+    }
+  }
+
+  async syncAdminDriveNow(force = true) {
+    this.driveLoading = true;
+    this.renderView();
+    try {
+      const res = await fetch('/api/ev-climate/volvo/trips/sync?limit=1', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force })
+      });
+      const json = await res.json();
+      this.driveStatus = json.data?.status || this.driveStatus;
+      if (!json.success) throw new Error(json.error || 'Sincronizzazione Drive fallita');
+      if (window.mobilityManager) window.mobilityManager.tripsData = null;
+      if (typeof window.showToast === 'function') {
+        window.showToast(`Drive sincronizzato: ${json.data?.status?.totalTrips || 0} viaggi`, 'success');
+      }
+    } catch (err) {
+      if (typeof window.showToast === 'function') window.showToast(err.message, 'error');
+      await this.loadDriveTripsStatus();
+    } finally {
+      this.driveLoading = false;
+      this.renderView();
+    }
+  }
+
+  async importAdminLocalTripFiles(fileList) {
+    if (!fileList || !fileList.length) return;
+    this.driveLoading = true;
+    this.renderView();
+    try {
+      const files = [];
+      for (const file of Array.from(fileList)) {
+        const buf = await file.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+        files.push({ filename: file.name, contentBase64: btoa(binary) });
+      }
+      const res = await fetch('/api/ev-climate/volvo/trips/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files })
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Importazione fallita');
+      this.driveStatus = json.data?.status || this.driveStatus;
+      if (window.mobilityManager) window.mobilityManager.tripsData = null;
+      if (typeof window.showToast === 'function') {
+        window.showToast(`Importati ${json.importedCount} file nello storico viaggi`, 'success');
+      }
+    } catch (err) {
+      if (typeof window.showToast === 'function') window.showToast(err.message, 'error');
+    } finally {
+      this.driveLoading = false;
+      this.renderView();
+    }
   }
 
   async submitAdminVolvoAuth() {

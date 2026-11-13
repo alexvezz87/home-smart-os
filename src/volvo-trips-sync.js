@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const axios = require('axios');
 const XLSX = require('xlsx');
 const db = require('./db');
@@ -187,8 +188,34 @@ class VolvoTripsSync {
     }, DAILY_SYNC_MS);
   }
 
+  _loadServiceAccount() {
+    if (this._saCache !== undefined) return this._saCache;
+    try {
+      const rootDir = path.resolve(__dirname, '..');
+      const envPath = process.env.GOOGLE_SERVICE_ACCOUNT_PATH ? path.resolve(rootDir, process.env.GOOGLE_SERVICE_ACCOUNT_PATH) : null;
+      const candidates = envPath && fs.existsSync(envPath)
+        ? [envPath]
+        : fs.readdirSync(rootDir)
+            .filter((f) => /\.json$/i.test(f) && !['package.json', 'package-lock.json'].includes(f))
+            .map((f) => path.join(rootDir, f));
+
+      for (const filePath of candidates) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+          if (parsed && parsed.type === 'service_account' && parsed.client_email && parsed.private_key) {
+            this._saCache = parsed;
+            return parsed;
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+    this._saCache = null;
+    return null;
+  }
+
   isConfigured() {
-    return Boolean(this.config.folderId && (this.config.refreshToken || this.config.accessToken));
+    const sa = this._loadServiceAccount();
+    return Boolean(this.config.folderId && (this.config.refreshToken || this.config.accessToken || sa));
   }
 
   async setFolder(folderInput) {
@@ -275,6 +302,38 @@ class VolvoTripsSync {
   }
 
   async _getAccessToken() {
+    // 1. Preferenza token Service Account se presente (nessun login OAuth manuale richiesto)
+    const sa = this._loadServiceAccount();
+    if (sa && !this.config.refreshToken) {
+      if (this._saToken && this._saTokenExp && Date.now() < this._saTokenExp - 120000) {
+        return this._saToken;
+      }
+      const now = Math.floor(Date.now() / 1000);
+      const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+      const payload = Buffer.from(JSON.stringify({
+        iss: sa.client_email,
+        scope: 'https://www.googleapis.com/auth/drive.readonly',
+        aud: sa.token_uri || 'https://oauth2.googleapis.com/token',
+        exp: now + 3600,
+        iat: now
+      })).toString('base64url');
+      const sig = crypto.sign('RSA-SHA256', Buffer.from(`${header}.${payload}`), sa.private_key).toString('base64url');
+      const tokRes = await axios.post(
+        sa.token_uri || 'https://oauth2.googleapis.com/token',
+        new URLSearchParams({
+          grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+          assertion: `${header}.${payload}.${sig}`
+        }).toString(),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10000 }
+      );
+      if (!tokRes.data?.access_token) {
+        throw new Error('Impossibile ottenere token dal Service Account Google Cloud.');
+      }
+      this._saToken = tokRes.data.access_token;
+      this._saTokenExp = Date.now() + (Number(tokRes.data.expires_in || 3600) * 1000);
+      return this._saToken;
+    }
+
     if (this.config.accessToken && this.config.tokenExpiresAt && Date.now() < this.config.tokenExpiresAt - 120000) {
       return this.config.accessToken;
     }
@@ -315,10 +374,25 @@ class VolvoTripsSync {
         q: `'${parentId}' in parents and trashed = false`,
         fields: 'files(id,name,mimeType,modifiedTime,size)',
         pageSize: 100,
-        orderBy: 'name'
+        orderBy: 'name',
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true
       },
-      timeout: 12000
+      timeout: 12000,
+      validateStatus: () => true
     });
+    if (res.status >= 400) {
+      const apiMsg = res.data?.error?.message || `HTTP ${res.status}`;
+      const sa = this._loadServiceAccount();
+      if (res.status === 403 && /has not been used in project|is disabled/i.test(apiMsg)) {
+        const urlMatch = apiMsg.match(/https:\/\/console\.developers\.google\.com\/[^\s"']+/);
+        throw new Error(`Google Drive API disabilitata sul progetto Cloud. Abilitala da: ${urlMatch ? urlMatch[0] : 'Google Cloud Console -> API e servizi -> Google Drive API'}`);
+      }
+      if (res.status === 404 && sa) {
+        throw new Error(`Cartella Drive non visibile al Service Account (${sa.client_email}). Condividi la cartella "Consumi" su Drive con questa email (ruolo Visualizzatore).`);
+      }
+      throw new Error(`Errore Google Drive (${res.status}): ${apiMsg}`);
+    }
     return res.data?.files || [];
   }
 
@@ -602,9 +676,12 @@ class VolvoTripsSync {
       ...(this.data.trips || []).map((t) => t.year)
     ])).sort((a, b) => b - a);
     const { clientId, clientSecret } = this._getGoogleClient();
+    const sa = this._loadServiceAccount();
 
     return {
       configured: this.isConfigured(),
+      authMode: (this.config.refreshToken || this.config.accessToken) ? 'oauth' : (sa ? 'service_account' : 'none'),
+      serviceAccountEmail: sa?.client_email || null,
       hasFolderId: Boolean(this.config.folderId),
       hasGoogleOAuth: Boolean(clientId && clientSecret),
       clientIdPreview: clientId ? `${clientId.slice(0, 14)}…` : null,
