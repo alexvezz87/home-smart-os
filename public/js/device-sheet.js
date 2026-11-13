@@ -124,6 +124,13 @@ class DeviceSheetManager {
         bodyHtml = this.renderApplianceControls(p);
         break;
 
+      case 'climate':
+        categoryIcon = 'fa-fan';
+        categoryLabel = p.isDyson ? 'Purificatore Dyson HP11' : 'Clima';
+        badgeColor = p.isOn ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-slate-800 text-slate-400';
+        bodyHtml = this.renderDysonControls(p);
+        break;
+
       default:
         bodyHtml = `
           <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 text-center text-xs text-slate-400">
@@ -425,6 +432,93 @@ class DeviceSheetManager {
       <button onclick="window.refreshThinqUi(${p.pin})"
               class="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-all">
         <i class="fa-solid fa-rotate"></i> Aggiorna Stato LG ThinQ
+      </button>
+    `;
+  }
+
+  /**
+   * Controlli Purificatore Dyson HP11 (MQTT Locale)
+   */
+  renderDysonControls(p) {
+    const connected = Boolean(p.mqttConnected);
+    const isOn = Boolean(p.isOn);
+
+    return `
+      <div class="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+        <div class="flex items-center justify-between">
+          <div>
+            <span class="text-[11px] text-slate-400 uppercase font-semibold block">Stato Dyson HP11</span>
+            <div class="text-sm font-bold ${isOn ? 'text-emerald-400' : 'text-slate-300'} mt-0.5">
+              ${p.statusLabel || (isOn ? 'Attivo' : 'Standby')}
+            </div>
+          </div>
+          <span class="px-2.5 py-1 rounded-full text-[11px] font-bold ${connected ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'}">
+            ${connected ? 'MQTT LAN' : (p.configured ? 'OFFLINE' : 'DA AUTENTICARE')}
+          </span>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800/80 text-xs">
+          <div class="p-2 rounded-lg bg-slate-950/60 border border-slate-800/70">
+            <span class="text-[10px] text-slate-400 block">Qualità Aria</span>
+            <span class="font-bold text-white">${p.airQualityLabel || 'N/D'}</span>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-950/60 border border-slate-800/70">
+            <span class="text-[10px] text-slate-400 block">Temperatura</span>
+            <span class="font-bold text-cyan-400 font-mono">${p.temperatureC !== null && p.temperatureC !== undefined ? p.temperatureC + '°C' : 'N/D'}</span>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-950/60 border border-slate-800/70">
+            <span class="text-[10px] text-slate-400 block">Umidità</span>
+            <span class="font-bold text-sky-400 font-mono">${p.humidityPercent !== null && p.humidityPercent !== undefined ? p.humidityPercent + '%' : 'N/D'}</span>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-950/60 border border-slate-800/70">
+            <span class="text-[10px] text-slate-400 block">PM2.5</span>
+            <span class="font-bold text-white font-mono">${p.pm25 !== null && p.pm25 !== undefined ? p.pm25 + ' µg' : 'N/D'}</span>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-950/60 border border-slate-800/70">
+            <span class="text-[10px] text-slate-400 block">PM10</span>
+            <span class="font-bold text-white font-mono">${p.pm10 !== null && p.pm10 !== undefined ? p.pm10 + ' µg' : 'N/D'}</span>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-950/60 border border-slate-800/70">
+            <span class="text-[10px] text-slate-400 block">Filtri</span>
+            <span class="font-bold text-emerald-400 font-mono">${p.filterLifePercent !== null && p.filterLifePercent !== undefined ? p.filterLifePercent + '%' : 'N/D'}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-3 rounded-xl bg-slate-900/70 border border-slate-800 space-y-2.5">
+        <div class="grid grid-cols-2 gap-2">
+          <button onclick="window.controlDysonUi(${p.pin}, { power: ${!isOn} })" ${!connected ? 'disabled' : ''}
+                  class="py-2 px-3 rounded-xl text-xs font-bold transition-all ${connected ? (isOn ? 'bg-rose-600 hover:bg-rose-500 text-white' : 'bg-emerald-600 hover:bg-emerald-500 text-white') : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
+            <i class="fa-solid fa-power-off mr-1"></i> ${isOn ? 'Spegni' : 'Accendi'}
+          </button>
+          <button onclick="window.controlDysonUi(${p.pin}, { auto: ${!p.autoMode} })" ${!connected ? 'disabled' : ''}
+                  class="py-2 px-3 rounded-xl text-xs font-bold transition-all ${connected ? (p.autoMode ? 'bg-indigo-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700') : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
+            <i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Auto ${p.autoMode ? 'ON' : 'OFF'}
+          </button>
+          <button onclick="window.controlDysonUi(${p.pin}, { nightMode: ${!p.nightMode} })" ${!connected ? 'disabled' : ''}
+                  class="py-2 px-3 rounded-xl text-xs font-bold transition-all ${connected ? (p.nightMode ? 'bg-purple-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700') : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
+            <i class="fa-solid fa-moon mr-1"></i> Notte ${p.nightMode ? 'ON' : 'OFF'}
+          </button>
+          <button onclick="window.controlDysonUi(${p.pin}, { oscillation: ${!p.oscillation} })" ${!connected ? 'disabled' : ''}
+                  class="py-2 px-3 rounded-xl text-xs font-bold transition-all ${connected ? (p.oscillation ? 'bg-cyan-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700') : 'bg-slate-800 text-slate-500 cursor-not-allowed'}">
+            <i class="fa-solid fa-arrows-left-right mr-1"></i> Oscilla ${p.oscillation ? 'ON' : 'OFF'}
+          </button>
+        </div>
+
+        <div class="pt-1">
+          <div class="flex justify-between text-[11px] text-slate-400 mb-1">
+            <span>Velocità Ventola</span>
+            <span class="font-mono text-white">${p.speed || 'AUTO'}</span>
+          </div>
+          <input type="range" min="1" max="10" value="${typeof p.speed === 'number' ? p.speed : 4}" ${!connected ? 'disabled' : ''}
+                 onchange="window.controlDysonUi(${p.pin}, { speed: Number(this.value) })"
+                 class="w-full accent-emerald-500 cursor-pointer" />
+        </div>
+      </div>
+
+      <button onclick="window.refreshDysonUi(${p.pin})"
+              class="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-all">
+        <i class="fa-solid fa-rotate"></i> Aggiorna Stato Dyson
       </button>
     `;
   }
@@ -1315,6 +1409,47 @@ async function controlThinqDryerUi(pinNum, command) {
   }
 }
 
+async function refreshDysonUi(pinNum) {
+  try {
+    if (window.showToast) window.showToast('Aggiornamento Dyson HP11...', 'info');
+    const res = await fetch('/api/dyson/refresh', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      if (window.showToast) window.showToast(data.error || 'Errore Dyson', 'error');
+      return;
+    }
+    if (window.homeData) window.homeData.dyson = data.data;
+    if (typeof loadDashboard === 'function') await loadDashboard();
+    if (window.deviceSheet && pinNum && window.homeData?.spatial?.pins) {
+      const updated = window.homeData.spatial.pins.find((p) => Number(p.pin) === Number(pinNum));
+      if (updated) window.deviceSheet.open(updated);
+    }
+    if (window.showToast) window.showToast('Stato Dyson aggiornato', 'success');
+  } catch (e) {
+    console.error('Errore refreshDysonUi:', e);
+  }
+}
+
+async function controlDysonUi(pinNum, payload) {
+  try {
+    const res = await fetch('/api/dyson/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      if (window.showToast) window.showToast(data.error || 'Comando Dyson rifiutato', 'error');
+      return;
+    }
+    setTimeout(() => refreshDysonUi(pinNum), 600);
+  } catch (e) {
+    console.error('Errore controlDysonUi:', e);
+  }
+}
+
+window.refreshDysonUi = refreshDysonUi;
+window.controlDysonUi = controlDysonUi;
 window.refreshThinqUi = refreshThinqUi;
 window.controlThinqDryerUi = controlThinqDryerUi;
 window.refreshPantumPrinterUi = refreshPantumPrinterUi;

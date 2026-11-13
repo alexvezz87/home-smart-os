@@ -31,6 +31,7 @@ let evClimateHub = null;
 let geminiVision = null;
 let pantumPrinter = null;
 let lgThinq = null;
+let dysonPurifier = null;
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -334,6 +335,48 @@ app.post('/api/thinq/control', async (req, res) => {
   }
 });
 
+// 0h. Purificatore Dyson HP11 (MyDyson Cloud + MQTT Locale)
+app.get('/api/dyson/status', (req, res) => {
+  if (!dysonPurifier) return res.status(503).json({ success: false, error: 'Modulo Dyson non inizializzato' });
+  res.json({ success: true, data: dysonPurifier.getStatus() });
+});
+
+app.post('/api/dyson/refresh', async (req, res) => {
+  try {
+    const status = await dysonPurifier.refreshStatus();
+    res.json({ success: true, data: status });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/dyson/control', async (req, res) => {
+  try {
+    const result = await dysonPurifier.sendControl(req.body || {});
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/dyson/auth/start', async (req, res) => {
+  try {
+    const result = await dysonPurifier.startOtpAuth(req.body?.email);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/dyson/auth/verify', async (req, res) => {
+  try {
+    const result = await dysonPurifier.verifyOtpAndProvision(req.body || {});
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
 // 1. Snapshot completo casa con arricchimento telemetria Meross, Sicurezza e Mappa Spaziale 32 Pin
 app.get(['/api/home', '/api/dashboard'], async (req, res) => {
   try {
@@ -344,6 +387,7 @@ app.get(['/api/home', '/api/dashboard'], async (req, res) => {
     snapshot.security = securitySystem.getStatus();
     snapshot.printer = pantumPrinter ? pantumPrinter.getStatus() : null;
     snapshot.thinq = lgThinq ? lgThinq.getStatus() : null;
+    snapshot.dyson = dysonPurifier ? dysonPurifier.getStatus() : null;
     snapshot.spatial = spatialEngine.getEnrichedMapState(snapshot);
     snapshot.evClimate = evClimateHub.getUnifiedStatus(snapshot);
     res.json({ success: true, data: snapshot });
@@ -1179,12 +1223,14 @@ async function bootstrap() {
   geminiVision = require('./src/gemini-vision');
   pantumPrinter = require('./src/pantum-printer');
   lgThinq = require('./src/lg-thinq');
+  dysonPurifier = require('./src/dyson-purifier');
 
   // Inizializza servizi hardware e telemetria
   merossEnergy.init();
   hueLocal.init();
   pantumPrinter.init().catch((err) => console.warn('⚠️ [Pantum] Init background:', err.message));
   lgThinq.init().catch((err) => console.warn('⚠️ [LG ThinQ] Init background:', err.message));
+  dysonPurifier.init().catch((err) => console.warn('⚠️ [Dyson HP11] Init background:', err.message));
   evClimateHub.syncAll().catch((err) => console.warn('⚠️ [EV-Climate Hub] Primo sync background:', err.message));
   setInterval(() => evClimateHub.syncAll().catch(() => {}), 60000);
 

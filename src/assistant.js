@@ -5,6 +5,7 @@ const geminiVision = require('./gemini-vision');
 const hueLocal = require('./hue-local');
 const pantumPrinter = require('./pantum-printer');
 const lgThinq = require('./lg-thinq');
+const dysonPurifier = require('./dyson-purifier');
 
 /**
  * Interprete di comandi in linguaggio naturale (italiano) per la Smart Home.
@@ -236,6 +237,45 @@ async function processAssistantCommand(input) {
     }
     eventLogger.log('assistant', reply, { source: 'Assistente AI' });
     return { success: true, action: 'thinq_status', thinq: st, reply };
+  }
+
+  // 0h. Purificatore Dyson HP11 (MQTT Locale)
+  if (text.includes('purificatore') || text.includes('dyson') || text.includes('qualità aria') || text.includes('pm2')) {
+    const st = await dysonPurifier.refreshStatus();
+    if (!st.configured || !st.mqttConnected) {
+      const reply = st.configured
+        ? 'Il purificatore Dyson HP11 è configurato ma non è attualmente raggiungibile in MQTT locale.'
+        : 'Il purificatore Dyson HP11 non ha ancora completato l\'autenticazione MyDyson in Amministrazione.';
+      return { success: true, action: 'dyson_status', dyson: st, reply };
+    }
+
+    if (text.includes('accendi')) {
+      await dysonPurifier.sendControl({ power: true });
+      const reply = '🌬️ Purificatore Dyson HP11 acceso.';
+      eventLogger.log('assistant', reply, { source: 'Assistente AI' });
+      return { success: true, action: 'dyson_control', reply };
+    }
+    if (text.includes('spegni')) {
+      await dysonPurifier.sendControl({ power: false });
+      const reply = '🌬️ Purificatore Dyson HP11 spento.';
+      eventLogger.log('assistant', reply, { source: 'Assistente AI' });
+      return { success: true, action: 'dyson_control', reply };
+    }
+    if (text.includes('notte')) {
+      await dysonPurifier.sendControl({ power: true, nightMode: true });
+      const reply = '🌙 Purificatore Dyson HP11 impostato in modalità Notte.';
+      eventLogger.log('assistant', reply, { source: 'Assistente AI' });
+      return { success: true, action: 'dyson_control', reply };
+    }
+
+    const parts = [`🌬️ Dyson HP11: ${st.isOn ? 'Acceso' : 'Spento'}`];
+    if (st.airQualityLabel && st.airQualityLabel !== 'N/D') parts.push(`qualità aria ${st.airQualityLabel}`);
+    if (st.pm25 !== null) parts.push(`PM2.5 ${st.pm25} µg/m³`);
+    if (st.temperatureC !== null) parts.push(`${st.temperatureC}°C`);
+    if (st.humidityPercent !== null) parts.push(`umidità ${st.humidityPercent}%`);
+    const reply = `${parts.join(', ')}.`;
+    eventLogger.log('assistant', reply, { source: 'Assistente AI' });
+    return { success: true, action: 'dyson_status', dyson: st, reply };
   }
 
   const snapshot = await mcp.getHomeSnapshot();
