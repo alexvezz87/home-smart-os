@@ -245,6 +245,8 @@ class EvClimateHub {
       avgConsumptionKwh100: null,
       carLocked: null,
       climatizationActive: null,
+      climatizationStartedAt: null,
+      climatizationEndsAt: null,
       vehicleDetails: null,
       capabilities: null,
       doors: null,
@@ -1040,6 +1042,9 @@ class EvClimateHub {
         odometerKm: odoKm,
         avgConsumptionKwh100: avgCons,
         carLocked: locked,
+        climatizationActive: (this.volvoState.climatizationActive && this.volvoState.climatizationEndsAt && Date.now() < new Date(this.volvoState.climatizationEndsAt).getTime()) ? true : false,
+        climatizationStartedAt: (this.volvoState.climatizationEndsAt && Date.now() < new Date(this.volvoState.climatizationEndsAt).getTime()) ? this.volvoState.climatizationStartedAt : null,
+        climatizationEndsAt: (this.volvoState.climatizationEndsAt && Date.now() < new Date(this.volvoState.climatizationEndsAt).getTime()) ? this.volvoState.climatizationEndsAt : null,
         vehicleDetails,
         capabilities,
         doors: doorsData,
@@ -1104,8 +1109,16 @@ class EvClimateHub {
       await this.syncVolvoEx30();
       if (action === 'lock') this.volvoState.carLocked = true;
       else if (action === 'unlock') this.volvoState.carLocked = false;
-      else if (action === 'climatization_start') this.volvoState.climatizationActive = true;
-      else if (action === 'climatization_stop') this.volvoState.climatizationActive = false;
+      else if (action === 'climatization_start') {
+        const now = Date.now();
+        this.volvoState.climatizationActive = true;
+        this.volvoState.climatizationStartedAt = new Date(now).toISOString();
+        this.volvoState.climatizationEndsAt = new Date(now + 30 * 60000).toISOString();
+      } else if (action === 'climatization_stop') {
+        this.volvoState.climatizationActive = false;
+        this.volvoState.climatizationStartedAt = null;
+        this.volvoState.climatizationEndsAt = null;
+      }
 
       // Seconda sincronizzazione differita per confermare la telemetria reale dal cloud Volvo
       setTimeout(() => { this.syncVolvoEx30().catch(() => {}); }, 4500);

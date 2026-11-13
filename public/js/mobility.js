@@ -387,6 +387,10 @@ class MobilityManager {
     const maskedVin = volvo.vin ? `••••${String(volvo.vin).slice(-6)}` : 'VIN N/D';
     const isLocked = volvo.carLocked === true;
     const isUnlocked = volvo.carLocked === false;
+    const climateEndsMs = volvo.climatizationEndsAt ? new Date(volvo.climatizationEndsAt).getTime() : 0;
+    const climateRemMin = (volvo.climatizationActive && climateEndsMs > Date.now())
+      ? Math.max(1, Math.ceil((climateEndsMs - Date.now()) / 60000))
+      : null;
     const missingScopes = Object.entries(volvo.apiScopeStatus || {})
       .filter(([, st]) => st === 'scope_missing')
       .map(([k]) => k);
@@ -414,6 +418,11 @@ class MobilityManager {
                   : isUnlocked
                     ? '<span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/40"><i class="fa-solid fa-lock-open mr-1"></i>Aperta</span>'
                     : '<span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">Stato Serratura N/D</span>'}
+                ${volvo.climatizationActive ? `
+                  <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-sky-500/20 text-sky-300 border border-sky-400/40 animate-pulse" title="Timer stimato 30 min (l'API pubblica Volvo non espone temperatura interna o timer residuo)">
+                    <i class="fa-solid fa-snowflake mr-1"></i>Clima attivo${climateRemMin ? ` • ~${climateRemMin} min rimasti` : ''}
+                  </span>
+                ` : ''}
               </div>
 
               <div class="mt-4 flex flex-wrap items-baseline gap-6">
