@@ -5,6 +5,7 @@ const pdfParse = require('pdf-parse');
 const db = require('./db');
 const eventLogger = require('./event-logger');
 const volvoTripsSync = require('./volvo-trips-sync');
+const dolomitiBillsSync = require('./dolomiti-bills-sync');
 
 const CONFIG_KEY = 'wallbox-drive-config';
 const DATA_KEY = 'wallbox-consumi-data';
@@ -346,17 +347,38 @@ class WallboxSync {
     const yearNum = year !== 'all' ? Number(year) : null;
     const monthNum = month !== 'all' ? Number(month) : null;
 
-    const monthlySummaries = (this.data.monthlySummaries || []).filter((m) => {
-      if (yearNum && m.year !== yearNum) return false;
-      if (monthNum && m.monthIndex !== monthNum) return false;
-      return true;
-    });
+    const monthlySummaries = (this.data.monthlySummaries || [])
+      .filter((m) => {
+        if (yearNum && m.year !== yearNum) return false;
+        if (monthNum && m.monthIndex !== monthNum) return false;
+        return true;
+      })
+      .map((m) => {
+        const rate = dolomitiBillsSync.getElectricityRateForMonth(m.year, m.monthIndex);
+        const pricePerKwh = rate.pricePerKwh;
+        return {
+          ...m,
+          costEur: +((m.energyKwh || 0) * pricePerKwh).toFixed(2),
+          avgCostPerKwh: pricePerKwh,
+          rateSource: rate.source,
+          rateLabel: rate.billLabel
+        };
+      });
 
-    const filteredSessions = (this.data.sessions || []).filter((s) => {
-      if (yearNum && s.year !== yearNum) return false;
-      if (monthNum && s.month !== monthNum) return false;
-      return true;
-    });
+    const filteredSessions = (this.data.sessions || [])
+      .filter((s) => {
+        if (yearNum && s.year !== yearNum) return false;
+        if (monthNum && s.month !== monthNum) return false;
+        return true;
+      })
+      .map((s) => {
+        const rate = dolomitiBillsSync.getElectricityRateForMonth(s.year, s.month);
+        return {
+          ...s,
+          costEur: +((s.energyKwh || 0) * rate.pricePerKwh).toFixed(2),
+          rateSource: rate.source
+        };
+      });
 
     const totals = monthlySummaries.reduce((acc, m) => {
       acc.energyKwh += m.energyKwh || 0;

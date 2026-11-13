@@ -28,6 +28,7 @@ volvo-drive-config.json
 volvo-trips-cache.json
 wallbox-drive-config.json
 wallbox-consumi-cache.json
+dolomiti-bills-cache.json
 activity-log.json
 appliance-cycles.json
 local-states-cache.json

@@ -6,6 +6,7 @@ const WebSocket = require('ws');
 const eventLogger = require('./event-logger');
 const merossEnergy = require('./meross-energy');
 const db = require('./db');
+const dolomitiBillsSync = require('./dolomiti-bills-sync');
 
 // Polyfill globalThis.crypto (WebCrypto API completa con subtle + getRandomValues) e globalThis.fetch per Node 16
 if (typeof globalThis.crypto === 'undefined' || !globalThis.crypto.subtle) {
@@ -556,13 +557,14 @@ class EvClimateHub {
       const sessionKwh = +(sessionWh / 1000).toFixed(2);
       const sessionDurationMin = Math.round(Number(portDetail.duration || 0) / 60);
 
+      const fallbackElecRate = dolomitiBillsSync.getCurrentRates().electricityEurPerKwh || 0.22;
       const parsedSessions = sessions.slice(0, 12).map(s => ({
         date: s.stopTime || s.startTime || '-',
         startTime: s.startTime || '-',
         stopTime: s.stopTime || '-',
         energyKwh: s.energy !== undefined ? +(Number(s.energy) / 1000).toFixed(2) : 0,
         durationMin: s.duration !== undefined ? Math.round(Number(s.duration) / 60) : 0,
-        costEur: s.cost !== undefined ? +Number(s.cost).toFixed(2) : +(+(Number(s.energy || 0) / 1000) * 0.25).toFixed(2)
+        costEur: +(+(Number(s.energy || 0) / 1000) * fallbackElecRate).toFixed(2)
       }));
 
       this.wallboxState = {
@@ -1794,8 +1796,9 @@ class EvClimateHub {
         return 0;
       }
 
-      // Tariffa Finitia Dolomiti Energia Gas: 0.87 €/Smc (Mitica Gas 24 Web fissa fino al 31/08/2027)
-      const DOLOMITI_GAS_EUR_PER_SMC = 0.87;
+      // Tariffa reale Dolomiti Energia Gas calcolata dalle bollette (escluse quote fisse, IVA/accise incluse)
+      const dolomitiRates = dolomitiBillsSync.getCurrentRates();
+      const DOLOMITI_GAS_EUR_PER_SMC = dolomitiRates.gasEurPerSmc || 0.87;
 
       const hourlySeries = Object.entries(persistedRecords).map(([key, r]) => ({
         key,
@@ -1877,8 +1880,11 @@ class EvClimateHub {
           avgOutdoorTemp: avgOutdoor,
           totalHoursRecorded: hourlySeries.length,
           dolomitiTariffEurPerSmc: DOLOMITI_GAS_EUR_PER_SMC,
+          gasRateSource: dolomitiRates.gasSource,
+          gasBillsCount: dolomitiRates.gasBillsCount,
+          latestGasPeriod: dolomitiRates.latestGasPeriod,
           provider: 'Dolomiti Energia',
-          offer: 'Mitica Gas 24 Web',
+          offer: dolomitiRates.gasOffer || 'Mitica Gas 24 Web',
           pdr: process.env.UTILITY_PDR || '0088**********'
         },
         hourly: hourlySeries,

@@ -34,6 +34,7 @@ let lgThinq = null;
 let dysonPurifier = null;
 let volvoTripsSync = null;
 let wallboxSync = null;
+let dolomitiBillsSync = null;
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -650,6 +651,25 @@ app.post('/api/ev-climate/wallbox/history/sync', async (req, res) => {
     const { force } = req.body || {};
     const result = await wallboxSync.syncFromDrive({ force: Boolean(force) });
     res.json({ success: true, ...result, data: wallboxSync.getHistoryData(req.query || {}) });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// Bollette Dolomiti Energia Luce & Gas (Google Drive PDF sync)
+app.get('/api/ev-climate/dolomiti/bills', async (req, res) => {
+  try {
+    res.json({ success: true, data: dolomitiBillsSync.getFullData() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/ev-climate/dolomiti/bills/sync', async (req, res) => {
+  try {
+    const { force } = req.body || {};
+    const result = await dolomitiBillsSync.syncFromDrive({ force: Boolean(force) });
+    res.json({ success: true, ...result, data: dolomitiBillsSync.getFullData() });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
   }
@@ -1343,6 +1363,7 @@ async function bootstrap() {
   dysonPurifier = require('./src/dyson-purifier');
   volvoTripsSync = require('./src/volvo-trips-sync');
   wallboxSync = require('./src/wallbox-sync');
+  dolomitiBillsSync = require('./src/dolomiti-bills-sync');
 
   // Inizializza servizi hardware e telemetria
   merossEnergy.init();
@@ -1350,6 +1371,7 @@ async function bootstrap() {
   pantumPrinter.init().catch((err) => console.warn('⚠️ [Pantum] Init background:', err.message));
   lgThinq.init().catch((err) => console.warn('⚠️ [LG ThinQ] Init background:', err.message));
   dysonPurifier.init().catch((err) => console.warn('⚠️ [Dyson HP11] Init background:', err.message));
+  dolomitiBillsSync.init().catch((err) => console.warn('⚠️ [Dolomiti Bollette] Init background:', err.message));
   volvoTripsSync.init().catch((err) => console.warn('⚠️ [Volvo Drive] Init background:', err.message));
   wallboxSync.init().catch((err) => console.warn('⚠️ [Wallbox Drive] Init background:', err.message));
   evClimateHub.syncAll().catch((err) => console.warn('⚠️ [EV-Climate Hub] Primo sync background:', err.message));
