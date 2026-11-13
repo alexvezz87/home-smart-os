@@ -183,28 +183,41 @@ class DeviceSheetManager {
             </p>
           </div>
         </div>
-        <div class="flex items-center gap-1">
-          <button type="button" onclick="deviceSheet.deletePin(${p.pin})" class="p-2 text-rose-400 hover:text-rose-300 rounded-lg hover:bg-rose-950/50 transition-colors" title="Rimuovi dispositivo dalla piantina">
-            <i class="fa-solid fa-trash-can text-sm"></i>
-          </button>
-          <button type="button" onclick="deviceSheet.close()" class="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors">
-            <i class="fa-solid fa-xmark text-lg"></i>
-          </button>
-        </div>
+        <button type="button" onclick="deviceSheet.close()" class="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
       </div>
 
       <div class="py-4 space-y-4">
         ${bodyHtml}
       </div>
 
-      <!-- Footer rapido con Stanza e Spegni Tutto Stanza -->
-      <div class="pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-        <span class="flex items-center gap-1">
-          <i class="fa-solid fa-location-dot text-indigo-400"></i> ${p.room}
-        </span>
-        <button type="button" onclick="roomOff('${p.room}')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-rose-950/60 hover:text-rose-300 border border-slate-700/60 transition-colors text-[11px] font-medium">
-          <i class="fa-solid fa-power-off mr-1"></i> Spegni ${p.room}
-        </button>
+      <!-- Footer rapido con Cestino (Basso Sinistra), Stanza e Spegni Tutto Stanza -->
+      <div class="pt-3 border-t border-slate-800 space-y-2.5 text-xs text-slate-400">
+        <div id="device-delete-confirm-${p.pin}" class="hidden p-2.5 rounded-xl bg-rose-950/50 border border-rose-500/40 flex items-center justify-between gap-2">
+          <span class="text-[11px] text-rose-200 font-semibold flex items-center gap-1.5">
+            <i class="fa-solid fa-triangle-exclamation text-rose-400"></i>
+            Rimuovere dalla piantina?
+          </span>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <button type="button" onclick="document.getElementById('device-delete-confirm-${p.pin}')?.classList.add('hidden')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold transition-colors">Annulla</button>
+            <button type="button" onclick="deviceSheet.deletePin(${p.pin})" class="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold transition-colors">Elimina</button>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <button type="button" onclick="document.getElementById('device-delete-confirm-${p.pin}')?.classList.remove('hidden')" class="p-2 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/25 transition-colors" title="Rimuovi dispositivo dalla piantina">
+              <i class="fa-solid fa-trash-can text-xs"></i>
+            </button>
+            <span class="flex items-center gap-1">
+              <i class="fa-solid fa-location-dot text-indigo-400"></i> ${p.room}
+            </span>
+          </div>
+          <button type="button" onclick="roomOff('${p.room}')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-rose-950/60 hover:text-rose-300 border border-slate-700/60 transition-colors text-[11px] font-medium">
+            <i class="fa-solid fa-power-off mr-1"></i> Spegni ${p.room}
+          </button>
+        </div>
       </div>
     `;
 
@@ -647,15 +660,15 @@ class DeviceSheetManager {
              style="background: ${dialBg}; box-shadow: ${dialGlow}; touch-action: none;">
 
           <!-- Tamburo Verticale Scorrevole -->
-          <div id="valve-dial-wheel-${p.pin}" class="flex flex-col items-center justify-center will-change-transform" style="transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);">
+          <div id="valve-dial-wheel-${p.pin}" class="flex flex-col items-center justify-center will-change-transform pointer-events-auto" style="transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);">
             <!-- +0.5°C (Sopra) -->
-            <button type="button" id="valve-dial-up-${p.pin}" class="flex items-start justify-center opacity-35 hover:opacity-75 transition-opacity leading-none py-1 focus:outline-none" title="Aumenta +0.5°C">
+            <div role="button" id="valve-dial-up-${p.pin}" class="flex items-start justify-center opacity-35 hover:opacity-75 transition-opacity leading-none py-1 cursor-pointer" title="Aumenta +0.5°C">
               <span class="text-3xl font-light text-white tracking-tight">${upT.whole}</span>
               <span class="flex flex-col items-start ml-0.5 text-[11px] font-normal text-white leading-tight mt-0.5">
                 <span>°C</span>
                 <span>${upT.dec}</span>
               </span>
-            </button>
+            </div>
 
             <!-- Setpoint Attuale (Centro) -->
             <div id="valve-dial-center-${p.pin}" class="flex items-start justify-center leading-none my-1 drop-shadow-[0_2px_10px_rgba(0,0,0,0.35)]">
@@ -667,13 +680,13 @@ class DeviceSheetManager {
             </div>
 
             <!-- -0.5°C (Sotto) -->
-            <button type="button" id="valve-dial-down-${p.pin}" class="flex items-start justify-center opacity-35 hover:opacity-75 transition-opacity leading-none py-1 focus:outline-none" title="Abbassa -0.5°C">
+            <div role="button" id="valve-dial-down-${p.pin}" class="flex items-start justify-center opacity-35 hover:opacity-75 transition-opacity leading-none py-1 cursor-pointer" title="Abbassa -0.5°C">
               <span class="text-3xl font-light text-white tracking-tight">${downT.whole}</span>
               <span class="flex flex-col items-start ml-0.5 text-[11px] font-normal text-white leading-tight mt-0.5">
                 <span>°C</span>
                 <span>${downT.dec}</span>
               </span>
-            </button>
+            </div>
           </div>
 
           <!-- Temperatura Rilevata Ambiente (Lato Destro) -->
@@ -866,27 +879,29 @@ class DeviceSheetManager {
       }
     };
 
-    if (window.PointerEvent) {
-      dial.addEventListener('pointerdown', (e) => {
-        startSwipe(e.clientY);
-        try { dial.setPointerCapture(e.pointerId); } catch (_) {}
-      });
-      dial.addEventListener('pointermove', (e) => moveSwipe(e.clientY));
-      dial.addEventListener('pointerup', endSwipe);
-      dial.addEventListener('pointercancel', endSwipe);
-    } else {
-      dial.addEventListener('mousedown', (e) => startSwipe(e.clientY));
-      window.addEventListener('mousemove', (e) => moveSwipe(e.clientY));
-      window.addEventListener('mouseup', endSwipe);
-      dial.addEventListener('touchstart', (e) => {
-        if (e.touches[0]) startSwipe(e.touches[0].clientY);
-      }, { passive: true });
-      dial.addEventListener('touchmove', (e) => {
-        if (dragging) e.preventDefault();
-        if (e.touches[0]) moveSwipe(e.touches[0].clientY);
-      }, { passive: false });
-      dial.addEventListener('touchend', endSwipe);
-    }
+    dial.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startSwipe(e.clientY);
+      const onMouseMove = (ev) => moveSwipe(ev.clientY);
+      const onMouseUp = () => {
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+        endSwipe();
+      };
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    });
+
+    dial.addEventListener('touchstart', (e) => {
+      if (e.touches[0]) startSwipe(e.touches[0].clientY);
+    }, { passive: true });
+    dial.addEventListener('touchmove', (e) => {
+      if (!dragging) return;
+      e.preventDefault();
+      if (e.touches[0]) moveSwipe(e.touches[0].clientY);
+    }, { passive: false });
+    dial.addEventListener('touchend', endSwipe);
+    dial.addEventListener('touchcancel', endSwipe);
 
     dial.addEventListener('wheel', (e) => {
       e.preventDefault();
