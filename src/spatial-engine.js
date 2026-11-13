@@ -1041,6 +1041,35 @@ class SpatialEngine {
           clone.isOn = false;
           clone.statusLabel = 'Non collegata';
         }
+      } else if (p.pin === 13 && p.vendor === 'Dyson HP11') {
+        const dyson = homeSnapshot.dyson || {};
+        const dMatch = devices.find(d =>
+          (p.googleName && d.name.toLowerCase().includes(p.googleName.toLowerCase())) ||
+          d.name.toLowerCase().includes('purificatore')
+        );
+        clone.isDyson = true;
+        clone.configured = Boolean(dyson.configured);
+        clone.mqttConnected = Boolean(dyson.mqttConnected);
+        clone.online = Boolean(dyson.mqttConnected || dMatch);
+        clone.isOn = dyson.mqttConnected ? Boolean(dyson.isOn) : Boolean(dMatch?.isOn);
+        clone.autoMode = Boolean(dyson.autoMode);
+        clone.nightMode = Boolean(dyson.nightMode);
+        clone.oscillation = Boolean(dyson.oscillation);
+        clone.heatMode = Boolean(dyson.heatMode);
+        clone.speed = dyson.speed ?? null;
+        clone.targetTempC = dyson.targetTempC ?? null;
+        clone.temperatureC = dyson.temperatureC ?? null;
+        clone.humidityPercent = dyson.humidityPercent ?? null;
+        clone.pm25 = dyson.pm25 ?? null;
+        clone.pm10 = dyson.pm10 ?? null;
+        clone.voc = dyson.voc ?? null;
+        clone.no2 = dyson.no2 ?? null;
+        clone.filterLifePercent = dyson.filterLifePercent ?? null;
+        clone.airQualityLabel = dyson.airQualityLabel || 'N/D';
+        clone.deviceId = dMatch?.id || null;
+        clone.statusLabel = dyson.mqttConnected
+          ? (clone.isOn ? (clone.autoMode ? 'Auto' : (clone.nightMode ? 'Notte' : `Vel. ${clone.speed || 'ON'}`)) : 'Standby')
+          : (clone.isOn ? 'Attivo (Cloud)' : 'Standby');
       } else if (p.category === 'sensor') {
         const dMatch = devices.find(d => d.category === 'sensor');
         clone.temperature = dMatch?.extra?.temperature || homeSnapshot.stats?.temperature || 20.9;

@@ -1261,6 +1261,38 @@ class AdminManager {
           </div>
         </div>
 
+        <!-- Purificatore Dyson HP11 (MyDyson Cloud + MQTT Locale) -->
+        <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
+          <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
+            <div class="flex items-center gap-2">
+              <i class="fa-solid fa-fan ${data?.dyson?.mqttConnected ? 'text-emerald-400' : 'text-amber-400'}"></i>
+              <h4 class="text-xs font-bold text-white uppercase tracking-wider">Purificatore Dyson HP11 (Pin #13 · MQTT :1883)</h4>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${data?.dyson?.mqttConnected ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'}">
+                ${data?.dyson?.mqttConnected ? 'MQTT Connesso' : (data?.dyson?.configured ? 'Configurato (Offline)' : 'Richiede OTP MyDyson')}
+              </span>
+            </div>
+            <button onclick="if(window.refreshDysonUi) window.refreshDysonUi(13)" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1 active:scale-95">
+              <i class="fa-solid fa-rotate text-[10px]"></i> Aggiorna
+            </button>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+            <input id="dyson-email-input" type="email" placeholder="Email MyDyson" class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono" />
+            <input id="dyson-otp-input" type="text" placeholder="Codice OTP (6 cifre)" class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono" />
+            <input id="dyson-pwd-input" type="password" placeholder="Password MyDyson" class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono" />
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="(async()=>{ const email=document.getElementById('dyson-email-input').value.trim(); const r=await fetch('/api/dyson/auth/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})}); const d=await r.json(); if(window.showToast) window.showToast(d.success?'OTP inviato via email!':(d.error||'Errore OTP'), d.success?'success':'error'); })()"
+                    class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all">
+              1. Invia OTP Email
+            </button>
+            <button onclick="(async()=>{ const email=document.getElementById('dyson-email-input').value.trim(); const otpCode=document.getElementById('dyson-otp-input').value.trim(); const password=document.getElementById('dyson-pwd-input').value; const r=await fetch('/api/dyson/auth/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,otpCode,password})}); const d=await r.json(); if(window.showToast) window.showToast(d.success?'Dyson collegato!':(d.error||'Errore verifica'), d.success?'success':'error'); if(d.success && typeof loadDashboard==='function') loadDashboard(); })()"
+                    class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-all">
+              2. Verifica e Collega
+            </button>
+          </div>
+        </div>
+
         <!-- Registro Eventi & Audit Log -->
         <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
           <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">

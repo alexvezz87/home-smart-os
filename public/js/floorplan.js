@@ -835,11 +835,26 @@ class FloorplanEngine {
         stroke = isSelected ? '#22d3ee' : '#34d399';
         if (p.temperature) subBadge = `${p.temperature}°`;
       } else if (p.category === 'climate') {
-        iconGlyph = '&#xf769;';
-        iconColor = '#06b6d4';
-        fill = '#083344';
-        stroke = isSelected ? '#22d3ee' : '#0891b2';
-        subBadge = p.isOn ? 'ON' : '';
+        if (p.isDyson) {
+          iconGlyph = '&#xf863;'; // fa-fan
+          if (p.isOn) {
+            iconColor = '#34d399';
+            fill = '#064e3b';
+            stroke = isSelected ? '#22d3ee' : '#10b981';
+            subBadge = p.temperatureC !== null && p.temperatureC !== undefined ? `${p.temperatureC}°` : 'ON';
+          } else {
+            iconColor = '#64748b';
+            fill = '#0f172a';
+            stroke = isSelected ? '#22d3ee' : '#334155';
+            subBadge = p.temperatureC !== null && p.temperatureC !== undefined ? `${p.temperatureC}°` : 'OFF';
+          }
+        } else {
+          iconGlyph = '&#xf769;';
+          iconColor = '#06b6d4';
+          fill = '#083344';
+          stroke = isSelected ? '#22d3ee' : '#0891b2';
+          subBadge = p.isOn ? 'ON' : '';
+        }
       } else if (p.category === 'appliance') {
         iconGlyph = p.thinqRole === 'dryer' ? '&#xf72e;' : '&#xf2e7;'; // fa-wind / fa-utensils
         if (p.isRunning) {

@@ -71,3 +71,10 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
   - **Asciugatrice (`DEVICE_DRYER`, modello `RC90U2_WW`, Pin `#44`)**: stato ciclo, tempo residuo e comandi operativi remoti (`START`, `STOP`, `POWER_OFF`, `WAKE_UP`) quando `remoteControlEnabled` è attivo.
 - **Resilienza**: gestione nativa HTTP `416` (`code: "1222"`, *Not connected device*) come stato `Spenta / Standby` senza generare falsi errori.
 - **Endpoint & UI**: `/api/thinq/status`, `/api/thinq/refresh`, `/api/thinq/config`, `/api/thinq/control`, `snapshot.thinq` in `/api/home`, drawer (`public/js/device-sheet.js`), card in Amministrazione (`public/js/admin.js`) e comandi vocali in `src/assistant.js`.
+
+---
+
+## 9. Purificatore Dyson HP11 (`src/dyson-purifier.js`)
+- **Autenticazione & Provisioning**: Flusso OTP MyDyson Cloud (`appapi.cp.dyson.com/v3/userregistration/email/auth` + `verify`) e lettura `/v2/provisioningservice/manifest` con decifratura AES-256-CBC di `localCredentials`. Token e password MQTT locale sono persistiti cifrati su TiDB `kv_store` (`dyson-config`) e `dyson-config.json` (gitignored).
+- **Controllo & Telemetria MQTT Locale**: Connessione diretta al broker MQTT del purificatore sulla porta `1883` (`<productType>/<serial>/status/current` e `/command`), con auto-discovery LAN. Espone PM2.5, PM10, VOC, NO2, temperatura (°C), umidità (%), durata residua filtri e comandi `STATE-SET` (Power, Auto, Notte, Oscillazione, Velocità 1-10).
+- **Endpoint & UI**: `/api/dyson/status`, `/api/dyson/refresh`, `/api/dyson/control`, `/api/dyson/auth/start`, `/api/dyson/auth/verify`, `snapshot.dyson` in `/api/home`, Pin `#13` arricchito (`src/spatial-engine.js`, `public/js/floorplan.js`), drawer (`public/js/device-sheet.js`), card OTP in Amministrazione (`public/js/admin.js`) e assistente vocale (`src/assistant.js`).
