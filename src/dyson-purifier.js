@@ -267,6 +267,33 @@ class DysonPurifierClient {
     return { ok: true, devicesCount: devices.length, status: this.getStatus() };
   }
 
+  async saveStickerConfig({ ssidOrSerial, productType, wifiPassword, ip } = {}) {
+    const raw = String(ssidOrSerial || '').trim().toUpperCase();
+    const pwd = String(wifiPassword || '').trim();
+    if (!raw || !pwd) {
+      throw new Error('Inserisci SSID/Seriale e Password Wi-Fi dell\'etichetta Dyson');
+    }
+
+    let serial = raw;
+    let detectedType = String(productType || this.config.productType || '527E').trim().toUpperCase();
+
+    const match = raw.match(/^DYSON-([0-9A-Z]{3}-[A-Z]{2}-[0-9A-Z]{8,})-([0-9]{3}[A-Z]?)$/);
+    if (match) {
+      serial = match[1];
+      detectedType = match[2] === '455A' ? '455' : match[2];
+    }
+
+    const mqttPassword = crypto.createHash('sha512').update(pwd, 'utf8').digest('base64');
+    const status = await this.saveConfig({
+      serial,
+      productType: detectedType,
+      mqttPassword,
+      ip: ip ? String(ip).trim() : this.config.ip
+    });
+
+    return { ok: true, status };
+  }
+
   async discoverInLan() {
     const ifaces = os.networkInterfaces();
     let prefix = '192.168.1.';

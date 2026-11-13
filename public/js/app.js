@@ -35,17 +35,24 @@ function switchArea(area) {
   if (areaEnergy) areaEnergy.classList.toggle('hidden', area !== 'energy');
   if (areaAdmin) areaAdmin.classList.toggle('hidden', area !== 'admin');
 
-  // Aggiorna pulsanti Top Navigation (Desktop / Tablet)
+  // Aggiorna pulsanti Navigazione nella Sidebar Sinistra
   document.querySelectorAll('.nav-area-btn').forEach(btn => {
     const isTarget = btn.getAttribute('data-area') === area;
     if (isTarget) {
-      btn.className = 'nav-area-btn px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 text-white shadow-md shadow-indigo-600/30 transition-all flex items-center gap-2';
+      btn.className = 'nav-area-btn w-full px-3.5 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 text-white shadow-md shadow-indigo-600/30 transition-all flex items-center gap-3';
     } else {
-      btn.className = 'nav-area-btn px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-700/60 transition-all flex items-center gap-2';
+      btn.className = 'nav-area-btn w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-slate-900/80 text-slate-300 hover:text-white hover:bg-slate-800 transition-all flex items-center gap-3';
     }
   });
 
-  // Aggiorna Bottom Navigation Bar (Mobile)
+  // Mostra pulsante Filtri & Device solo nella vista Casa
+  const rightBtn = document.getElementById('btn-right-drawer');
+  if (rightBtn) rightBtn.classList.toggle('hidden', area !== 'home');
+
+  // Chiudi sidebar sinistra dopo il cambio sezione
+  if (typeof toggleLeftSidebar === 'function') toggleLeftSidebar(false);
+
+  // Aggiorna Bottom Navigation Bar (Mobile, se presente)
   document.querySelectorAll('.mobile-nav-btn').forEach(btn => {
     const isTarget = btn.getAttribute('data-area') === area;
     if (isTarget) {
@@ -76,6 +83,53 @@ function setupNavigation() {
     });
   });
 }
+
+function updateSidebarBackdrop() {
+  const leftOpen = !document.getElementById('left-sidebar')?.classList.contains('-translate-x-full');
+  const rightOpen = !document.getElementById('right-sidebar')?.classList.contains('translate-x-full');
+  const backdrop = document.getElementById('sidebar-backdrop');
+  if (backdrop) backdrop.classList.toggle('hidden', !(leftOpen || rightOpen));
+}
+
+function toggleLeftSidebar(forceState) {
+  const sb = document.getElementById('left-sidebar');
+  if (!sb) return;
+  const isClosed = sb.classList.contains('-translate-x-full');
+  const open = typeof forceState === 'boolean' ? forceState : isClosed;
+  if (open) {
+    // Chiudi eventuale sidebar destra per evitare sovrapposizioni
+    const rsb = document.getElementById('right-sidebar');
+    if (rsb) rsb.classList.add('translate-x-full');
+    if (window.floorplan) window.floorplan.rightDrawerOpen = false;
+    sb.classList.remove('-translate-x-full');
+  } else {
+    sb.classList.add('-translate-x-full');
+  }
+  updateSidebarBackdrop();
+}
+
+function closeAllSidebars() {
+  document.getElementById('left-sidebar')?.classList.add('-translate-x-full');
+  document.getElementById('right-sidebar')?.classList.add('translate-x-full');
+  if (window.floorplan) window.floorplan.rightDrawerOpen = false;
+  updateSidebarBackdrop();
+}
+
+function toggleAiPopover(forceState) {
+  const pop = document.getElementById('ai-popover');
+  if (!pop) return;
+  const isHidden = pop.classList.contains('hidden');
+  const open = typeof forceState === 'boolean' ? forceState : isHidden;
+  pop.classList.toggle('hidden', !open);
+  if (open) {
+    setTimeout(() => document.getElementById('assistant-input')?.focus(), 50);
+  }
+}
+
+window.toggleLeftSidebar = toggleLeftSidebar;
+window.closeAllSidebars = closeAllSidebars;
+window.toggleAiPopover = toggleAiPopover;
+window.updateSidebarBackdrop = updateSidebarBackdrop;
 
 /**
  * Caricamento globale stato dashboard

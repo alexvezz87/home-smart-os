@@ -1291,6 +1291,22 @@ class AdminManager {
               2. Verifica e Collega
             </button>
           </div>
+
+          <!-- Configurazione 100% Locale da Etichetta Wi-Fi (bypassa blocco Cloudflare MyDyson) -->
+          <div class="pt-3 border-t border-slate-800/80 space-y-2">
+            <div class="text-[11px] font-semibold text-cyan-300 flex items-center gap-1.5">
+              <i class="fa-solid fa-tag"></i> Oppure Configurazione Locale Diretta (da etichetta sul purificatore / manuale, zero Cloud)
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+              <input id="dyson-ssid-input" type="text" value="${data?.dyson?.serial || ''}" placeholder="SSID (DYSON-...-527E) o Seriale" class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono" />
+              <input id="dyson-wifipwd-input" type="password" placeholder="Password Wi-Fi etichetta (8 car.)" class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono" />
+              <input id="dyson-ip-input" type="text" value="${data?.dyson?.ip || ''}" placeholder="IP LAN (opzionale, es. 192.168.1.x)" class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono" />
+            </div>
+            <button onclick="(async()=>{ const ssidOrSerial=document.getElementById('dyson-ssid-input').value.trim(); const wifiPassword=document.getElementById('dyson-wifipwd-input').value.trim(); const ip=document.getElementById('dyson-ip-input').value.trim(); const r=await fetch('/api/dyson/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssidOrSerial,wifiPassword,ip})}); const d=await r.json(); if(window.showToast) window.showToast(d.success?'Dyson configurato in locale!':(d.error||'Errore configurazione'), d.success?'success':'error'); if(d.success && typeof loadDashboard==='function') loadDashboard(); })()"
+                    class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white transition-all">
+              Salva &amp; Connetti in Locale (MQTT :1883)
+            </button>
+          </div>
         </div>
 
         <!-- Registro Eventi & Audit Log -->

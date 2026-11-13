@@ -40,7 +40,7 @@
     }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen font-sans flex flex-col pb-16 sm:pb-0 select-none">
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans flex flex-col overflow-x-hidden select-none">
 
   <!-- Fullscreen Auth / Tablet Kiosk Lock Overlay -->
   <div id="auth-modal" class="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-xl hidden items-center justify-center p-4 transition-opacity duration-300">
@@ -119,114 +119,163 @@
     <div id="camera-theater-content" class="w-full flex items-center justify-center"></div>
   </div>
 
-  <!-- Top Navigation Header -->
-  <header class="border-b border-slate-800/80 bg-slate-900/80 sticky top-0 z-40 backdrop-blur-md">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-      
-      <!-- Brand & Home Title -->
-      <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-sky-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
-          <i class="fa-solid fa-house-signal text-lg"></i>
-        </div>
-        <div>
-          <div class="flex items-center gap-2">
-            <h1 class="text-base sm:text-lg font-bold text-white tracking-tight" id="home-name">Casetta</h1>
-            <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              MCP Live
-            </span>
+  <!-- Backdrop per Sidebar a scomparsa -->
+  <div id="sidebar-backdrop" onclick="closeAllSidebars()" class="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-sm hidden transition-opacity duration-300"></div>
+
+  <!-- Sidebar Sinistra a Scomparsa (Menu Principale & Impostazioni Mappa) -->
+  <aside id="left-sidebar" class="fixed inset-y-0 left-0 w-72 sm:w-80 z-50 bg-slate-950/95 backdrop-blur-2xl border-r border-slate-800/80 shadow-2xl transform -translate-x-full transition-transform duration-300 flex flex-col justify-between p-4 overflow-y-auto">
+    <div class="space-y-5">
+      <!-- Header Sidebar Sinistra -->
+      <div class="flex items-center justify-between border-b border-slate-800/80 pb-3">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 to-sky-500 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
+            <i class="fa-solid fa-house-signal text-sm"></i>
           </div>
-          <p class="text-[11px] text-slate-400 hidden sm:block">Digital Twin &amp; Energy Intelligence</p>
+          <div>
+            <div class="text-sm font-bold text-white leading-tight">Home Smart OS</div>
+            <div class="text-[10px] text-slate-400">Digital Twin &amp; Energy</div>
+          </div>
         </div>
+        <button type="button" onclick="toggleLeftSidebar(false)" class="w-8 h-8 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors">
+          <i class="fa-solid fa-xmark text-sm"></i>
+        </button>
       </div>
 
-      <!-- Desktop / Tablet: 3 Macro-Areas Navigation Buttons -->
-      <div class="hidden sm:flex items-center gap-2">
-        <button data-area="home" class="nav-area-btn px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 text-white shadow-md shadow-indigo-600/30 transition-all flex items-center gap-2">
-          <i class="fa-solid fa-house"></i>
+      <!-- Navigazione Macro-Aree -->
+      <div class="space-y-1.5">
+        <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500 px-1">Navigazione</div>
+        <button data-area="home" class="nav-area-btn w-full px-3.5 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 text-white shadow-md shadow-indigo-600/30 transition-all flex items-center gap-3">
+          <i class="fa-solid fa-house w-4 text-center"></i>
           <span>La Mia Casa</span>
         </button>
-        <button data-area="energy" class="nav-area-btn px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-700/60 transition-all flex items-center gap-2">
-          <i class="fa-solid fa-bolt-lightning text-amber-400"></i>
+        <button data-area="energy" class="nav-area-btn w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-slate-900/80 text-slate-300 hover:text-white hover:bg-slate-800 transition-all flex items-center gap-3">
+          <i class="fa-solid fa-bolt-lightning text-amber-400 w-4 text-center"></i>
           <span>Consumi &amp; Energia</span>
         </button>
-        <button data-area="admin" class="nav-area-btn px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-700/60 transition-all flex items-center gap-2">
-          <i class="fa-solid fa-screwdriver-wrench text-sky-400"></i>
+        <button data-area="admin" class="nav-area-btn w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-slate-900/80 text-slate-300 hover:text-white hover:bg-slate-800 transition-all flex items-center gap-3">
+          <i class="fa-solid fa-screwdriver-wrench text-sky-400 w-4 text-center"></i>
           <span>Amministrazione</span>
         </button>
       </div>
 
-      <!-- Quick Metrics & Actions -->
+      <!-- Impostazioni Planimetria -->
+      <div class="space-y-2.5 pt-2 border-t border-slate-800/80">
+        <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500 px-1">Aspetto Planimetria</div>
+
+        <!-- Stile Mappa -->
+        <div class="grid grid-cols-3 gap-1.5 bg-slate-900/90 p-1 rounded-xl border border-slate-800">
+          <button type="button" id="sb-style-luxury" onclick="window.floorplan?.setBgStyle('luxury')" class="py-1.5 rounded-lg text-[11px] font-bold bg-indigo-600 text-white transition-all">Dark</button>
+          <button type="button" id="sb-style-cad" onclick="window.floorplan?.setBgStyle('cad')" class="py-1.5 rounded-lg text-[11px] font-bold text-slate-400 hover:text-white transition-all">CAD</button>
+          <button type="button" id="sb-style-light" onclick="window.floorplan?.setBgStyle('light')" class="py-1.5 rounded-lg text-[11px] font-bold text-slate-400 hover:text-white transition-all">Light</button>
+        </div>
+
+        <!-- Toggle Layer Visivi -->
+        <button type="button" id="sb-btn-heatmap" onclick="window.floorplan?.toggleHeatmap()" class="w-full px-3 py-2 rounded-xl text-xs font-semibold bg-slate-900/80 border border-slate-800 text-slate-300 hover:text-white flex items-center justify-between transition-all">
+          <span class="flex items-center gap-2.5"><i class="fa-solid fa-fire-flame-simple text-amber-400 w-4 text-center"></i>Heatmap Energetica</span>
+          <span id="sb-state-heatmap" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">OFF</span>
+        </button>
+
+        <button type="button" id="sb-btn-furniture" onclick="window.floorplan?.toggleFurniture()" class="w-full px-3 py-2 rounded-xl text-xs font-semibold bg-slate-900/80 border border-slate-800 text-slate-300 hover:text-white flex items-center justify-between transition-all">
+          <span class="flex items-center gap-2.5"><i class="fa-solid fa-couch text-indigo-400 w-4 text-center"></i>Mostra Arredi</span>
+          <span id="sb-state-furniture" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">ON</span>
+        </button>
+
+        <button type="button" onclick="window.dragEditor?.toggleEditMode(); toggleLeftSidebar(false);" id="btn-toggle-edit-mode-fp" class="w-full px-3 py-2 rounded-xl text-xs font-semibold bg-slate-900/80 border border-slate-800 text-slate-300 hover:text-white flex items-center justify-between transition-all">
+          <span class="flex items-center gap-2.5"><i class="fa-solid fa-pen-ruler text-sky-400 w-4 text-center"></i>Sposta Pin (Drag &amp; Drop)</span>
+          <span class="text-[10px] text-slate-500"><i class="fa-solid fa-chevron-right"></i></span>
+        </button>
+      </div>
+
+      <!-- Azioni Rapide Globali -->
+      <div class="space-y-2 pt-2 border-t border-slate-800/80">
+        <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500 px-1">Azioni Sistema</div>
+        <div class="grid grid-cols-2 gap-2">
+          <button type="button" onclick="loadDashboard(); toggleLeftSidebar(false);" class="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-semibold text-slate-200 flex items-center justify-center gap-2 transition-all active:scale-95">
+            <i class="fa-solid fa-rotate-right text-sky-400" id="refresh-icon"></i>
+            <span>Aggiorna</span>
+          </button>
+          <button type="button" onclick="triggerMasterOff(); toggleLeftSidebar(false);" class="px-3 py-2 rounded-xl bg-rose-950/40 hover:bg-rose-900/50 border border-rose-500/30 text-xs font-semibold text-rose-300 flex items-center justify-center gap-2 transition-all active:scale-95">
+            <i class="fa-solid fa-power-off"></i>
+            <span>Spegni Tutto</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer Profilo Utente -->
+    <div class="pt-3 mt-4 border-t border-slate-800/80 flex items-center justify-between">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <div class="w-8 h-8 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+          <i class="fa-solid fa-user-shield text-xs"></i>
+        </div>
+        <div class="truncate">
+          <div id="user-display" class="text-xs font-bold text-slate-200 truncate">Admin</div>
+          <div class="text-[10px] text-slate-500">Sessione attiva</div>
+        </div>
+      </div>
+      <button type="button" onclick="logoutNow()" class="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-rose-950/50 text-slate-400 hover:text-rose-400 border border-slate-800 text-xs font-semibold transition-colors" title="Disconnetti">
+        <i class="fa-solid fa-right-from-bracket"></i>
+      </button>
+    </div>
+  </aside>
+
+  <!-- Sidebar Destra a Scomparsa (Filtri, Stanze, Hue & Dispositivi) -->
+  <aside id="right-sidebar" class="fixed inset-y-0 right-0 w-full sm:w-[420px] z-50 bg-slate-950/95 backdrop-blur-2xl border-l border-slate-800/80 shadow-2xl transform translate-x-full transition-transform duration-300 flex flex-col overflow-hidden">
+    <div id="right-sidebar-content" class="h-full flex flex-col p-4 overflow-y-auto"></div>
+  </aside>
+
+  <!-- Top Navigation Header Ultra-Compatto -->
+  <header class="border-b border-slate-800/80 bg-slate-900/85 sticky top-0 z-30 backdrop-blur-md">
+    <div class="w-full max-w-[1920px] mx-auto px-2 sm:px-4 h-12 flex items-center justify-between gap-2">
+      
+      <!-- Sinistra: Hamburger + Brand Compatto -->
       <div class="flex items-center gap-2.5">
+        <button type="button" id="btn-left-menu" onclick="toggleLeftSidebar()" class="w-9 h-9 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 text-slate-200 flex items-center justify-center transition-all active:scale-95" title="Menu &amp; Impostazioni">
+          <i class="fa-solid fa-bars text-sm"></i>
+        </button>
+
+        <div class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-lg bg-gradient-to-tr from-indigo-600 to-sky-500 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
+            <i class="fa-solid fa-house-signal text-xs"></i>
+          </div>
+          <h1 class="text-sm sm:text-base font-bold text-white tracking-tight" id="home-name">Casetta</h1>
+          <span class="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            Live
+          </span>
+        </div>
+      </div>
+
+      <!-- Destra: Metriche Essenziali + Hamburger Filtri/Dispositivi -->
+      <div class="flex items-center gap-2">
         <!-- Security Mode -->
-        <div id="security-badge" onclick="cycleSecurityMode()" class="cursor-pointer hidden md:flex items-center gap-1.5 bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 border border-slate-700/60 px-3 py-1.5 rounded-xl text-xs font-semibold shadow-inner transition-colors" title="Clicca per cambiare modalità sicurezza">
+        <div id="security-badge" onclick="cycleSecurityMode()" class="cursor-pointer flex items-center gap-1.5 bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 border border-slate-700/60 px-2.5 py-1.5 rounded-xl text-xs font-semibold shadow-inner transition-colors" title="Clicca per cambiare modalità sicurezza">
           <i class="fa-solid fa-shield-halved text-rose-400"></i>
-          <span id="stat-sec-mode">A Casa</span>
+          <span id="stat-sec-mode" class="hidden sm:inline">A Casa</span>
         </div>
 
         <!-- Potenza Totale -->
-        <div id="energy-badge" class="flex items-center gap-1.5 bg-amber-950/60 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-semibold shadow-inner" title="Potenza totale istantanea prese">
+        <div id="energy-badge" class="flex items-center gap-1.5 bg-amber-950/60 text-amber-300 border border-amber-500/30 px-2.5 py-1.5 rounded-xl text-xs font-semibold shadow-inner" title="Potenza totale istantanea prese">
           <i class="fa-solid fa-bolt text-amber-400"></i>
           <span id="stat-power">0 W</span>
         </div>
 
-        <!-- Master Off Button -->
-        <button onclick="triggerMasterOff()" class="p-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 transition-all active:scale-95" title="Spegni tutto">
-          <i class="fa-solid fa-power-off text-xs"></i>
+        <!-- Pulsante Apertura Sidebar Destra (Filtri & Dispositivi) -->
+        <button type="button" id="btn-right-drawer" onclick="window.floorplan?.toggleRightDrawer()" class="h-9 px-3 rounded-xl bg-indigo-600/90 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-2 shadow-md shadow-indigo-600/20 transition-all active:scale-95" title="Apri Filtri, Stanze e Dispositivi">
+          <i class="fa-solid fa-sliders"></i>
+          <span class="hidden sm:inline">Filtri &amp; Device</span>
         </button>
-
-        <!-- Refresh Button -->
-        <button onclick="loadDashboard()" class="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700/50 active:scale-95" title="Aggiorna dati">
-          <i class="fa-solid fa-rotate-right text-xs" id="refresh-icon"></i>
-        </button>
-
-        <!-- User Profile Badge & Logout -->
-        <div class="hidden sm:flex items-center gap-2 bg-slate-800/80 border border-slate-700/60 px-2.5 py-1.5 rounded-xl text-xs shadow-inner">
-          <i class="fa-solid fa-user-shield text-indigo-400"></i>
-          <span id="user-display" class="font-medium text-slate-300 max-w-[120px] truncate">Admin</span>
-          <button type="button" onclick="logoutNow()" class="text-slate-400 hover:text-rose-400 p-0.5 transition-colors active:scale-95" title="Disconnetti">
-            <i class="fa-solid fa-right-from-bracket"></i>
-          </button>
-        </div>
       </div>
 
     </div>
   </header>
 
-  <!-- Main Workspace Container -->
-  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex-1 w-full space-y-5">
-
-    <!-- AI Command Bar -->
-    <div class="glass-card rounded-2xl p-3.5 shadow-xl">
-      <form id="assistant-form" class="relative flex items-center">
-        <div class="absolute left-4 text-indigo-400 text-base">
-          <i class="fa-solid fa-wand-magic-sparkles animate-pulse"></i>
-        </div>
-        <input
-          type="text"
-          id="assistant-input"
-          placeholder="Chiedi o comanda alla casa (es: 'Accendi presa cucina', 'Temperatura salone', 'Spegni tutto')..."
-          class="w-full bg-slate-900/90 text-slate-100 placeholder-slate-400 pl-11 pr-24 py-3 rounded-xl border border-slate-700/70 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs sm:text-sm transition-all"
-        />
-        <button
-          type="submit"
-          class="absolute right-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-600/30 transition-all flex items-center gap-1.5"
-        >
-          <span>Invia</span>
-          <i class="fa-solid fa-paper-plane text-[10px]"></i>
-        </button>
-      </form>
-
-      <!-- Risposta Assistente -->
-      <div id="assistant-response-box" class="hidden mt-3 p-3 rounded-xl bg-indigo-950/40 border border-indigo-500/30 text-xs flex items-start gap-2.5">
-        <i class="fa-solid fa-comment-dots text-indigo-400 mt-0.5"></i>
-        <div id="assistant-response-text" class="text-slate-200"></div>
-      </div>
-    </div>
+  <!-- Main Workspace Container (Full Width) -->
+  <main class="w-full max-w-[1920px] mx-auto px-2 sm:px-4 py-2 flex-1 flex flex-col overflow-x-hidden">
 
     <!-- MACRO-AREA 1: 🏠 La Mia Casa (Digital Twin Floorplan) -->
-    <section id="area-home">
-      <div id="floorplan-container"></div>
+    <section id="area-home" class="flex-1 flex flex-col">
+      <div id="floorplan-container" class="flex-1 flex flex-col"></div>
     </section>
 
     <!-- MACRO-AREA 2: ⚡ Consumi & Energia (Energy Intelligence) -->
@@ -237,21 +286,46 @@
 
   </main>
 
-  <!-- Mobile Bottom Navigation Bar (Fissa su smartphone) -->
-  <nav class="fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 flex sm:hidden">
-    <button data-area="home" class="mobile-nav-btn flex-1 py-2.5 text-indigo-400 flex flex-col items-center justify-center text-[10px] font-bold border-t-2 border-indigo-500 bg-slate-900/90 transition-all">
-      <i class="fa-solid fa-house text-base mb-0.5"></i>
-      <span>Casa</span>
+  <!-- Pulsante Flottante Assistente AI + Popover -->
+  <div id="ai-floating-wrapper" class="fixed bottom-4 left-4 z-40">
+    <!-- Popover Chat AI (Nascosto di default) -->
+    <div id="ai-popover" class="hidden mb-3 w-[calc(100vw-2rem)] sm:w-[420px] glass-card rounded-2xl p-3.5 shadow-2xl border border-indigo-500/40 bg-slate-950/95">
+      <div class="flex items-center justify-between mb-2.5">
+        <div class="flex items-center gap-2 text-xs font-bold text-white">
+          <i class="fa-solid fa-wand-magic-sparkles text-indigo-400"></i>
+          <span>Assistente Vocale &amp; Testuale</span>
+        </div>
+        <button type="button" onclick="toggleAiPopover(false)" class="text-slate-400 hover:text-white p-1 transition-colors">
+          <i class="fa-solid fa-xmark text-xs"></i>
+        </button>
+      </div>
+      <form id="assistant-form" class="relative flex items-center">
+        <input
+          type="text"
+          id="assistant-input"
+          placeholder="Es: 'Accendi presa cucina', 'Temperatura salone'..."
+          class="w-full bg-slate-900/90 text-slate-100 placeholder-slate-400 pl-3.5 pr-20 py-2.5 rounded-xl border border-slate-700/70 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs transition-all"
+        />
+        <button
+          type="submit"
+          class="absolute right-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-600/30 transition-all flex items-center gap-1"
+        >
+          <span>Invia</span>
+          <i class="fa-solid fa-paper-plane text-[10px]"></i>
+        </button>
+      </form>
+      <div id="assistant-response-box" class="hidden mt-2.5 p-2.5 rounded-xl bg-indigo-950/40 border border-indigo-500/30 text-xs flex items-start gap-2">
+        <i class="fa-solid fa-comment-dots text-indigo-400 mt-0.5 shrink-0"></i>
+        <div id="assistant-response-text" class="text-slate-200"></div>
+      </div>
+    </div>
+
+    <!-- FAB Assistente AI -->
+    <button type="button" id="ai-fab" onclick="toggleAiPopover()" class="h-11 px-4 rounded-full bg-gradient-to-tr from-indigo-600 to-sky-500 hover:from-indigo-500 hover:to-sky-400 text-white shadow-xl shadow-indigo-600/30 border border-white/15 flex items-center gap-2 text-xs font-bold transition-all active:scale-95" title="Chiedi o comanda alla casa">
+      <i class="fa-solid fa-wand-magic-sparkles"></i>
+      <span class="hidden sm:inline">Chiedi alla casa</span>
     </button>
-    <button data-area="energy" class="mobile-nav-btn flex-1 py-2.5 text-slate-400 hover:text-slate-200 flex flex-col items-center justify-center text-[10px] font-medium border-t-2 border-transparent transition-all">
-      <i class="fa-solid fa-bolt-lightning text-base mb-0.5 text-amber-400"></i>
-      <span>Consumi</span>
-    </button>
-    <button data-area="admin" class="mobile-nav-btn flex-1 py-2.5 text-slate-400 hover:text-slate-200 flex flex-col items-center justify-center text-[10px] font-medium border-t-2 border-transparent transition-all">
-      <i class="fa-solid fa-screwdriver-wrench text-base mb-0.5 text-sky-400"></i>
-      <span>Admin</span>
-    </button>
-  </nav>
+  </div>
 
   <!-- Script Modulari Frontend -->
   <script src="/js/device-sheet.js"></script>
