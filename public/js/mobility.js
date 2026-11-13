@@ -3,12 +3,97 @@
  */
 class MobilityManager {
   constructor() {
+    this.activeTab = 'live'; // 'live' | 'trips'
     this.tyreUnit = 'bar'; // 'bar' | 'kPa' | 'psi'
     this.busyAction = null;
     this.lastFeedback = null; // { type: 'success'|'error'|'info', text: string }
     this.activeEffect = null; // 'lock'|'unlock'|'climate'|'flash'|'honk_flash'|null
     this._effectTimer = null;
     this._feedbackTimer = null;
+    this.tripsData = null;
+    this.tripsLoading = false;
+    this.tripsFilter = { year: 'all', month: 'all', search: '', limit: 60 };
+  }
+
+  setTab(tab) {
+    if (!['live', 'trips'].includes(tab)) return;
+    this.activeTab = tab;
+    if (tab === 'trips' && !this.tripsData && !this.tripsLoading) {
+      this.loadTripsData();
+    }
+    this.renderView();
+  }
+
+  async loadTripsData() {
+    this.tripsLoading = true;
+    this.renderView();
+    try {
+      const qs = new URLSearchParams({
+        year: this.tripsFilter.year,
+        month: this.tripsFilter.month,
+        search: this.tripsFilter.search,
+        limit: String(this.tripsFilter.limit)
+      });
+      const res = await fetch(`/api/ev-climate/volvo/trips?${qs.toString()}`);
+      const json = await res.json();
+      if (json.success) {
+        this.tripsData = json.data;
+      }
+    } catch (err) {
+      console.warn('Errore caricamento storico viaggi:', err);
+    } finally {
+      this.tripsLoading = false;
+      this.renderView();
+    }
+  }
+
+  async connectDriveFolder() {
+    const inputEl = document.getElementById('drive-folder-input');
+    const folder = inputEl?.value?.trim() || '';
+    try {
+      const qs = folder ? `?folder=${encodeURIComponent(folder)}` : '';
+      const res = await fetch(`/api/ev-climate/volvo/trips/drive-oauth${qs}`);
+      const json = await res.json();
+      if (!json.success || !json.url) throw new Error(json.error || 'Impossibile generare URL Google Drive');
+      window.location.href = json.url;
+    } catch (err) {
+      if (typeof window.showToast === 'function') window.showToast(err.message, 'error');
+    }
+  }
+
+  async syncTripsFromDrive(force = false) {
+    if (this.tripsLoading) return;
+    this.tripsLoading = true;
+    this.renderView();
+    try {
+      const qs = new URLSearchParams({
+        year: this.tripsFilter.year,
+        month: this.tripsFilter.month,
+        search: this.tripsFilter.search,
+        limit: String(this.tripsFilter.limit)
+      });
+      const res = await fetch(`/api/ev-climate/volvo/trips/sync?${qs.toString()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force })
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Sincronizzazione Drive fallita');
+      this.tripsData = json.data;
+      if (typeof window.showToast === 'function') {
+        window.showToast(`Drive sincronizzato: ${json.data?.status?.totalTrips || 0} viaggi`, 'success');
+      }
+    } catch (err) {
+      if (typeof window.showToast === 'function') window.showToast(err.message, 'error');
+    } finally {
+      this.tripsLoading = false;
+      this.renderView();
+    }
+  }
+
+  updateTripsFilter(patch) {
+    Object.assign(this.tripsFilter, patch);
+    this.loadTripsData();
   }
 
   setFeedback(type, text, durationMs = 6000) {
@@ -370,9 +455,200 @@ class MobilityManager {
     `;
   }
 
+  renderTripsTab() {
+    const td = this.tripsData || {};
+    const status = td.status || {};
+    const totals = td.totals || {};
+    const months = td.monthlySummaries || [];
+    const trips = td.trips || [];
+    const years = status.years || [];
+    const IT_MONTHS = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+
+    const lastSyncText = status.lastSyncAt
+      ? `Agg. ${new Date(status.lastSyncAt).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+      : 'Mai sincronizzato';
+
+    return `
+      <!-- BARRA FILTRI & SYNC DRIVE (Pulita e Minimale) -->
+      <div class="glass-panel rounded-3xl p-4 md:p-5 border border-slate-700/60 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="inline-flex rounded-xl bg-slate-900/90 p-0.5 border border-slate-800">
+            <button onclick="window.mobilityManager.updateTripsFilter({ year: 'all', month: 'all' })" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${this.tripsFilter.year === 'all' ? 'bg-sky-500 text-slate-950' : 'text-slate-400 hover:text-white'}">Tutti</button>
+            ${years.map(y => `
+              <button onclick="window.mobilityManager.updateTripsFilter({ year: '${y}', month: 'all' })" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${String(this.tripsFilter.year) === String(y) ? 'bg-sky-500 text-slate-950' : 'text-slate-400 hover:text-white'}">${y}</button>
+            `).join('')}
+          </div>
+
+          <select onchange="window.mobilityManager.updateTripsFilter({ month: this.value })" class="bg-slate-900/90 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500">
+            <option value="all" ${this.tripsFilter.month === 'all' ? 'selected' : ''}>Tutti i mesi</option>
+            ${IT_MONTHS.map((m, idx) => `<option value="${idx + 1}" ${String(this.tripsFilter.month) === String(idx + 1) ? 'selected' : ''}>${m}</option>`).join('')}
+          </select>
+
+          <input type="search" value="${this.escapeHtml(this.tripsFilter.search)}" onchange="window.mobilityManager.updateTripsFilter({ search: this.value })" placeholder="Cerca via o note..." class="w-44 sm:w-56 bg-slate-900/90 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500" />
+        </div>
+
+        <div class="flex items-center gap-2.5">
+          <span class="text-[11px] text-slate-400">${lastSyncText}</span>
+          ${status.configured ? `
+            <button onclick="window.mobilityManager.syncTripsFromDrive(false)" ${this.tripsLoading ? 'disabled' : ''} class="px-3.5 py-2 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white transition-all flex items-center gap-1.5">
+              <i class="fa-solid fa-rotate ${this.tripsLoading ? 'fa-spin' : ''}"></i> Aggiorna da Drive
+            </button>
+          ` : `
+            <button onclick="window.mobilityManager.connectDriveFolder()" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-all flex items-center gap-1.5">
+              <i class="fa-brands fa-google-drive"></i> Connetti Google Drive
+            </button>
+          `}
+        </div>
+      </div>
+
+      ${!status.configured ? `
+        <div class="glass-panel rounded-3xl p-5 border border-slate-700/60 space-y-3">
+          <div class="text-sm font-bold text-white"><i class="fa-brands fa-google-drive text-emerald-400 mr-2"></i>Collega la cartella "Consumi" di Google Drive</div>
+          <p class="text-xs text-slate-400">Una volta autorizzato, il sistema si aggiornerà automaticamente 1 volta al giorno (o manualmente dal pulsante qui sopra).</p>
+          <div class="flex flex-col sm:flex-row gap-2">
+            <input id="drive-folder-input" type="text" placeholder="URL o ID cartella Drive (opzionale se già configurata sul server)" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
+            <button onclick="window.mobilityManager.connectDriveFolder()" class="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shrink-0">Autorizza &amp; Sincronizza</button>
+          </div>
+        </div>
+      ` : ''}
+
+      ${status.lastSyncError ? `
+        <div class="px-4 py-2.5 rounded-2xl bg-rose-950/50 border border-rose-500/40 text-xs text-rose-200">
+          <i class="fa-solid fa-triangle-exclamation mr-1.5"></i>${this.escapeHtml(status.lastSyncError)}
+        </div>
+      ` : ''}
+
+      <!-- 4 KPI ESSENZIALI -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="glass-panel rounded-2xl p-4 border border-slate-700/60">
+          <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Km Percorsi</div>
+          <div class="text-2xl font-black text-white mt-1 tabular-nums">${(totals.km || 0).toLocaleString('it-IT')} km</div>
+          <div class="text-[11px] text-slate-400 mt-0.5">Alex ${(totals.alexKm || 0).toLocaleString('it-IT')} • Cinzia ${(totals.cinziaKm || 0).toLocaleString('it-IT')}</div>
+        </div>
+        <div class="glass-panel rounded-2xl p-4 border border-slate-700/60">
+          <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Consumo Medio</div>
+          <div class="text-2xl font-black text-sky-300 mt-1 tabular-nums">${totals.avgKwh100 ?? '--'} <span class="text-xs font-semibold text-slate-400">kWh/100km</span></div>
+          <div class="text-[11px] text-slate-400 mt-0.5">Totale guida: ${(totals.kwh || 0).toLocaleString('it-IT')} kWh</div>
+        </div>
+        <div class="glass-panel rounded-2xl p-4 border border-slate-700/60">
+          <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Costo Ricariche EV</div>
+          <div class="text-2xl font-black text-white mt-1 tabular-nums">${(totals.costEur || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>
+          <div class="text-[11px] text-slate-400 mt-0.5">${(totals.chargedKwh || 0).toLocaleString('it-IT')} kWh erogati</div>
+        </div>
+        <div class="glass-panel rounded-2xl p-4 border border-slate-700/60">
+          <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Risparmio vs Termico</div>
+          <div class="text-2xl font-black text-emerald-300 mt-1 tabular-nums">+${Math.round(totals.savingsDieselEur || 0).toLocaleString('it-IT')} €</div>
+          <div class="text-[11px] text-slate-400 mt-0.5">CO2 evitata: ${Math.round(totals.co2SavedKg || 0).toLocaleString('it-IT')} kg</div>
+        </div>
+      </div>
+
+      <!-- TABELLA RIEPILOGO MENSILE -->
+      ${months.length > 0 ? `
+        <div class="glass-panel rounded-3xl p-5 border border-slate-700/60">
+          <h3 class="text-sm font-bold text-white mb-3">Riepilogo Mensile Consumi &amp; Costi</h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs text-left border-collapse">
+              <thead>
+                <tr class="text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-800">
+                  <th class="py-2 pr-3">Mese</th>
+                  <th class="py-2 px-3 text-right">Km</th>
+                  <th class="py-2 px-3 text-right">Alex / Cinzia</th>
+                  <th class="py-2 px-3 text-right">Media</th>
+                  <th class="py-2 px-3 text-right">Ricarica (WB/Col)</th>
+                  <th class="py-2 px-3 text-right">Costo EV</th>
+                  <th class="py-2 pl-3 text-right">Risparmio (D / B)</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800/70">
+                ${months.map(m => `
+                  <tr class="hover:bg-slate-800/30 transition-colors">
+                    <td class="py-2.5 pr-3 font-semibold text-white">${this.escapeHtml(m.monthName)} ${m.year}</td>
+                    <td class="py-2.5 px-3 text-right tabular-nums text-slate-200 font-bold">${m.km.toLocaleString('it-IT')} km</td>
+                    <td class="py-2.5 px-3 text-right tabular-nums text-slate-400">${m.alexKm} / ${m.cinziaKm}</td>
+                    <td class="py-2.5 px-3 text-right tabular-nums text-sky-300">${m.avgKwh100 ?? '--'} <span class="text-[10px] text-slate-500">kWh/100</span></td>
+                    <td class="py-2.5 px-3 text-right tabular-nums text-slate-300">${m.wallboxKwh} / ${m.publicKwh} kWh</td>
+                    <td class="py-2.5 px-3 text-right tabular-nums text-slate-200">${m.totalCostEur.toFixed(2)} €</td>
+                    <td class="py-2.5 pl-3 text-right tabular-nums text-emerald-300 font-semibold">+${m.savingsDieselEur.toFixed(0)}€ / +${m.savingsPetrolEur.toFixed(0)}€</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ` : ''}
+
+      <!-- REGISTRO VIAGGI -->
+      <div class="glass-panel rounded-3xl p-5 border border-slate-700/60">
+        <div class="flex items-center justify-between gap-2 mb-3">
+          <h3 class="text-sm font-bold text-white">Registro Viaggi (${(td.tripsCount || 0).toLocaleString('it-IT')})</h3>
+          ${status.lastSyncStats ? `<span class="text-[11px] text-slate-500">File in archivio: ${status.lastSyncStats.totalMonths || 0} mesi</span>` : ''}
+        </div>
+
+        ${trips.length > 0 ? `
+          <div class="divide-y divide-slate-800/70">
+            ${trips.map(t => `
+              <div class="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2 text-[11px] text-slate-400">
+                    <span class="font-mono text-slate-300">${this.escapeHtml(t.startedAt)}</span>
+                    ${t.duration ? `<span>• ${this.escapeHtml(t.duration)}</span>` : ''}
+                    <span class="px-1.5 py-0.5 rounded bg-slate-800/90 text-slate-300 text-[10px]">${this.escapeHtml(t.category)}</span>
+                  </div>
+                  <div class="text-xs text-slate-100 mt-1 truncate" title="${this.escapeHtml(t.startAddress)} → ${this.escapeHtml(t.endAddress)}">
+                    ${this.escapeHtml(t.startAddress || '--')} <i class="fa-solid fa-arrow-right text-slate-500 mx-1 text-[10px]"></i> ${this.escapeHtml(t.endAddress || '--')}
+                  </div>
+                  ${t.notes ? `<div class="text-[11px] text-amber-300/90 mt-0.5">${this.escapeHtml(t.notes)}</div>` : ''}
+                </div>
+                <div class="flex items-center gap-4 shrink-0 text-right tabular-nums">
+                  <div>
+                    <div class="text-xs font-bold text-white">${t.distanceKm} km</div>
+                    <div class="text-[10px] text-slate-500">${t.endOdoKm ? `${Math.round(t.endOdoKm).toLocaleString('it-IT')} km tot` : ''}</div>
+                  </div>
+                  <div class="w-16">
+                    <div class="text-xs font-bold text-sky-300">${t.energyKwh} kWh</div>
+                    <div class="text-[10px] text-slate-500">${t.distanceKm > 0 ? `${((t.energyKwh / t.distanceKm) * 100).toFixed(1)} /100` : '--'}</div>
+                  </div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          ${(td.tripsCount || 0) > trips.length ? `
+            <div class="mt-4 text-center">
+              <button onclick="window.mobilityManager.updateTripsFilter({ limit: ${this.tripsFilter.limit + 80} })" class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
+                Carica altri viaggi (${trips.length} di ${td.tripsCount})
+              </button>
+            </div>
+          ` : ''}
+        ` : `
+          <div class="py-8 text-center text-xs text-slate-400">
+            ${this.tripsLoading ? '<i class="fa-solid fa-spinner fa-spin mr-1.5"></i>Caricamento storico in corso...' : 'Nessun viaggio disponibile per i filtri selezionati.'}
+          </div>
+        `}
+      </div>
+    `;
+  }
+
   renderView() {
     const container = document.getElementById('area-mobility');
     if (!container) return;
+
+    const navBarHtml = `
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <div class="inline-flex rounded-2xl bg-slate-900/90 p-1 border border-slate-800">
+          <button onclick="window.mobilityManager.setTab('live')" class="px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${this.activeTab === 'live' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/25' : 'text-slate-400 hover:text-white'}">
+            <i class="fa-solid fa-stethoscope"></i> Stato &amp; Diagnostica
+          </button>
+          <button onclick="window.mobilityManager.setTab('trips')" class="px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${this.activeTab === 'trips' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/25' : 'text-slate-400 hover:text-white'}">
+            <i class="fa-solid fa-route"></i> Storico Viaggi
+          </button>
+        </div>
+      </div>
+    `;
+
+    if (this.activeTab === 'trips') {
+      container.innerHTML = `<div class="max-w-7xl mx-auto px-4 md:px-6 py-5 space-y-5">${navBarHtml}${this.renderTripsTab()}</div>`;
+      return;
+    }
 
     const ev = this.getData();
     const volvo = ev.volvo || {};
@@ -401,6 +677,7 @@ class MobilityManager {
 
     container.innerHTML = `
       <div class="max-w-7xl mx-auto px-4 md:px-6 py-5 space-y-5">
+        ${navBarHtml}
 
         <!-- HERO HEADER VOLVO EX30 -->
         <div class="glass-panel rounded-3xl p-5 md:p-6 border border-slate-700/60 bg-gradient-to-br from-slate-900/95 via-slate-900/85 to-slate-950/95">
