@@ -149,6 +149,11 @@ class FloorplanEngine {
     this.showProximity = true;
     this.showFurniture = true;
     this.heatMapActive = false;
+    this.zoomPreset = 'all'; // 'all' | 'night' | 'day'
+    this.statusFilter = 'all'; // 'all' | 'active' | 'offline'
+    this.rightDrawerOpen = false;
+    this.rightDrawerTab = 'devices'; // 'devices' | 'hue'
+    this.searchQuery = '';
 
     // Philips Hue LAN Scenes & Dynamic Effects
     this.hueDynamicMode = false;
@@ -268,6 +273,81 @@ class FloorplanEngine {
     this.render();
   }
 
+  setZoomPreset(preset) {
+    this.zoomPreset = preset || 'all';
+    this.panX = 0;
+    this.panY = 0;
+    this.scale = 1;
+    this.render();
+  }
+
+  setStatusFilter(status) {
+    this.statusFilter = status || 'all';
+    this.render();
+  }
+
+  setRightDrawerTab(tab) {
+    this.rightDrawerTab = tab || 'devices';
+    this.renderRightDrawer();
+  }
+
+  setSearchQuery(q) {
+    this.searchQuery = (q || '').trim();
+    this.renderRightDrawer(true);
+  }
+
+  toggleRightDrawer(forceState) {
+    const rsb = document.getElementById('right-sidebar');
+    if (!rsb) return;
+    const isClosed = rsb.classList.contains('translate-x-full');
+    const open = typeof forceState === 'boolean' ? forceState : isClosed;
+    this.rightDrawerOpen = open;
+    if (open) {
+      document.getElementById('left-sidebar')?.classList.add('-translate-x-full');
+      this.renderRightDrawer();
+      rsb.classList.remove('translate-x-full');
+    } else {
+      rsb.classList.add('translate-x-full');
+    }
+    if (typeof window.updateSidebarBackdrop === 'function') window.updateSidebarBackdrop();
+  }
+
+  isPinActive(p) {
+    if (p.category === 'valve') return Boolean(p.isHeating || (p.valvePercent || 0) > 15);
+    if (p.category === 'camera') return !p.privacyMode;
+    return Boolean(p.isOn || (Number(p.powerW) || 0) > 5);
+  }
+
+  isPinOffline(p) {
+    return p.online === false || p.status === 'offline' || p.available === false;
+  }
+
+  syncLeftSidebarControls() {
+    const styles = ['luxury', 'cad', 'light'];
+    styles.forEach(s => {
+      const btn = document.getElementById(`sb-style-${s}`);
+      if (!btn) return;
+      if (this.bgStyle === s) {
+        const activeCls = s === 'cad' ? 'bg-cyan-600 text-white' : (s === 'light' ? 'bg-slate-200 text-slate-900' : 'bg-indigo-600 text-white');
+        btn.className = `py-1.5 rounded-lg text-[11px] font-bold transition-all ${activeCls}`;
+      } else {
+        btn.className = 'py-1.5 rounded-lg text-[11px] font-bold text-slate-400 hover:text-white transition-all';
+      }
+    });
+
+    const hmBadge = document.getElementById('sb-state-heatmap');
+    if (hmBadge) {
+      hmBadge.textContent = this.heatMapActive ? 'ON' : 'OFF';
+      hmBadge.className = `text-[10px] font-mono px-1.5 py-0.5 rounded ${this.heatMapActive ? 'bg-amber-500/20 text-amber-300' : 'bg-slate-800 text-slate-400'}`;
+    }
+
+    const fnBadge = document.getElementById('sb-state-furniture');
+    if (fnBadge) {
+      fnBadge.textContent = this.showFurniture ? 'ON' : 'OFF';
+      fnBadge.className = `text-[10px] font-mono px-1.5 py-0.5 rounded ${this.showFurniture ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-800 text-slate-400'}`;
+    }
+  }
+
   toggleProximity() {
     this.showProximity = !this.showProximity;
     this.render();
@@ -305,6 +385,7 @@ class FloorplanEngine {
     this.panX = 0;
     this.panY = 0;
     this.scale = 1;
+    this.zoomPreset = 'all';
     this.selectedRoom = null;
     this.applyTransform(true);
     this.render();
@@ -603,8 +684,10 @@ class FloorplanEngine {
     const isCad = this.bgStyle === 'cad';
     const isLight = this.bgStyle === 'light';
 
-    // Piantina fissa con panoramica 1:1 ottimizzata (eliminati margini neri vuoti)
-    const viewBox = '150 30 680 1215';
+    // Piantina con proporzioni fedeli 1:1 e preset vista zoom (Tutta la casa / Zona Notte / Zona Giorno)
+    const viewBox = this.zoomPreset === 'night'
+      ? '150 30 680 620'
+      : (this.zoomPreset === 'day' ? '150 640 680 610' : '150 30 680 1215');
     const hasRoomSelection = !!this.selectedRoom;
 
     // Radar cone per le telecamere Tapo
@@ -890,10 +973,14 @@ class FloorplanEngine {
 
       const isPinInSelectedRoom = !hasRoomSelection || p.room === this.selectedRoom;
       const isPinInActiveLayer = this.isPinInLayer(p, this.activeLayer);
-      const pinOpacity = (isPinInSelectedRoom && isPinInActiveLayer)
+      const isPinInStatus = this.statusFilter === 'all'
+        || (this.statusFilter === 'active' && this.isPinActive(p))
+        || (this.statusFilter === 'offline' && this.isPinOffline(p));
+      const isPinMatched = isPinInActiveLayer && isPinInStatus;
+      const pinOpacity = (isPinInSelectedRoom && isPinMatched)
         ? '1'
-        : (!isPinInActiveLayer ? '0.10' : '0.22');
-      const pointerEvents = isPinInActiveLayer ? 'auto' : 'none';
+        : (!isPinMatched ? '0.10' : '0.22');
+      const pointerEvents = isPinMatched ? 'auto' : 'none';
 
       const badgeWidth = subBadge ? Math.max(28, subBadge.length * 5.8 + 8) : 0;
       const halfW = +(badgeWidth / 2).toFixed(1);
@@ -957,85 +1044,91 @@ class FloorplanEngine {
     const activeLayerObj = LAYERS.find(l => l.id === this.activeLayer) || LAYERS[0];
     const activeLayerLabel = activeLayerObj.label;
 
-    // Dispositivi filtrati per stanza attiva e per layer attivo
+    // Dispositivi filtrati per stanza attiva, layer attivo e stato
     const filteredPins = pins.filter(p => {
       const matchRoom = !this.selectedRoom || p.room === this.selectedRoom;
       const matchLayer = this.isPinInLayer(p, this.activeLayer);
-      return matchRoom && matchLayer;
+      const matchStatus = this.statusFilter === 'all'
+        || (this.statusFilter === 'active' && this.isPinActive(p))
+        || (this.statusFilter === 'offline' && this.isPinOffline(p));
+      return matchRoom && matchLayer && matchStatus;
     });
 
     const roomLabelDisplay = this.selectedRoom || 'Tutta la Casa';
-    const roomHueScenes = this.getHueScenesForCurrentRoom();
 
-    // HTML Wrapper con Layout Desktop a 2 Colonne (Split-Screen)
+    // Canvas-First Minimal HUD (Planimetria Full-Width con Chip Flottanti e Zoom Preset)
     container.innerHTML = `
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+      <div id="floorplan-touch-viewport" class="relative w-full h-[calc(100vh-76px)] min-h-[540px] rounded-2xl sm:rounded-3xl overflow-hidden border border-slate-800/90 bg-slate-950 shadow-2xl flex items-center justify-center select-none cursor-default">
         
-        <!-- COLONNA SINISTRA: Toolbar Superiore + Viewport Piantina Desktop Estesa -->
-        <div class="lg:col-span-7 xl:col-span-8 flex flex-col gap-3 min-w-0">
+        <!-- HUD Superiore Flottante: Chip Filtri Rapidi (Sinistra) + Vista Zoom (Destra) -->
+        <div class="absolute top-2.5 left-2.5 right-2.5 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
           
-          <!-- Toolbar Superiore: Selettore Layer a 6 Livelli + Controlli Mappa -->
-          <div class="flex items-center justify-between flex-wrap gap-2.5 bg-slate-900/85 p-2.5 rounded-2xl border border-slate-800 backdrop-blur-md shadow-lg">
-            
-            <!-- Menu Stratificazione a Livelli (Layer Selector) -->
-            <div class="flex items-center gap-1.5 overflow-x-auto pb-0.5 max-w-full">
-              ${LAYERS.map(l => {
-                const isActive = this.activeLayer === l.id;
-                const count = l.id === 'all'
-                  ? pins.length
-                  : pins.filter(p => this.isPinInLayer(p, l.id)).length;
-                return `
-                  <button onclick="window.floorplan.setLayer('${l.id}')"
-                          class="px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap active:scale-95 ${isActive ? 'bg-indigo-600 text-white shadow-md ring-1 ring-cyan-400' : 'bg-slate-800 text-slate-400 hover:text-white'}">
-                    <i class="fa-solid ${l.icon} text-xs"></i>
-                    <span>${l.label}</span>
-                    <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono ${isActive ? 'bg-indigo-900/80 text-cyan-200' : 'bg-slate-900 text-slate-500'}">${count}</span>
-                  </button>
-                `;
-              }).join('')}
-            </div>
+          <!-- Chip Layer Rapidi (Wrap pulito, zero scroll orizzontale) -->
+          <div class="pointer-events-auto flex flex-wrap items-center gap-1.5">
+            ${LAYERS.map(l => {
+              const isActive = this.activeLayer === l.id;
+              const count = l.id === 'all'
+                ? pins.length
+                : pins.filter(p => this.isPinInLayer(p, l.id)).length;
+              return `
+                <button onclick="window.floorplan.setLayer('${l.id}')"
+                        class="px-2.5 py-1.5 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 backdrop-blur-md transition-all active:scale-95 border ${isActive ? 'bg-indigo-600/95 text-white border-cyan-400/60 shadow-lg shadow-indigo-600/25' : 'bg-slate-900/75 border-slate-700/60 text-slate-300 hover:text-white hover:bg-slate-800/85'}">
+                  <i class="fa-solid ${l.icon} text-[11px]"></i>
+                  <span class="hidden sm:inline">${l.label}</span>
+                  <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono ${isActive ? 'bg-indigo-950/70 text-cyan-200' : 'bg-slate-800/90 text-slate-400'}">${count}</span>
+                </button>
+              `;
+            }).join('')}
 
-            <!-- Floating Controls Toolbar Mappa -->
-            <div class="flex items-center gap-1.5 ml-auto">
-              <button onclick="window.floorplan.toggleHeatmap()" class="p-2 rounded-xl text-xs font-semibold border ${this.heatMapActive ? 'bg-amber-500/20 border-amber-500 text-amber-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'} transition-all" title="Attiva/Disattiva Heatmap Energetica">
-                <i class="fa-solid fa-fire-flame-simple"></i>
+            ${this.selectedRoom ? `
+              <button onclick="window.floorplan.selectRoom(null)"
+                      class="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 border border-cyan-400/40 backdrop-blur-md flex items-center gap-1.5 transition-all active:scale-95"
+                      title="Mostra tutta la casa">
+                <i class="fa-solid fa-location-dot text-cyan-300"></i>
+                <span>${roomLabelDisplay}</span>
+                <i class="fa-solid fa-xmark text-[10px] ml-0.5"></i>
               </button>
-              <button onclick="window.floorplan.toggleFurniture()" class="p-2 rounded-xl text-xs font-semibold border ${this.showFurniture ? 'bg-indigo-500/20 border-indigo-500 text-indigo-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'} transition-all" title="Mostra/Nascondi Arredi">
-                <i class="fa-solid fa-couch"></i>
+            ` : ''}
+
+            ${this.statusFilter !== 'all' ? `
+              <button onclick="window.floorplan.setStatusFilter('all')"
+                      class="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/40 backdrop-blur-md flex items-center gap-1.5 transition-all active:scale-95"
+                      title="Rimuovi filtro stato">
+                <i class="fa-solid fa-filter text-amber-300"></i>
+                <span>${this.statusFilter === 'active' ? 'Solo Attivi' : 'Offline'}</span>
+                <i class="fa-solid fa-xmark text-[10px] ml-0.5"></i>
               </button>
-              <div class="inline-flex rounded-xl bg-slate-800 p-0.5 border border-slate-700">
-                <button onclick="window.floorplan.setBgStyle('luxury')" class="px-2 py-1 rounded-lg text-[10px] font-bold ${this.bgStyle === 'luxury' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}">Dark</button>
-                <button onclick="window.floorplan.setBgStyle('cad')" class="px-2 py-1 rounded-lg text-[10px] font-bold ${this.bgStyle === 'cad' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'}">CAD</button>
-                <button onclick="window.floorplan.setBgStyle('light')" class="px-2 py-1 rounded-lg text-[10px] font-bold ${this.bgStyle === 'light' ? 'bg-slate-200 text-slate-900' : 'text-slate-400 hover:text-white'}">Light</button>
-              </div>
-              <button onclick="window.floorplan.zoomIn()" class="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-all active:scale-95" title="Ingrandisci Piantina">
-                <i class="fa-solid fa-plus text-xs"></i>
-              </button>
-              <button onclick="window.floorplan.zoomOut()" class="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-all active:scale-95" title="Rimpicciolisci Piantina">
-                <i class="fa-solid fa-minus text-xs"></i>
-              </button>
-              <button onclick="window.floorplan.resetZoom()" class="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-all active:scale-95" title="Centra Vista">
-                <i class="fa-solid fa-compress text-xs"></i>
-              </button>
-              <button onclick="window.dragEditor?.toggleEditMode()"
-                      id="btn-toggle-edit-mode-fp"
-                      class="p-2 rounded-xl text-xs font-semibold border ${window.dragEditor?.editMode ? 'bg-amber-600 text-white border-amber-500 shadow-md' : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'} transition-all active:scale-95"
-                      title="Modifica Posizione Dispositivi sulla Piantina (Drag & Drop)">
-                <i class="fa-solid fa-pen-ruler text-xs"></i>
-              </button>
-            </div>
+            ` : ''}
           </div>
 
-      <!-- Viewport Piantina Fissa Vettoriale (Scrolling fluido del browser, pan e zoom dedicati) -->
-      <div id="floorplan-touch-viewport" class="relative w-full rounded-3xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl flex items-center justify-center min-h-[640px] md:min-h-[760px] lg:min-h-[860px] xl:min-h-[900px] select-none cursor-default">
-        
-        <!-- Live Drag HUD se in modalità modifica -->
-        <div id="drag-pin-live-hud" class="hidden absolute top-4 left-4 right-4 z-20 p-2.5 rounded-xl bg-slate-900/90 border border-amber-500/50 text-xs text-amber-200 text-center shadow-lg backdrop-blur-md"></div>
+          <!-- Selettore Vista Zoom (Proporzioni SVG fedeli) -->
+          <div class="pointer-events-auto inline-flex items-center rounded-xl bg-slate-900/80 backdrop-blur-md p-0.5 border border-slate-700/60 shadow-lg">
+            <button onclick="window.floorplan.setZoomPreset('all')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${this.zoomPreset === 'all' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Casa</button>
+            <button onclick="window.floorplan.setZoomPreset('night')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${this.zoomPreset === 'night' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Notte</button>
+            <button onclick="window.floorplan.setZoomPreset('day')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${this.zoomPreset === 'day' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Giorno</button>
+          </div>
+        </div>
 
-        <div id="floorplan-panzoom-layer" class="w-full h-full flex items-center justify-center">
+        <!-- Live Drag HUD se in modalità modifica -->
+        <div id="drag-pin-live-hud" class="hidden absolute top-14 left-4 right-4 z-20 p-2.5 rounded-xl bg-slate-900/90 border border-amber-500/50 text-xs text-amber-200 text-center shadow-lg backdrop-blur-md"></div>
+
+        <!-- Controlli Zoom Flottanti (In basso a destra) -->
+        <div class="absolute bottom-3 right-3 z-20 flex items-center gap-1 bg-slate-900/80 backdrop-blur-md p-1 rounded-2xl border border-slate-700/60 shadow-xl">
+          <button onclick="window.floorplan.zoomIn()" class="w-8 h-8 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition-all active:scale-95" title="Ingrandisci Piantina">
+            <i class="fa-solid fa-plus text-xs"></i>
+          </button>
+          <button onclick="window.floorplan.zoomOut()" class="w-8 h-8 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition-all active:scale-95" title="Rimpicciolisci Piantina">
+            <i class="fa-solid fa-minus text-xs"></i>
+          </button>
+          <button onclick="window.floorplan.resetZoom()" class="w-8 h-8 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition-all active:scale-95" title="Centra Vista">
+            <i class="fa-solid fa-compress text-xs"></i>
+          </button>
+        </div>
+
+        <div id="floorplan-panzoom-layer" class="w-full h-full flex items-center justify-center p-2 sm:p-4">
           <svg id="casetta-blueprint-svg"
                viewBox="${viewBox}"
-               class="w-full h-full max-h-[88vh] transition-all duration-300"
+               class="w-full h-full max-h-full transition-all duration-300"
                style="filter: drop-shadow(0 20px 30px rgba(0,0,0,0.7));">
             
             <defs>
@@ -1138,307 +1231,312 @@ class FloorplanEngine {
           </svg>
         </div>
       </div>
-    </div>
-
-    <!-- COLONNA DESTRA: Hub Dispositivi con Scroll Indipendente -->
-    <div class="lg:col-span-5 xl:col-span-4 flex flex-col gap-3 lg:max-h-[calc(100vh-140px)] lg:overflow-y-auto pr-1">
-      
-      <!-- Selettore Stanze a Pills Orizzontali -->
-      <div class="glass-card rounded-2xl p-3.5 border border-slate-800 shadow-lg space-y-2.5">
-        <div class="flex items-center justify-between text-xs">
-          <span class="font-bold text-slate-300 flex items-center gap-1.5">
-            <i class="fa-solid fa-location-dot text-indigo-400"></i>
-            Filtro Stanza
-          </span>
-          <span class="text-[10px] text-cyan-300 font-mono font-bold">${roomLabelDisplay}</span>
-        </div>
-        <div class="flex items-center gap-1.5 overflow-x-auto pb-1 max-w-full">
-          <button onclick="window.floorplan.selectRoom(null)" class="px-2.5 py-1 rounded-xl text-xs font-semibold ${!this.selectedRoom ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800 text-slate-400 hover:text-white'} transition-all whitespace-nowrap">
-            <i class="fa-solid fa-house-chimney mr-1"></i>Tutta la Casa
-          </button>
-          ${ARCHITECTURAL_ROOMS.filter(r => r.interactive).map(r => `
-            <button onclick="window.floorplan.selectRoom('${r.id}')" class="px-2.5 py-1 rounded-xl text-xs font-semibold ${this.selectedRoom === r.id ? 'bg-indigo-600 text-white shadow-md ring-1 ring-cyan-400' : 'bg-slate-800 text-slate-400 hover:text-white'} transition-all whitespace-nowrap">
-              <i class="fa-solid ${r.icon} mr-1"></i>${r.label.split(' ')[0]}
-            </button>
-          `).join('')}
-        </div>
-      </div>
-
-      <!-- Card Scene & Effetti Philips Hue LAN -->
-      <div class="glass-card rounded-2xl p-3.5 border border-amber-500/30 bg-slate-900/85 shadow-lg space-y-3">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <div class="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs shadow-inner">
-              <i class="fa-solid fa-palette"></i>
-            </div>
-            <div>
-              <h4 class="text-xs font-bold text-white flex items-center gap-1.5">
-                <span>Scene &amp; Atmosfere Hue</span>
-                <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">LAN CLIP v2</span>
-              </h4>
-              <div class="text-[10px] text-slate-400">Atmosfere per <strong>${roomLabelDisplay}</strong></div>
-            </div>
-          </div>
-          <button onclick="window.floorplan.toggleHueDynamicMode()" class="px-2 py-1 rounded-xl text-[10px] font-bold border transition-all shadow-sm ${this.hueDynamicMode ? 'bg-amber-500 text-slate-950 border-amber-400 ring-2 ring-amber-400/50' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}">
-            <i class="fa-solid fa-wand-magic-sparkles mr-1"></i>${this.hueDynamicMode ? 'Dinamica ON' : 'Dinamica'}
-          </button>
-        </div>
-
-        <!-- Effetti Dinamici Firmware -->
-        <div class="space-y-1.5">
-          <div class="text-[10px] font-bold text-slate-400 flex items-center gap-1">
-            <i class="fa-solid fa-fire text-amber-400"></i> Effetti Firmware
-          </div>
-          <div class="grid grid-cols-5 gap-1.5 text-[10px] font-semibold text-center">
-            <button onclick="window.floorplan.setHueEffect('${this.selectedRoom || 'Salone'}', 'candle')" class="py-1.5 rounded-xl bg-amber-950/40 hover:bg-amber-900/50 border border-amber-500/30 text-amber-200 transition-colors" title="Simula fiamma oscillante">🕯️ Candela</button>
-            <button onclick="window.floorplan.setHueEffect('${this.selectedRoom || 'Salone'}', 'fire')" class="py-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/50 border border-rose-500/30 text-rose-200 transition-colors" title="Simula focolare caldo">🔥 Fuoco</button>
-            <button onclick="window.floorplan.setHueEffect('${this.selectedRoom || 'Salone'}', 'prism')" class="py-1.5 rounded-xl bg-indigo-950/40 hover:bg-indigo-900/50 border border-indigo-500/30 text-indigo-200 transition-colors" title="Ciclo colori arcobaleno">🌈 Prisma</button>
-            <button onclick="window.floorplan.setHueEffect('${this.selectedRoom || 'Salone'}', 'sparkle')" class="py-1.5 rounded-xl bg-sky-950/40 hover:bg-sky-900/50 border border-sky-500/30 text-sky-200 transition-colors" title="Bagliori stellari">✨ Brillio</button>
-            <button onclick="window.floorplan.setHueEffect('${this.selectedRoom || 'Salone'}', 'no_effect')" class="py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors" title="Spegni effetti">⏹️ Stop</button>
-          </div>
-        </div>
-
-        <!-- Palette Scene Hue -->
-        <div class="space-y-1.5">
-          <div class="text-[10px] font-bold text-slate-400 flex items-center justify-between">
-            <span class="flex items-center gap-1"><i class="fa-solid fa-shapes text-indigo-400"></i> Scene Salvate</span>
-            <span class="text-[9px] text-slate-500 font-mono">${roomHueScenes.length} disponibili</span>
-          </div>
-          <div class="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pr-0.5">
-            ${roomHueScenes.length === 0 ? `<div class="text-[11px] text-slate-500 py-1 flex items-center gap-1.5"><i class="fa-solid fa-spinner fa-spin text-amber-400"></i> Caricamento scene...</div>` : ''}
-            ${roomHueScenes.map(s => {
-              const bgGrad = s.colors && s.colors.length > 1
-                ? `linear-gradient(135deg, ${s.colors.join(', ')})`
-                : (s.colors?.[0] || '#f59e0b');
-              return `
-                <button onclick="window.floorplan.activateHueScene('${s.id}')"
-                        class="px-2.5 py-1.5 rounded-xl text-[10px] font-bold text-white shadow-md active:scale-95 transition-all flex items-center gap-1.5 border border-white/10 hover:border-white/30"
-                        style="background: ${bgGrad};"
-                        title="Attiva ${s.name} in ${s.groupName}">
-                  <span class="drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">${s.name}</span>
-                </button>
-              `;
-            }).join('')}
-          </div>
-        </div>
-      </div>
-
-      <!-- Hub Dispositivi della Stanza Selezionata e Layer Attivo -->
-      <div class="glass-card rounded-2xl p-4 border border-slate-800 space-y-3 shadow-lg">
-        <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
-          <div class="flex items-center gap-2">
-            <i class="fa-solid fa-sliders text-indigo-400"></i>
-            <h3 class="text-xs font-bold text-white flex items-center gap-2">
-              <span>Dispositivi: <strong>${roomLabelDisplay}</strong></span>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300">${filteredPins.length}</span>
-            </h3>
-          </div>
-          <div class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">
-            Layer: <span class="text-cyan-300">${activeLayerLabel}</span>
-          </div>
-        </div>
-
-        <div class="space-y-2.5">
-          ${filteredPins.length === 0 ? `
-            <div class="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 text-center space-y-2">
-              <div class="w-10 h-10 rounded-full bg-indigo-500/10 text-indigo-400 flex items-center justify-center mx-auto text-lg">
-                <i class="fa-solid fa-filter"></i>
-              </div>
-              <div class="text-xs font-semibold text-slate-300">Nessun componente per questo filtro</div>
-              <div class="text-[11px] text-slate-400">Nessun dispositivo corrisponde a "<strong>${activeLayerLabel}</strong>" in <strong>${roomLabelDisplay}</strong>.</div>
-              <button onclick="window.floorplan.setLayer('all')" class="mt-2 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition-all">
-                Mostra tutti i componenti
-              </button>
-            </div>
-          ` : filteredPins.map(p => {
-            const isLight = p.category === 'light' || p.category === 'chandelier';
-            const isPlug = p.category === 'plug';
-            const isValve = p.category === 'valve';
-            const isCam = p.category === 'camera';
-
-            // SCHEDA TERMOVALVOLA BOSCH
-            if (isValve) {
-              const isHeating = p.isHeating || p.valvePercent > 15;
-              return `
-                <div class="p-3.5 rounded-xl bg-slate-900/70 border ${isHeating ? 'border-orange-500/40 bg-orange-950/15' : 'border-slate-800'} hover:border-orange-500/60 transition-all cursor-pointer space-y-2 shadow-sm"
-                     onclick="window.floorplan.handlePinClick(${p.pin}, event)">
-                  <div class="flex items-center justify-between gap-2.5">
-                    <div class="flex items-center gap-2.5 overflow-hidden">
-                      <div class="w-8 h-8 rounded-lg ${isHeating ? 'bg-orange-500/20 text-orange-400' : 'bg-slate-800 text-slate-400'} flex items-center justify-center shrink-0">
-                        <i class="fa-solid fa-temperature-arrow-up text-xs"></i>
-                      </div>
-                      <div class="truncate">
-                        <div class="text-xs font-bold text-white truncate flex items-center gap-1.5">
-                          <span class="text-[10px] text-slate-400 font-mono">#${p.pin}</span>
-                          <span class="truncate">${p.name}</span>
-                        </div>
-                        <div class="text-[10px] text-slate-400 truncate">
-                          ${p.room} · <strong class="text-white">${p.temperature || 20.5}°C</strong> rilevati
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- Pulsanti Rapidi Regolazione Setpoint -->
-                    <div class="flex items-center gap-1.5 shrink-0" onclick="event.stopPropagation()">
-                      <button onclick="window.adjustValveSetpoint(${p.pin}, -0.5)" class="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-bold text-xs flex items-center justify-center border border-slate-700 transition-all">
-                        <i class="fa-solid fa-minus text-[10px]"></i>
-                      </button>
-                      <span class="font-mono text-xs font-bold text-amber-300 min-w-[42px] text-center">${(p.setpoint || 20.5).toFixed(1)}°</span>
-                      <button onclick="window.adjustValveSetpoint(${p.pin}, 0.5)" class="w-7 h-7 rounded-lg bg-orange-600 hover:bg-orange-500 active:scale-95 text-white font-bold text-xs flex items-center justify-center shadow-sm transition-all">
-                        <i class="fa-solid fa-plus text-[10px]"></i>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div class="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-800/80">
-                    <span class="flex items-center gap-1.5">
-                      <i class="fa-solid fa-fire ${isHeating ? 'text-orange-400' : 'text-slate-600'}"></i>
-                      Valvola: <strong class="${isHeating ? 'text-orange-300 font-bold' : 'text-slate-300'}">${p.valvePercent || 0}%</strong>
-                    </span>
-                    <span class="text-emerald-400 font-mono text-[9.5px]">🔋 ${p.batteryPercent || 92}%</span>
-                  </div>
-                </div>
-              `;
-            }
-
-            // SCHEDA LUCE O LAMPADARIO
-            if (isLight) {
-              return `
-                <div class="p-3.5 rounded-xl bg-slate-900/70 border ${p.isOn ? 'border-amber-500/30 bg-amber-950/10' : 'border-slate-800'} hover:border-indigo-500/50 transition-all flex items-center justify-between gap-2.5 cursor-pointer shadow-sm"
-                     onclick="window.floorplan.handlePinClick(${p.pin}, event)">
-                  <div class="flex items-center gap-2.5 overflow-hidden">
-                    <div class="w-8 h-8 rounded-lg ${p.isOn ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-400'} flex items-center justify-center shrink-0">
-                      <i class="fa-solid ${p.category === 'chandelier' ? 'fa-wand-magic-sparkles text-amber-400' : 'fa-lightbulb text-amber-300'} text-xs"></i>
-                    </div>
-                    <div class="truncate">
-                      <div class="text-xs font-bold text-white truncate flex items-center gap-1.5">
-                        <span class="text-[10px] text-slate-400 font-mono">#${p.pin}</span>
-                        <span class="truncate">${p.name}</span>
-                      </div>
-                      <div class="text-[10px] text-slate-400 truncate">
-                        ${p.room} ${p.isOn ? `· <strong class="text-amber-300 font-medium">${p.brightness || 80}%</strong>` : '· Spenta'}
-                      </div>
-                    </div>
-                  </div>
-
-                  <button type="button"
-                          onclick="event.stopPropagation(); window.floorplan.quickTogglePin(${p.pin}, event)"
-                          class="px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all shadow-sm shrink-0 active:scale-95 ${p.isOn ? 'bg-amber-500 text-slate-950 hover:bg-amber-400' : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'}">
-                    ${p.isOn ? 'ON' : 'OFF'}
-                  </button>
-                </div>
-              `;
-            }
-
-            // SCHEDA PRESA MEROSS
-            if (isPlug) {
-              const w = Number(p.powerW) || 0;
-              return `
-                <div class="p-3.5 rounded-xl bg-slate-900/70 border ${p.isOn ? 'border-sky-500/30 bg-sky-950/10' : 'border-slate-800'} hover:border-indigo-500/50 transition-all flex items-center justify-between gap-2.5 cursor-pointer shadow-sm"
-                     onclick="window.floorplan.handlePinClick(${p.pin}, event)">
-                  <div class="flex items-center gap-2.5 overflow-hidden">
-                    <div class="w-8 h-8 rounded-lg ${p.isOn ? 'bg-sky-500/20 text-sky-400' : 'bg-slate-800 text-slate-400'} flex items-center justify-center shrink-0">
-                      <i class="fa-solid fa-plug text-xs"></i>
-                    </div>
-                    <div class="truncate">
-                      <div class="text-xs font-bold text-white truncate flex items-center gap-1.5">
-                        <span class="text-[10px] text-slate-400 font-mono">#${p.pin}</span>
-                        <span class="truncate">${p.name}</span>
-                      </div>
-                      <div class="text-[10px] text-slate-400 truncate">
-                        ${p.room} ${w > 0 ? `· <strong class="text-sky-300 font-bold">${w.toFixed(0)}W</strong>` : '· 0W'}
-                      </div>
-                    </div>
-                  </div>
-
-                  <button type="button"
-                          onclick="event.stopPropagation(); window.floorplan.quickTogglePin(${p.pin}, event)"
-                          class="px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all shadow-sm shrink-0 active:scale-95 ${p.isOn ? 'bg-sky-500 text-slate-950 hover:bg-sky-400' : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'}">
-                    ${p.isOn ? 'ON' : 'OFF'}
-                  </button>
-                </div>
-              `;
-            }
-
-            // SCHEDA TELECAMERA
-            if (isCam) {
-              const camId = p.cameraId || (p.name.includes('Salone') ? 'salone' : (p.name.includes('Baby') || p.name.includes('Francesco') ? 'baby' : 'letto'));
-              const isBaby = p.name.includes('Baby') || p.name.includes('Francesco');
-              return `
-                <div class="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 hover:border-purple-500/50 transition-all flex items-center justify-between gap-2.5 cursor-pointer shadow-sm group"
-                     onclick="window.cameraTheater.open('${camId}')">
-                  <div class="flex items-center gap-2.5 overflow-hidden">
-                    <div class="w-8 h-8 rounded-lg ${isBaby ? 'bg-pink-500/20 text-pink-400' : 'bg-purple-500/20 text-purple-400'} flex items-center justify-center shrink-0">
-                      <i class="fa-solid ${isBaby ? 'fa-baby' : 'fa-video'} text-xs"></i>
-                    </div>
-                    <div class="truncate">
-                      <div class="text-xs font-bold text-white truncate flex items-center gap-1.5">
-                        <span class="text-[10px] text-slate-400 font-mono">#${p.pin}</span>
-                        <span class="truncate">${p.name}</span>
-                      </div>
-                      <div class="text-[10px] text-slate-400 truncate">
-                        ${p.room} · <strong class="text-emerald-400">${isBaby ? '2K Live' : 'WebRTC Live'}</strong>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="flex items-center gap-1.5 shrink-0" onclick="event.stopPropagation()">
-                    <button onclick="window.cameraTheater.open('${camId}')" class="px-2.5 py-1 rounded-lg ${isBaby ? 'bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500' : 'bg-purple-600 hover:bg-purple-500'} active:scale-95 text-white font-bold text-[10.5px] transition-all shadow-sm flex items-center gap-1">
-                      <i class="fa-solid fa-expand text-[9px]"></i>
-                      <span>Teatro</span>
-                    </button>
-                  </div>
-                </div>
-              `;
-            }
-
-            // ALTRE SCHEDE (NEST, SENSORI, APPLIANCE)
-            const icon = p.category === 'speaker' ? 'fa-volume-high text-yellow-400' :
-                         p.category === 'tv' ? 'fa-tv text-purple-400' :
-                         p.category === 'sensor' ? 'fa-temperature-half text-sky-400' : 'fa-microchip text-slate-400';
-
-            return `
-              <div class="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 hover:border-indigo-500/50 transition-all flex items-center justify-between gap-2.5 cursor-pointer shadow-sm"
-                   onclick="window.floorplan.handlePinClick(${p.pin}, event)">
-                <div class="flex items-center gap-2.5 overflow-hidden">
-                  <div class="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center shrink-0">
-                    <i class="fa-solid ${icon} text-xs"></i>
-                  </div>
-                  <div class="truncate">
-                    <div class="text-xs font-bold text-white truncate flex items-center gap-1.5">
-                      <span class="text-[10px] text-slate-400 font-mono">#${p.pin}</span>
-                      <span class="truncate">${p.name}</span>
-                    </div>
-                    <div class="text-[10px] text-slate-400 truncate">
-                      ${p.room} ${p.temperature ? `· ${p.temperature}°C` : ''}
-                    </div>
-                  </div>
-                </div>
-
-                <span class="px-2 py-0.5 rounded text-[10px] font-medium ${isCam ? (p.privacyMode ? 'bg-slate-800 text-slate-400' : 'bg-purple-900/40 text-purple-300') : 'bg-slate-800 text-slate-400'} shrink-0">
-                  ${isCam ? (p.privacyMode ? 'PRIVACY' : 'LIVE') : (p.category || 'Dispositivo')}
-                </span>
-              </div>
-            `;
-          }).join('')}
-        </div>
-
-        <!-- Footer rapido Spegni Stanza -->
-        ${this.selectedRoom ? `
-          <div class="pt-3 border-t border-slate-800 flex items-center justify-between">
-            <span class="text-[11px] text-slate-400 font-medium">Stanza selezionata: <strong class="text-white">${roomLabelDisplay}</strong></span>
-            <button onclick="window.roomOff('${this.selectedRoom}')" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-950/60 hover:text-rose-300 border border-slate-700/60 text-xs font-semibold text-slate-300 transition-colors">
-              <i class="fa-solid fa-power-off mr-1.5 text-rose-400"></i>Spegni ${roomLabelDisplay}
-            </button>
-          </div>
-        ` : ''}
-      </div>
-    </div>
-  </div>
     `;
 
     this.initPanZoomListeners();
     this.applyTransform();
+    this.syncLeftSidebarControls();
+    this.renderRightDrawer();
+  }
+
+  renderRightDrawer(onlyUpdateList = false) {
+    const drawerContent = document.getElementById('right-sidebar-content');
+    if (!drawerContent) return;
+
+    const spatial = window.homeData?.spatial || { pins: [] };
+    const pins = spatial.pins || [];
+
+    const LAYERS = [
+      { id: 'all', label: 'Tutti', icon: 'fa-layer-group' },
+      { id: 'lights', label: 'Luci', icon: 'fa-lightbulb' },
+      { id: 'plugs', label: 'Prese', icon: 'fa-plug' },
+      { id: 'valves', label: 'Clima', icon: 'fa-temperature-arrow-up' },
+      { id: 'cameras', label: 'Camere', icon: 'fa-video' },
+      { id: 'speakers', label: 'AV', icon: 'fa-volume-high' }
+    ];
+
+    const activeLayerObj = LAYERS.find(l => l.id === this.activeLayer) || LAYERS[0];
+    const activeLayerLabel = activeLayerObj.label;
+    const roomLabelDisplay = this.selectedRoom || 'Tutta la Casa';
+    const roomHueScenes = this.getHueScenesForCurrentRoom();
+
+    const q = (this.searchQuery || '').toLowerCase();
+    const filteredPins = pins.filter(p => {
+      const matchRoom = !this.selectedRoom || p.room === this.selectedRoom;
+      const matchLayer = this.isPinInLayer(p, this.activeLayer);
+      const matchStatus = this.statusFilter === 'all'
+        || (this.statusFilter === 'active' && this.isPinActive(p))
+        || (this.statusFilter === 'offline' && this.isPinOffline(p));
+      const matchQuery = !q || (p.name || '').toLowerCase().includes(q) || (p.room || '').toLowerCase().includes(q);
+      return matchRoom && matchLayer && matchStatus && matchQuery;
+    });
+
+    const activeCount = pins.filter(p => this.isPinActive(p)).length;
+    const offlineCount = pins.filter(p => this.isPinOffline(p)).length;
+
+    const renderDeviceCardsHtml = () => {
+      if (filteredPins.length === 0) {
+        return `
+          <div class="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 text-center space-y-2">
+            <div class="w-10 h-10 rounded-full bg-indigo-500/10 text-indigo-400 flex items-center justify-center mx-auto text-lg">
+              <i class="fa-solid fa-filter"></i>
+            </div>
+            <div class="text-xs font-semibold text-slate-300">Nessun dispositivo trovato</div>
+            <div class="text-[11px] text-slate-400">Nessun risultato per i filtri attivi in <strong>${roomLabelDisplay}</strong>.</div>
+            <button onclick="window.floorplan.setLayer('all'); window.floorplan.setStatusFilter('all'); window.floorplan.selectRoom(null);" class="mt-2 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition-all">
+              Reimposta Filtri
+            </button>
+          </div>
+        `;
+      }
+
+      return filteredPins.map(p => {
+        const isLight = p.category === 'light' || p.category === 'chandelier';
+        const isPlug = p.category === 'plug';
+        const isValve = p.category === 'valve';
+        const isCam = p.category === 'camera';
+
+        if (isValve) {
+          const isHeating = p.isHeating || p.valvePercent > 15;
+          return `
+            <div class="p-3 rounded-xl bg-slate-900/70 border ${isHeating ? 'border-orange-500/40 bg-orange-950/15' : 'border-slate-800'} hover:border-orange-500/60 transition-all cursor-pointer space-y-2 shadow-sm"
+                 onclick="window.floorplan.handlePinClick(${p.pin}, event)">
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2.5 overflow-hidden">
+                  <div class="w-8 h-8 rounded-lg ${isHeating ? 'bg-orange-500/20 text-orange-400' : 'bg-slate-800 text-slate-400'} flex items-center justify-center shrink-0">
+                    <i class="fa-solid fa-temperature-arrow-up text-xs"></i>
+                  </div>
+                  <div class="truncate">
+                    <div class="text-xs font-bold text-white truncate">${p.name}</div>
+                    <div class="text-[10px] text-slate-400 truncate">${p.room} · <strong class="text-white">${p.temperature || 20.5}°C</strong></div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-1 shrink-0" onclick="event.stopPropagation()">
+                  <button onclick="window.adjustValveSetpoint(${p.pin}, -0.5)" class="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center border border-slate-700"><i class="fa-solid fa-minus text-[10px]"></i></button>
+                  <span class="font-mono text-xs font-bold text-amber-300 min-w-[38px] text-center">${(p.setpoint || 20.5).toFixed(1)}°</span>
+                  <button onclick="window.adjustValveSetpoint(${p.pin}, 0.5)" class="w-7 h-7 rounded-lg bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs flex items-center justify-center"><i class="fa-solid fa-plus text-[10px]"></i></button>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+
+        if (isLight) {
+          return `
+            <div class="p-3 rounded-xl bg-slate-900/70 border ${p.isOn ? 'border-amber-500/30 bg-amber-950/10' : 'border-slate-800'} hover:border-indigo-500/50 transition-all flex items-center justify-between gap-2 cursor-pointer shadow-sm"
+                 onclick="window.floorplan.handlePinClick(${p.pin}, event)">
+              <div class="flex items-center gap-2.5 overflow-hidden">
+                <div class="w-8 h-8 rounded-lg ${p.isOn ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-400'} flex items-center justify-center shrink-0">
+                  <i class="fa-solid ${p.category === 'chandelier' ? 'fa-wand-magic-sparkles text-amber-400' : 'fa-lightbulb text-amber-300'} text-xs"></i>
+                </div>
+                <div class="truncate">
+                  <div class="text-xs font-bold text-white truncate">${p.name}</div>
+                  <div class="text-[10px] text-slate-400 truncate">${p.room} ${p.isOn ? `· <strong class="text-amber-300">${p.brightness || 80}%</strong>` : '· Spenta'}</div>
+                </div>
+              </div>
+              <button type="button" onclick="event.stopPropagation(); window.floorplan.quickTogglePin(${p.pin}, event)"
+                      class="px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all shrink-0 active:scale-95 ${p.isOn ? 'bg-amber-500 text-slate-950 hover:bg-amber-400' : 'bg-slate-800 text-slate-400 hover:text-white'}">
+                ${p.isOn ? 'ON' : 'OFF'}
+              </button>
+            </div>
+          `;
+        }
+
+        if (isPlug) {
+          const w = Number(p.powerW) || 0;
+          return `
+            <div class="p-3 rounded-xl bg-slate-900/70 border ${p.isOn ? 'border-sky-500/30 bg-sky-950/10' : 'border-slate-800'} hover:border-indigo-500/50 transition-all flex items-center justify-between gap-2 cursor-pointer shadow-sm"
+                 onclick="window.floorplan.handlePinClick(${p.pin}, event)">
+              <div class="flex items-center gap-2.5 overflow-hidden">
+                <div class="w-8 h-8 rounded-lg ${p.isOn ? 'bg-sky-500/20 text-sky-400' : 'bg-slate-800 text-slate-400'} flex items-center justify-center shrink-0">
+                  <i class="fa-solid fa-plug text-xs"></i>
+                </div>
+                <div class="truncate">
+                  <div class="text-xs font-bold text-white truncate">${p.name}</div>
+                  <div class="text-[10px] text-slate-400 truncate">${p.room} ${w > 0 ? `· <strong class="text-sky-300">${w.toFixed(0)}W</strong>` : '· 0W'}</div>
+                </div>
+              </div>
+              <button type="button" onclick="event.stopPropagation(); window.floorplan.quickTogglePin(${p.pin}, event)"
+                      class="px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all shrink-0 active:scale-95 ${p.isOn ? 'bg-sky-500 text-slate-950 hover:bg-sky-400' : 'bg-slate-800 text-slate-400 hover:text-white'}">
+                ${p.isOn ? 'ON' : 'OFF'}
+              </button>
+            </div>
+          `;
+        }
+
+        if (isCam) {
+          const camId = p.cameraId || (p.name.includes('Salone') ? 'salone' : (p.name.includes('Baby') || p.name.includes('Francesco') ? 'baby' : 'letto'));
+          const isBaby = p.name.includes('Baby') || p.name.includes('Francesco');
+          return `
+            <div class="p-3 rounded-xl bg-slate-900/70 border border-slate-800 hover:border-purple-500/50 transition-all flex items-center justify-between gap-2 cursor-pointer shadow-sm"
+                 onclick="window.cameraTheater.open('${camId}')">
+              <div class="flex items-center gap-2.5 overflow-hidden">
+                <div class="w-8 h-8 rounded-lg ${isBaby ? 'bg-pink-500/20 text-pink-400' : 'bg-purple-500/20 text-purple-400'} flex items-center justify-center shrink-0">
+                  <i class="fa-solid ${isBaby ? 'fa-baby' : 'fa-video'} text-xs"></i>
+                </div>
+                <div class="truncate">
+                  <div class="text-xs font-bold text-white truncate">${p.name}</div>
+                  <div class="text-[10px] text-slate-400 truncate">${p.room} · <strong class="text-emerald-400">${isBaby ? '2K Live' : 'WebRTC Live'}</strong></div>
+                </div>
+              </div>
+              <button onclick="event.stopPropagation(); window.cameraTheater.open('${camId}')" class="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-[10px] shrink-0">Teatro</button>
+            </div>
+          `;
+        }
+
+        const icon = p.category === 'speaker' ? 'fa-volume-high text-yellow-400' :
+                     p.category === 'tv' ? 'fa-tv text-purple-400' :
+                     p.category === 'sensor' ? 'fa-temperature-half text-sky-400' : 'fa-microchip text-slate-400';
+
+        return `
+          <div class="p-3 rounded-xl bg-slate-900/70 border border-slate-800 hover:border-indigo-500/50 transition-all flex items-center justify-between gap-2 cursor-pointer shadow-sm"
+               onclick="window.floorplan.handlePinClick(${p.pin}, event)">
+            <div class="flex items-center gap-2.5 overflow-hidden">
+              <div class="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center shrink-0">
+                <i class="fa-solid ${icon} text-xs"></i>
+              </div>
+              <div class="truncate">
+                <div class="text-xs font-bold text-white truncate">${p.name}</div>
+                <div class="text-[10px] text-slate-400 truncate">${p.room} ${p.temperature ? `· ${p.temperature}°C` : ''}</div>
+              </div>
+            </div>
+            <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400 shrink-0">${p.category || 'Dispositivo'}</span>
+          </div>
+        `;
+      }).join('');
+    };
+
+    if (onlyUpdateList) {
+      const listEl = document.getElementById('right-drawer-device-list');
+      if (listEl) listEl.innerHTML = renderDeviceCardsHtml();
+      return;
+    }
+
+    drawerContent.innerHTML = `
+      <div class="flex flex-col h-full space-y-4">
+        <!-- Header Sidebar Destra -->
+        <div class="flex items-center justify-between border-b border-slate-800/80 pb-3 shrink-0">
+          <div>
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-sliders text-indigo-400"></i>
+              <span>Filtri &amp; Dispositivi</span>
+            </h3>
+            <p class="text-[10px] text-slate-400">${roomLabelDisplay} · ${activeLayerLabel}</p>
+          </div>
+          <button type="button" onclick="window.floorplan.toggleRightDrawer(false)" class="w-8 h-8 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors">
+            <i class="fa-solid fa-xmark text-sm"></i>
+          </button>
+        </div>
+
+        <!-- Filtri Combinabili (Senza Scroll Orizzontale) -->
+        <div class="space-y-3 shrink-0">
+          <!-- Filtro Stato -->
+          <div class="space-y-1.5">
+            <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Stato Dispositivi</div>
+            <div class="grid grid-cols-3 gap-1.5">
+              <button onclick="window.floorplan.setStatusFilter('all')" class="py-1.5 px-2 rounded-xl text-[11px] font-semibold border transition-all ${this.statusFilter === 'all' ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'}">Tutti (${pins.length})</button>
+              <button onclick="window.floorplan.setStatusFilter('active')" class="py-1.5 px-2 rounded-xl text-[11px] font-semibold border transition-all ${this.statusFilter === 'active' ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'}">Attivi (${activeCount})</button>
+              <button onclick="window.floorplan.setStatusFilter('offline')" class="py-1.5 px-2 rounded-xl text-[11px] font-semibold border transition-all ${this.statusFilter === 'offline' ? 'bg-rose-600 text-white border-rose-500' : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'}">Offline (${offlineCount})</button>
+            </div>
+          </div>
+
+          <!-- Filtro Stanza (Griglia compatta, zero scroll orizzontale) -->
+          <div class="space-y-1.5">
+            <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Stanza</div>
+            <div class="flex flex-wrap gap-1.5">
+              <button onclick="window.floorplan.selectRoom(null)" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${!this.selectedRoom ? 'bg-indigo-600 text-white' : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'}">
+                <i class="fa-solid fa-house-chimney mr-1"></i>Tutta la Casa
+              </button>
+              ${ARCHITECTURAL_ROOMS.filter(r => r.interactive).map(r => `
+                <button onclick="window.floorplan.selectRoom('${r.id}')" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${this.selectedRoom === r.id ? 'bg-indigo-600 text-white ring-1 ring-cyan-400' : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'}">
+                  <i class="fa-solid ${r.icon} mr-1"></i>${r.label.split(' ')[0]}
+                </button>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab Switcher: Dispositivi vs Atmosfere Hue -->
+        <div class="grid grid-cols-2 gap-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800 shrink-0">
+          <button onclick="window.floorplan.setRightDrawerTab('devices')" class="py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${this.rightDrawerTab === 'devices' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}">
+            <i class="fa-solid fa-microchip"></i>
+            <span>Dispositivi (${filteredPins.length})</span>
+          </button>
+          <button onclick="window.floorplan.setRightDrawerTab('hue')" class="py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${this.rightDrawerTab === 'hue' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'}">
+            <i class="fa-solid fa-palette"></i>
+            <span>Atmosfere Hue</span>
+          </button>
+        </div>
+
+        <!-- Contenuto Tab Attiva -->
+        ${this.rightDrawerTab === 'devices' ? `
+          <div class="flex-1 flex flex-col min-h-0 space-y-2.5">
+            <div class="relative shrink-0">
+              <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
+              <input type="text" id="right-drawer-search" value="${this.searchQuery || ''}" oninput="window.floorplan.setSearchQuery(this.value)"
+                     placeholder="Cerca dispositivo o stanza..."
+                     class="w-full bg-slate-900 text-slate-100 placeholder-slate-500 pl-8 pr-3 py-2 rounded-xl border border-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs" />
+            </div>
+
+            <div id="right-drawer-device-list" class="flex-1 overflow-y-auto space-y-2 pr-1">
+              ${renderDeviceCardsHtml()}
+            </div>
+
+            ${this.selectedRoom ? `
+              <div class="pt-2.5 border-t border-slate-800 flex items-center justify-between shrink-0">
+                <span class="text-[11px] text-slate-400">Stanza: <strong class="text-white">${roomLabelDisplay}</strong></span>
+                <button onclick="window.roomOff('${this.selectedRoom}')" class="px-3 py-1.5 rounded-xl bg-rose-950/50 hover:bg-rose-900/60 text-rose-300 border border-rose-500/30 text-xs font-semibold transition-colors">
+                  <i class="fa-solid fa-power-off mr-1.5"></i>Spegni ${roomLabelDisplay}
+                </button>
+              </div>
+            ` : ''}
+          </div>
+        ` : `
+          <div class="flex-1 overflow-y-auto space-y-4 pr-1">
+            <div class="flex items-center justify-between bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+              <div>
+                <div class="text-xs font-bold text-white">Modalità Dinamica Hue</div>
+                <div class="text-[10px] text-slate-400">Target: ${roomLabelDisplay}</div>
+              </div>
+              <button onclick="window.floorplan.toggleHueDynamicMode()" class="px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all ${this.hueDynamicMode ? 'bg-amber-500 text-slate-950 border-amber-400' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}">
+                <i class="fa-solid fa-wand-magic-sparkles mr-1"></i>${this.hueDynamicMode ? 'ON' : 'OFF'}
+              </button>
+            </div>
+
+            <div class="space-y-1.5">
+              <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Effetti Firmware</div>
+              <div class="grid grid-cols-5 gap-1.5 text-[10px] font-semibold text-center">
+                <button onclick="window.floorplan.setHueEffect('${this.selectedRoom || 'Salone'}', 'candle')" class="py-2 rounded-xl bg-amber-950/40 hover:bg-amber-900/50 border border-amber-500/30 text-amber-200">🕯️<br>Candela</button>
+                <button onclick="window.floorplan.setHueEffect('${this.selectedRoom || 'Salone'}', 'fire')" class="py-2 rounded-xl bg-rose-950/40 hover:bg-rose-900/50 border border-rose-500/30 text-rose-200">🔥<br>Fuoco</button>
+                <button onclick="window.floorplan.setHueEffect('${this.selectedRoom || 'Salone'}', 'prism')" class="py-2 rounded-xl bg-indigo-950/40 hover:bg-indigo-900/50 border border-indigo-500/30 text-indigo-200">🌈<br>Prisma</button>
+                <button onclick="window.floorplan.setHueEffect('${this.selectedRoom || 'Salone'}', 'sparkle')" class="py-2 rounded-xl bg-sky-950/40 hover:bg-sky-900/50 border border-sky-500/30 text-sky-200">✨<br>Brillio</button>
+                <button onclick="window.floorplan.setHueEffect('${this.selectedRoom || 'Salone'}', 'no_effect')" class="py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300">⏹️<br>Stop</button>
+              </div>
+            </div>
+
+            <div class="space-y-2">
+              <div class="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                <span>Scene Salvate</span>
+                <span class="font-mono">${roomHueScenes.length}</span>
+              </div>
+              <div class="flex flex-wrap gap-1.5">
+                ${roomHueScenes.length === 0 ? `<div class="text-[11px] text-slate-500 py-2">Nessuna scena disponibile</div>` : ''}
+                ${roomHueScenes.map(s => {
+                  const bgGrad = s.colors && s.colors.length > 1 ? `linear-gradient(135deg, ${s.colors.join(', ')})` : (s.colors?.[0] || '#f59e0b');
+                  return `
+                    <button onclick="window.floorplan.activateHueScene('${s.id}')"
+                            class="px-3 py-1.5 rounded-xl text-[11px] font-bold text-white shadow-md active:scale-95 transition-all border border-white/10 hover:border-white/30"
+                            style="background: ${bgGrad};">
+                      <span class="drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">${s.name}</span>
+                    </button>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          </div>
+        `}
+      </div>
+    `;
   }
 
   handlePinClick(pinNum, evt) {
