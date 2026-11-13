@@ -399,7 +399,7 @@ class VolvoTripsSync {
   async _downloadDriveBuffer(file, token) {
     const isSheet = file.mimeType === 'application/vnd.google-apps.spreadsheet';
     const url = isSheet
-      ? `https://www.googleapis.com/drive/v3/files/${file.id}/export?mimeType=text/csv`
+      ? `https://www.googleapis.com/drive/v3/files/${file.id}/export?mimeType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
       : `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`;
 
     const res = await axios.get(url, {
@@ -411,7 +411,7 @@ class VolvoTripsSync {
   }
 
   _parseConsumiSheet(buf, year) {
-    const wb = XLSX.read(buf, { type: 'buffer' });
+    const wb = XLSX.read(buf, { type: 'buffer', raw: true });
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
     const groupRow = rows[2] || [];
     const headerRow = rows[3] || [];

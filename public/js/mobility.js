@@ -13,6 +13,20 @@ class MobilityManager {
     this.tripsData = null;
     this.tripsLoading = false;
     this.tripsFilter = { year: 'all', month: 'all', search: '', limit: 60 };
+    this.showTripsList = false;
+    this._tripsCharts = {};
+  }
+
+  destroyTripsCharts() {
+    Object.values(this._tripsCharts || {}).forEach((ch) => {
+      try { ch?.destroy(); } catch (_) {}
+    });
+    this._tripsCharts = {};
+  }
+
+  toggleTripsList() {
+    this.showTripsList = !this.showTripsList;
+    this.renderView();
   }
 
   setTab(tab) {
@@ -464,6 +478,11 @@ class MobilityManager {
       ? `Agg. ${new Date(status.lastSyncAt).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
       : 'Mai sincronizzato';
 
+    const showList = this.showTripsList || Boolean(this.tripsFilter.search?.trim());
+    const totalWallboxKwh = months.reduce((s, m) => s + (m.wallboxKwh || 0), 0);
+    const totalPublicKwh = months.reduce((s, m) => s + (m.publicKwh || 0), 0);
+    const avgCostKwh = (totals.chargedKwh || 0) > 0 ? ((totals.costEur || 0) / totals.chargedKwh) : null;
+
     return `
       <!-- BARRA FILTRI & SYNC DRIVE (Pulita e Minimale) -->
       <div class="glass-panel rounded-3xl p-4 md:p-5 border border-slate-700/60 flex flex-wrap items-center justify-between gap-3">
@@ -515,18 +534,18 @@ class MobilityManager {
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="glass-panel rounded-2xl p-4 border border-slate-700/60">
           <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Km Percorsi</div>
-          <div class="text-2xl font-black text-white mt-1 tabular-nums">${(totals.km || 0).toLocaleString('it-IT')} km</div>
-          <div class="text-[11px] text-slate-400 mt-0.5">Alex ${(totals.alexKm || 0).toLocaleString('it-IT')} • Cinzia ${(totals.cinziaKm || 0).toLocaleString('it-IT')}</div>
+          <div class="text-2xl font-black text-white mt-1 tabular-nums">${Math.round(totals.km || 0).toLocaleString('it-IT')} km</div>
+          <div class="text-[11px] text-slate-400 mt-0.5">Alex ${Math.round(totals.alexKm || 0).toLocaleString('it-IT')} • Cinzia ${Math.round(totals.cinziaKm || 0).toLocaleString('it-IT')}</div>
         </div>
         <div class="glass-panel rounded-2xl p-4 border border-slate-700/60">
           <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Consumo Medio</div>
-          <div class="text-2xl font-black text-sky-300 mt-1 tabular-nums">${totals.avgKwh100 ?? '--'} <span class="text-xs font-semibold text-slate-400">kWh/100km</span></div>
-          <div class="text-[11px] text-slate-400 mt-0.5">Totale guida: ${(totals.kwh || 0).toLocaleString('it-IT')} kWh</div>
+          <div class="text-2xl font-black text-sky-300 mt-1 tabular-nums">${totals.avgKwh100 !== null && totals.avgKwh100 !== undefined ? Number(totals.avgKwh100).toFixed(2) : '--'} <span class="text-xs font-semibold text-slate-400">kWh/100km</span></div>
+          <div class="text-[11px] text-slate-400 mt-0.5">Totale guida: ${Math.round(totals.kwh || 0).toLocaleString('it-IT')} kWh</div>
         </div>
         <div class="glass-panel rounded-2xl p-4 border border-slate-700/60">
           <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Costo Ricariche EV</div>
           <div class="text-2xl font-black text-white mt-1 tabular-nums">${(totals.costEur || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>
-          <div class="text-[11px] text-slate-400 mt-0.5">${(totals.chargedKwh || 0).toLocaleString('it-IT')} kWh erogati</div>
+          <div class="text-[11px] text-slate-400 mt-0.5">${Math.round(totals.chargedKwh || 0).toLocaleString('it-IT')} kWh${avgCostKwh !== null ? ` • ${avgCostKwh.toFixed(2)} €/kWh` : ''}</div>
         </div>
         <div class="glass-panel rounded-2xl p-4 border border-slate-700/60">
           <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Risparmio vs Termico</div>
@@ -535,90 +554,220 @@ class MobilityManager {
         </div>
       </div>
 
-      <!-- TABELLA RIEPILOGO MENSILE -->
+      <!-- GRAFICI RIASSUNTIVI -->
       ${months.length > 0 ? `
-        <div class="glass-panel rounded-3xl p-5 border border-slate-700/60">
-          <h3 class="text-sm font-bold text-white mb-3">Riepilogo Mensile Consumi &amp; Costi</h3>
-          <div class="overflow-x-auto">
-            <table class="w-full text-xs text-left border-collapse">
-              <thead>
-                <tr class="text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-800">
-                  <th class="py-2 pr-3">Mese</th>
-                  <th class="py-2 px-3 text-right">Km</th>
-                  <th class="py-2 px-3 text-right">Alex / Cinzia</th>
-                  <th class="py-2 px-3 text-right">Media</th>
-                  <th class="py-2 px-3 text-right">Ricarica (WB/Col)</th>
-                  <th class="py-2 px-3 text-right">Costo EV</th>
-                  <th class="py-2 pl-3 text-right">Risparmio (D / B)</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-slate-800/70">
-                ${months.map(m => `
-                  <tr class="hover:bg-slate-800/30 transition-colors">
-                    <td class="py-2.5 pr-3 font-semibold text-white">${this.escapeHtml(m.monthName)} ${m.year}</td>
-                    <td class="py-2.5 px-3 text-right tabular-nums text-slate-200 font-bold">${m.km.toLocaleString('it-IT')} km</td>
-                    <td class="py-2.5 px-3 text-right tabular-nums text-slate-400">${m.alexKm} / ${m.cinziaKm}</td>
-                    <td class="py-2.5 px-3 text-right tabular-nums text-sky-300">${m.avgKwh100 ?? '--'} <span class="text-[10px] text-slate-500">kWh/100</span></td>
-                    <td class="py-2.5 px-3 text-right tabular-nums text-slate-300">${m.wallboxKwh} / ${m.publicKwh} kWh</td>
-                    <td class="py-2.5 px-3 text-right tabular-nums text-slate-200">${m.totalCostEur.toFixed(2)} €</td>
-                    <td class="py-2.5 pl-3 text-right tabular-nums text-emerald-300 font-semibold">+${m.savingsDieselEur.toFixed(0)}€ / +${m.savingsPetrolEur.toFixed(0)}€</td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ` : ''}
-
-      <!-- REGISTRO VIAGGI -->
-      <div class="glass-panel rounded-3xl p-5 border border-slate-700/60">
-        <div class="flex items-center justify-between gap-2 mb-3">
-          <h3 class="text-sm font-bold text-white">Registro Viaggi (${(td.tripsCount || 0).toLocaleString('it-IT')})</h3>
-          ${status.lastSyncStats ? `<span class="text-[11px] text-slate-500">File in archivio: ${status.lastSyncStats.totalMonths || 0} mesi</span>` : ''}
-        </div>
-
-        ${trips.length > 0 ? `
-          <div class="divide-y divide-slate-800/70">
-            ${trips.map(t => `
-              <div class="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div class="min-w-0">
-                  <div class="flex items-center gap-2 text-[11px] text-slate-400">
-                    <span class="font-mono text-slate-300">${this.escapeHtml(t.startedAt)}</span>
-                    ${t.duration ? `<span>• ${this.escapeHtml(t.duration)}</span>` : ''}
-                    <span class="px-1.5 py-0.5 rounded bg-slate-800/90 text-slate-300 text-[10px]">${this.escapeHtml(t.category)}</span>
-                  </div>
-                  <div class="text-xs text-slate-100 mt-1 truncate" title="${this.escapeHtml(t.startAddress)} → ${this.escapeHtml(t.endAddress)}">
-                    ${this.escapeHtml(t.startAddress || '--')} <i class="fa-solid fa-arrow-right text-slate-500 mx-1 text-[10px]"></i> ${this.escapeHtml(t.endAddress || '--')}
-                  </div>
-                  ${t.notes ? `<div class="text-[11px] text-amber-300/90 mt-0.5">${this.escapeHtml(t.notes)}</div>` : ''}
-                </div>
-                <div class="flex items-center gap-4 shrink-0 text-right tabular-nums">
-                  <div>
-                    <div class="text-xs font-bold text-white">${t.distanceKm} km</div>
-                    <div class="text-[10px] text-slate-500">${t.endOdoKm ? `${Math.round(t.endOdoKm).toLocaleString('it-IT')} km tot` : ''}</div>
-                  </div>
-                  <div class="w-16">
-                    <div class="text-xs font-bold text-sky-300">${t.energyKwh} kWh</div>
-                    <div class="text-[10px] text-slate-500">${t.distanceKm > 0 ? `${((t.energyKwh / t.distanceKm) * 100).toFixed(1)} /100` : '--'}</div>
-                  </div>
-                </div>
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <div class="lg:col-span-12 glass-panel rounded-3xl p-5 border border-slate-700/60">
+            <div class="flex items-center justify-between gap-2 mb-3">
+              <div>
+                <h3 class="text-sm font-bold text-white">Chilometri Mensili &amp; Consumo Medio</h3>
+                <p class="text-[11px] text-slate-400">Ripartizione Alex / Cinzia (barre) e media kWh/100km (linea)</p>
               </div>
-            `).join('')}
-          </div>
-          ${(td.tripsCount || 0) > trips.length ? `
-            <div class="mt-4 text-center">
-              <button onclick="window.mobilityManager.updateTripsFilter({ limit: ${this.tripsFilter.limit + 80} })" class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
-                Carica altri viaggi (${trips.length} di ${td.tripsCount})
-              </button>
+              <span class="text-[11px] text-slate-400">${months.length} mesi</span>
             </div>
-          ` : ''}
-        ` : `
-          <div class="py-8 text-center text-xs text-slate-400">
-            ${this.tripsLoading ? '<i class="fa-solid fa-spinner fa-spin mr-1.5"></i>Caricamento storico in corso...' : 'Nessun viaggio disponibile per i filtri selezionati.'}
+            <div class="relative h-64 w-full">
+              <canvas id="volvo-chart-km-consumption"></canvas>
+            </div>
           </div>
-        `}
+
+          <div class="lg:col-span-7 glass-panel rounded-3xl p-5 border border-slate-700/60">
+            <div class="mb-3">
+              <h3 class="text-sm font-bold text-white">Costo Ricariche EV vs Risparmio Termico</h3>
+              <p class="text-[11px] text-slate-400">Confronto mensile spesa elettrica e risparmio rispetto a Diesel / Benzina (€)</p>
+            </div>
+            <div class="relative h-56 w-full">
+              <canvas id="volvo-chart-cost-savings"></canvas>
+            </div>
+          </div>
+
+          <div class="lg:col-span-5 glass-panel rounded-3xl p-5 border border-slate-700/60 flex flex-col justify-between">
+            <div class="mb-2">
+              <h3 class="text-sm font-bold text-white">Sorgente Ricariche (kWh)</h3>
+              <p class="text-[11px] text-slate-400">Wallbox domestica vs colonnine pubbliche</p>
+            </div>
+            <div class="relative h-44 w-full">
+              <canvas id="volvo-chart-charging-mix"></canvas>
+            </div>
+            <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800/80 text-xs">
+              <div class="text-center">
+                <div class="text-[10px] uppercase text-slate-400">Wallbox Casa</div>
+                <div class="font-bold text-sky-300 tabular-nums">${Math.round(totalWallboxKwh).toLocaleString('it-IT')} kWh</div>
+              </div>
+              <div class="text-center">
+                <div class="text-[10px] uppercase text-slate-400">Colonnine</div>
+                <div class="font-bold text-purple-300 tabular-nums">${Math.round(totalPublicKwh).toLocaleString('it-IT')} kWh</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ` : `
+        <div class="glass-panel rounded-3xl p-8 text-center border border-slate-700/60 text-xs text-slate-400">
+          ${this.tripsLoading ? '<i class="fa-solid fa-spinner fa-spin mr-1.5"></i>Caricamento grafici in corso...' : 'Nessun dato mensile disponibile per i filtri selezionati.'}
+        </div>
+      `}
+
+      <!-- ACCESSO OPZIONALE AL REGISTRO VIAGGI (CHIUSO DI DEFAULT PER MANTENERE PULITA LA VISTA) -->
+      <div class="glass-panel rounded-2xl border border-slate-700/60 overflow-hidden">
+        <button onclick="window.mobilityManager.toggleTripsList()" class="w-full px-4 py-3 flex items-center justify-between text-xs font-semibold text-slate-300 hover:bg-slate-800/40 transition-colors">
+          <span><i class="fa-solid fa-list-ul text-sky-400 mr-2"></i>Dettaglio singoli viaggi (${(td.tripsCount || 0).toLocaleString('it-IT')})</span>
+          <span class="text-[11px] text-slate-400">${showList ? 'Nascondi ▲' : 'Mostra ▼'}</span>
+        </button>
+
+        ${showList ? `
+          <div class="px-5 pb-5 border-t border-slate-800/80">
+            ${trips.length > 0 ? `
+              <div class="divide-y divide-slate-800/70">
+                ${trips.map(t => `
+                  <div class="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div class="min-w-0">
+                      <div class="flex items-center gap-2 text-[11px] text-slate-400">
+                        <span class="font-mono text-slate-300">${this.escapeHtml(t.startedAt)}</span>
+                        ${t.duration ? `<span>• ${this.escapeHtml(t.duration)}</span>` : ''}
+                        <span class="px-1.5 py-0.5 rounded bg-slate-800/90 text-slate-300 text-[10px]">${this.escapeHtml(t.category)}</span>
+                      </div>
+                      <div class="text-xs text-slate-100 mt-1 truncate" title="${this.escapeHtml(t.startAddress)} → ${this.escapeHtml(t.endAddress)}">
+                        ${this.escapeHtml(t.startAddress || '--')} <i class="fa-solid fa-arrow-right text-slate-500 mx-1 text-[10px]"></i> ${this.escapeHtml(t.endAddress || '--')}
+                      </div>
+                      ${t.notes ? `<div class="text-[11px] text-amber-300/90 mt-0.5">${this.escapeHtml(t.notes)}</div>` : ''}
+                    </div>
+                    <div class="flex items-center gap-4 shrink-0 text-right tabular-nums">
+                      <div>
+                        <div class="text-xs font-bold text-white">${t.distanceKm} km</div>
+                        <div class="text-[10px] text-slate-500">${t.endOdoKm ? `${Math.round(t.endOdoKm).toLocaleString('it-IT')} km tot` : ''}</div>
+                      </div>
+                      <div class="w-16">
+                        <div class="text-xs font-bold text-sky-300">${t.energyKwh} kWh</div>
+                        <div class="text-[10px] text-slate-500">${t.distanceKm > 0 ? `${((t.energyKwh / t.distanceKm) * 100).toFixed(1)} /100` : '--'}</div>
+                      </div>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+              ${(td.tripsCount || 0) > trips.length ? `
+                <div class="mt-4 text-center">
+                  <button onclick="window.mobilityManager.updateTripsFilter({ limit: ${this.tripsFilter.limit + 80} })" class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
+                    Carica altri viaggi (${trips.length} di ${td.tripsCount})
+                  </button>
+                </div>
+              ` : ''}
+            ` : `
+              <div class="py-6 text-center text-xs text-slate-400">Nessun viaggio disponibile per i filtri selezionati.</div>
+            `}
+          </div>
+        ` : ''}
       </div>
     `;
+  }
+
+  renderTripsCharts() {
+    this.destroyTripsCharts();
+    if (typeof window.Chart === 'undefined') return;
+    const months = [...(this.tripsData?.monthlySummaries || [])].reverse();
+    if (!months.length) return;
+
+    const labels = months.map((m) => `${m.monthName.slice(0, 3)} ${String(m.year).slice(-2)}`);
+    const baseTicks = { color: '#94a3b8', font: { size: 10 } };
+    const gridColor = 'rgba(148, 163, 184, 0.1)';
+
+    const ctx1 = document.getElementById('volvo-chart-km-consumption');
+    if (ctx1) {
+      const hasSplit = months.some((m) => (m.alexKm || 0) > 0 || (m.cinziaKm || 0) > 0);
+      const kmDatasets = hasSplit
+        ? [
+            { label: 'Alex (km)', data: months.map((m) => m.alexKm || 0), backgroundColor: 'rgba(56, 189, 248, 0.78)', borderRadius: 4, stack: 'km', yAxisID: 'y' },
+            { label: 'Cinzia (km)', data: months.map((m) => m.cinziaKm || 0), backgroundColor: 'rgba(129, 140, 248, 0.78)', borderRadius: 4, stack: 'km', yAxisID: 'y' }
+          ]
+        : [
+            { label: 'Km Percorsi', data: months.map((m) => m.km || 0), backgroundColor: 'rgba(56, 189, 248, 0.78)', borderRadius: 4, yAxisID: 'y' }
+          ];
+
+      this._tripsCharts.km = new window.Chart(ctx1, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            ...kmDatasets,
+            {
+              label: 'Consumo (kWh/100km)',
+              type: 'line',
+              data: months.map((m) => (m.avgKwh100 !== null && m.avgKwh100 !== undefined ? Number(m.avgKwh100.toFixed(2)) : null)),
+              borderColor: '#fbbf24',
+              backgroundColor: '#fbbf24',
+              borderWidth: 2,
+              pointRadius: 2.5,
+              tension: 0.3,
+              yAxisID: 'y1'
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { labels: { color: '#cbd5e1', boxWidth: 10, font: { size: 11 } } }
+          },
+          scales: {
+            x: { stacked: true, ticks: baseTicks, grid: { display: false } },
+            y: { stacked: true, position: 'left', ticks: baseTicks, grid: { color: gridColor } },
+            y1: { position: 'right', min: 10, max: 30, ticks: { ...baseTicks, color: '#fbbf24' }, grid: { display: false } }
+          }
+        }
+      });
+    }
+
+    const ctx2 = document.getElementById('volvo-chart-cost-savings');
+    if (ctx2) {
+      this._tripsCharts.cost = new window.Chart(ctx2, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Costo EV (€)', data: months.map((m) => +(m.totalCostEur || 0).toFixed(2)), backgroundColor: 'rgba(56, 189, 248, 0.8)', borderRadius: 4 },
+            { label: 'Risparmio Diesel (€)', data: months.map((m) => +(m.savingsDieselEur || 0).toFixed(2)), backgroundColor: 'rgba(16, 185, 129, 0.82)', borderRadius: 4 },
+            { label: 'Risparmio Benzina (€)', data: months.map((m) => +(m.savingsPetrolEur || 0).toFixed(2)), backgroundColor: 'rgba(45, 212, 191, 0.65)', borderRadius: 4 }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { labels: { color: '#cbd5e1', boxWidth: 10, font: { size: 11 } } }
+          },
+          scales: {
+            x: { ticks: baseTicks, grid: { display: false } },
+            y: { ticks: baseTicks, grid: { color: gridColor } }
+          }
+        }
+      });
+    }
+
+    const ctx3 = document.getElementById('volvo-chart-charging-mix');
+    if (ctx3) {
+      const wb = months.reduce((s, m) => s + (m.wallboxKwh || 0), 0);
+      const pub = months.reduce((s, m) => s + (m.publicKwh || 0), 0);
+      this._tripsCharts.mix = new window.Chart(ctx3, {
+        type: 'doughnut',
+        data: {
+          labels: ['Wallbox Casa (kWh)', 'Colonnine Pubbliche (kWh)'],
+          datasets: [{
+            data: [Math.round(wb), Math.round(pub)],
+            backgroundColor: ['rgba(56, 189, 248, 0.85)', 'rgba(168, 85, 247, 0.85)'],
+            borderColor: '#0f172a',
+            borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '64%',
+          plugins: {
+            legend: { position: 'bottom', labels: { color: '#cbd5e1', boxWidth: 10, font: { size: 11 } } }
+          }
+        }
+      });
+    }
   }
 
   renderView() {
@@ -639,7 +788,11 @@ class MobilityManager {
     `;
 
     if (this.activeTab === 'trips') {
+      if (!this.tripsData && !this.tripsLoading) {
+        this.loadTripsData();
+      }
       container.innerHTML = `<div class="max-w-7xl mx-auto px-4 md:px-6 py-5 space-y-5">${navBarHtml}${this.renderTripsTab()}</div>`;
+      requestAnimationFrame(() => this.renderTripsCharts());
       return;
     }
 
