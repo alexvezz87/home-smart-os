@@ -1098,6 +1098,18 @@ class EvClimateHub {
         throw new Error(`Comando Volvo (${cmdMap[action]}): ${msg}`);
       }
       eventLogger.log('volvo_ex30', `🚗 [Volvo EX30] Comando remoto "${cmdMap[action]}" inviato al veicolo`);
+
+      // Attesa breve per propagazione comando sul veicolo + aggiornamento ottimistico immediato
+      await new Promise((r) => setTimeout(r, 2000));
+      await this.syncVolvoEx30();
+      if (action === 'lock') this.volvoState.carLocked = true;
+      else if (action === 'unlock') this.volvoState.carLocked = false;
+      else if (action === 'climatization_start') this.volvoState.climatizationActive = true;
+      else if (action === 'climatization_stop') this.volvoState.climatizationActive = false;
+
+      // Seconda sincronizzazione differita per confermare la telemetria reale dal cloud Volvo
+      setTimeout(() => { this.syncVolvoEx30().catch(() => {}); }, 4500);
+      return { success: true, volvo: this.volvoState };
     }
 
     await this.syncVolvoEx30();
