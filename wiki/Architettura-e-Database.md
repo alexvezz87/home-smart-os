@@ -106,6 +106,9 @@ CREATE TABLE IF NOT EXISTS activity_logs (
 | `energy_history_store` | `historical-energy-analytics` | `data/historical-energy-analytics.json` | 🔓 No | Analisi consumi mensili/annuali (Volvo EX30, Wallbox ABB, Dolomiti) |
 | `energy_history_store` | `appliance-cycles` | `appliance-cycles.json` | 🔓 No | Cicli lavatrice rilevati da presa smart Meross |
 | `activity_logs` | *(record cronologici)* | `activity-log.json` | 🔓 No | Eventi di sistema, cambi stato, comandi vocali e audit |
+| `room_temp_history` | *(serie temporale 15m)* | *(solo TiDB)* | 🔓 No | Snapshot termici per le 10 zone Bosch, sensore Corridoio Hue e caldaia (retention 60g) |
+| `kv_store` | `thermal-manual-overrides` | *(solo TiDB)* | 🔓 No | Storico override manuali utente per apprendimento comfort (`#60`) |
+| `kv_store` | `thermal-analytics-report` | *(solo TiDB)* | 🔓 No | Ultimo report di analisi inerzia termica e raccomandazioni (`#60`) |
 
 ### 🔄 3.3 Bootstrap Ordinato & Sincronizzazione Bidirezionale
 Il ciclo di avvio di Home Smart OS in [`server.js`](../server.js) rispetta rigorosamente una sequenza asincrona ordinata in tre fasi:

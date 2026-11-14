@@ -560,3 +560,90 @@ test('TelegramBotManager & go2rtc (#35): escaping HTML, comando /auto Volvo EX30
   }
   assert.equal(sentPayloads.length, 0);
 });
+
+test('ThermalAnalytics (#60): campionamento, inerzia termica, guadagni passivi e raccomandazioni', async () => {
+  const { ThermalAnalytics } = require('../src/thermal-analytics');
+  const aiGateway = require('../src/ai-gateway');
+  const t0 = Date.parse('2026-11-14T10:00:00Z'); // 11:00 Europe/Rome
+  const fakeHub = {
+    getUnifiedStatus: () => ({
+      bosch: {
+        outdoorTemp: 11.0,
+        supplyTempC: 48,
+        modulationPct: 30,
+        energyHistory: {
+          hourly: [{ date: '14-11-2026', hour: 11, gasHeating: 0.42 }]
+        },
+        zones: [
+          { id: 'zn1', name: 'Salone', tempActual: 20.4, tempSetpoint: 20.0, valvePosition: 0 },
+          { id: 'zn2', name: 'Cucina', tempActual: 19.0, tempSetpoint: 20.0, valvePosition: 45 }
+        ]
+      }
+    })
+  };
+
+  const ta = new ThermalAnalytics({ evClimateHub: fakeHub });
+  // Simula 8 campioni distanziati di 30 minuti (4 ore)
+  for (let i = 0; i < 8; i++) {
+    const ts = t0 + i * 30 * 60 * 1000;
+    ta.samples.push({
+      ts,
+      outdoorTemp: 11.0,
+      supplyTempC: 48,
+      modulationPct: 30,
+      anyHome: true,
+      zones: {
+        zn1: { name: 'Salone', tActual: +(20.2 + i * 0.05).toFixed(2), tSet: 19.8, valvePos: 0, badge: 'solar_trim' },
+        zn2: { name: 'Cucina', tActual: +(18.8 + i * 0.15).toFixed(2), tSet: 20.0, valvePos: 45, badge: null }
+      }
+    });
+  }
+
+  await ta.recordManualOverride({ ts: t0 + 60_000, zoneId: 'zn1', room: 'Salone', targetTemp: 19.5, previousTemp: 20.0 });
+  const liveSnap = await ta.recordSample({ nowMs: t0 + 8 * 30 * 60 * 1000, persist: false });
+  assert.ok(liveSnap.zones.zn1);
+  assert.equal(liveSnap.zones.zn1.name, 'Salone');
+  assert.equal(liveSnap.supplyTempC, 48);
+  assert.equal(liveSnap.modulationPct, 30);
+
+  const report = await ta.analyze({ days: 7, useAi: false, nowMs: t0 + 9 * 30 * 60 * 1000 });
+  assert.equal(report.zones.length, 2);
+  assert.ok(report.gasCorrelation.totalGasHeatingM3 > 0);
+  assert.ok(report.gasCorrelation.correlatedHours >= 1);
+
+  const salone = report.zones.find((z) => z.zoneId === 'zn1');
+  const cucina = report.zones.find((z) => z.zoneId === 'zn2');
+  assert.ok(salone.passiveGainHours > 2);
+  assert.ok(cucina.heatingRatePerHour > 0);
+  assert.ok(cucina.valveOpenHours > 2);
+  assert.ok(report.recommendations.some((r) => r.zoneId === 'zn1'));
+
+  // Verifica unwrap aiGateway.generateJSON ({ data: { summary, recommendations } }) e preservazione cache su getSummary()
+  const prevGetKey = aiGateway.getApiKey;
+  const prevGenJson = aiGateway.generateJSON;
+  try {
+    aiGateway.getApiKey = () => 'fake-key';
+    aiGateway.generateJSON = async () => ({
+      text: '{}',
+      model: 'fake',
+      data: {
+        summary: 'Tenuta termica ottima in Salone grazie agli infissi PVC.',
+        recommendations: [{ zoneId: 'zn1', zoneName: 'Salone', type: 'ai_tuning', title: 'Anticipo AI', detail: 'Anticipa di 20m', estimatedSavedM3PerMonth: 2.0 }]
+      }
+    });
+    const aiRep = await ta.analyze({ days: 7, useAi: true, nowMs: t0 + 9 * 30 * 60 * 1000 });
+    assert.equal(aiRep.aiSummary, 'Tenuta termica ottima in Salone grazie agli infissi PVC.');
+    assert.equal(aiRep.recommendations[0].title, 'Anticipo AI');
+
+    // getSummary non deve sovrascrivere latestReport generato dall'AI
+    const summaryRep = await ta.getSummary({ days: 7 });
+    assert.equal(summaryRep.aiSummary, 'Tenuta termica ottima in Salone grazie agli infissi PVC.');
+    assert.equal(ta.latestReport.aiRecommendationsUsed, true);
+  } finally {
+    aiGateway.getApiKey = prevGetKey;
+    aiGateway.generateJSON = prevGenJson;
+  }
+
+  const series = ta.getZoneSeries('zn1', { days: 7, nowMs: t0 + 9 * 30 * 60 * 1000 });
+  assert.ok(series.points.length >= 8);
+});
