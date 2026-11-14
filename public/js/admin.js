@@ -1863,6 +1863,11 @@ class AdminManager {
           </div>
         </div>
 
+        <!-- Hub Posta Multi-Account (Gmail Alex & Cinzia #36) -->
+        <div id="admin-gmail-hub-panel" class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
+          <div class="text-xs text-slate-400"><i class="fa-solid fa-circle-notch fa-spin mr-1.5 text-rose-400"></i> Caricamento Hub Posta (Gmail Alex &amp; Cinzia)...</div>
+        </div>
+
         <!-- Stampante Laser Wi-Fi Pantum P2500W (IPP LAN) -->
         <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
           <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
@@ -2570,8 +2575,101 @@ AdminManager.prototype.loadBackbonePanels = async function() {
     this.aiGatewayStatus = aiRes?.data || null;
     this.renderIliadboxPanel();
     this.renderAiGatewayPanel();
+    this.loadGmailHubPanel();
   } catch (err) {
     console.warn('Errore caricamento pannelli spina dorsale:', err.message);
+  }
+};
+
+AdminManager.prototype.loadGmailHubPanel = async function() {
+  const el = document.getElementById('admin-gmail-hub-panel');
+  if (!el) return;
+  try {
+    const res = await fetch('/api/mail/status');
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Errore API mail');
+    const st = json.data || {};
+    const accounts = st.accounts || {};
+
+    const renderAccountCard = (key, label) => {
+      const acc = accounts[key] || {};
+      const connected = Boolean(acc.connected);
+      const expired = Boolean(acc.authExpired);
+      return `
+        <div class="p-3 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-white"><i class="fa-solid fa-envelope text-rose-400 mr-1.5"></i>Gmail ${label}</span>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${expired ? 'bg-rose-500/20 text-rose-300' : (connected ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400')}">
+              ${expired ? 'Token Scaduto' : (connected ? 'Collegato' : 'Non collegato')}
+            </span>
+          </div>
+          <div class="text-[11px] text-slate-300 truncate">${connected && acc.email ? this.escapeHtml(acc.email) : 'Nessun account collegato'}</div>
+          <div class="text-[10px] text-slate-500">Ultimo sync: ${acc.lastSyncAt ? this.escapeHtml(new Date(acc.lastSyncAt).toLocaleString('it-IT')) : '--'}</div>
+          <div class="flex gap-2 pt-1">
+            <button onclick="window.adminManager.connectGmailAccount('${key}')" class="flex-1 px-2.5 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 text-[11px] font-semibold">
+              ${connected ? 'Ricollega OAuth' : 'Connetti OAuth'}
+            </button>
+            ${connected ? `<button onclick="window.adminManager.disconnectGmailAccount('${key}')" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px]">Scollega</button>` : ''}
+          </div>
+        </div>
+      `;
+    };
+
+    el.innerHTML = `
+      <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
+        <div>
+          <h4 class="text-xs font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-box-open text-amber-400 mr-1.5"></i>Hub Posta Multi-Account (Consegne &amp; Bollette Extra)</h4>
+          <p class="text-[11px] text-slate-400">Scope sola lettura (gmail.readonly) con filtro query privacy &amp; esclusione Dolomiti Energia</p>
+        </div>
+        <button onclick="window.adminManager.syncGmailNow()" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold">
+          <i class="fa-solid fa-rotate mr-1"></i>Sincronizza Posta Ora
+        </button>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        ${renderAccountCard('alex', 'Alex')}
+        ${renderAccountCard('cinzia', 'Cinzia')}
+      </div>
+    `;
+  } catch (err) {
+    el.innerHTML = `<span class="text-xs text-rose-400">Errore Hub Posta: ${this.escapeHtml(err.message)}</span>`;
+  }
+};
+
+AdminManager.prototype.connectGmailAccount = async function(account) {
+  try {
+    const res = await fetch(`/api/mail/oauth/start?account=${encodeURIComponent(account)}`);
+    const json = await res.json();
+    if (!res.ok || !json.success || !json.url) throw new Error(json.error || 'URL OAuth non disponibile');
+    window.location.href = json.url;
+  } catch (err) {
+    window.showToast?.(this.escapeHtml(err.message), 'error');
+  }
+};
+
+AdminManager.prototype.disconnectGmailAccount = async function(account) {
+  try {
+    await fetch('/api/mail/oauth/disconnect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account })
+    });
+    window.showToast?.(`Account Gmail ${account} scollegato`, 'info');
+    this.loadGmailHubPanel();
+  } catch (err) {
+    window.showToast?.(this.escapeHtml(err.message), 'error');
+  }
+};
+
+AdminManager.prototype.syncGmailNow = async function() {
+  try {
+    window.showToast?.('Sincronizzazione Gmail Alex & Cinzia in corso...', 'info');
+    const res = await fetch('/api/mail/sync', { method: 'POST' });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Errore sync');
+    window.showToast?.(`Posta sincronizzata: ${json.parsedDeliveries || 0} pacchi, ${json.parsedBills || 0} bollette`, 'success');
+    this.loadGmailHubPanel();
+  } catch (err) {
+    window.showToast?.(this.escapeHtml(err.message), 'error');
   }
 };
 

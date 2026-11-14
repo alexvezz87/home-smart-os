@@ -94,3 +94,10 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 ## 📲 Telegram Bot API & Web Push (VAPID)
 - **Telegram Bot API (`src/telegram-bot.js`)**: polling HTTPS REST su `api.telegram.org/bot<TOKEN>/getUpdates`, `sendMessage`, `sendPhoto` (multipart nativo) e `answerCallbackQuery`. Token da `TELEGRAM_BOT_TOKEN` o TiDB `telegram-config`; accesso consentito esclusivamente ai `chat_id` in whitelist (`TELEGRAM_ALLOWED_USERS` o abbinati via `/start auth_<token>`).
 - **Web Push PWA (`src/web-push-manager.js`, `public/sw.js`)**: protocollo Web Push RFC 8030 / VAPID tramite libreria `web-push`, chiavi VAPID auto-generate e persistite in TiDB (`web-push-vapid-keys`), endpoint `GET /api/push/vapid-public-key`, `POST /api/push/subscribe`, `POST /api/push/unsubscribe`, `GET/POST /api/notifications/config`, `POST /api/notifications/test`, `POST /api/telegram/pairing-link` e `GET/POST/DELETE /api/security/pet-refs`.
+
+---
+
+## 📬 Gmail REST API v1 Multi-Account (`src/gmail-hub.js`, `src/delivery-billing-parser.js`)
+- **OAuth2 Condiviso**: riuso credenziali Google (`GOOGLE_AUTH_CLIENT_ID`, `GOOGLE_AUTH_CLIENT_SECRET`, `/api/auth/google/callback`) con `state` dedicato `gmail_sync:alex` e `gmail_sync:cinzia`, scope di sola lettura `gmail.readonly` + `userinfo.email`.
+- **Query Privacy & No-Persistence**: filtraggio lato Gmail API (`GMAIL_PRIVACY_QUERY`) su mittenti/oggetti di spedizioni e utenze extra-Dolomiti; i corpi email vengono elaborati solo in RAM tramite `aiGateway` (`mail_parsing` / `mail_pdf_parsing`) e mai salvati su DB.
+- **Endpoint**: `GET /api/mail/oauth/start`, `POST /api/mail/oauth/disconnect`, `GET /api/mail/status`, `GET /api/mail/deliveries`, `GET /api/mail/bills`, `POST /api/mail/bills/:id/status`, `POST /api/mail/sync`.

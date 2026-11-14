@@ -137,6 +137,30 @@ function evaluateServicesSnapshot(modules = {}) {
     actionArea: 'security'
   });
 
+  const gmailStatusObj = safeCall(() => modules.gmailHub?.getStatus(), null);
+  let gmailStatus = 'degraded';
+  let gmailDetail = 'Nessun account Gmail collegato (Alex / Cinzia)';
+  if (gmailStatusObj) {
+    if (gmailStatusObj.overallStatus === 'auth_expired') {
+      gmailStatus = 'auth_expired';
+      gmailDetail = 'Token OAuth Gmail scaduto: ricollega account in Amministrazione';
+    } else if (gmailStatusObj.overallStatus === 'operational') {
+      const connectedList = ['alex', 'cinzia']
+        .filter((a) => gmailStatusObj.accounts?.[a]?.connected)
+        .map((a) => a.charAt(0).toUpperCase() + a.slice(1));
+      gmailStatus = 'operational';
+      gmailDetail = `Attivo (${connectedList.join(' & ')})`;
+    }
+  }
+  services.push({
+    id: 'gmail_hub',
+    category: 'core',
+    name: 'Hub Posta & Consegne (Gmail)',
+    status: gmailStatus,
+    detail: gmailDetail,
+    actionArea: 'admin'
+  });
+
   // 3. Casa & Rete LAN
   const iliad = modules.iliadboxClient;
   const iliadState = safeCall(() => iliad?.getPresenceState(), null);

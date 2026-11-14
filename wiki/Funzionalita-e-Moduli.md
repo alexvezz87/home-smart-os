@@ -154,4 +154,12 @@ Riorganizzata con un'architettura **modulare a schede (Tab Switcher)** con persi
 - **Motore di Inerzia & Correlazione Gas**: calcola per ogni stanza il tasso di raffreddamento/riscaldamento (`°C/ora`), le ore valvola aperta, il tempo sopra target, i guadagni passivi a valvola chiusa (infissi PVC triplo vetro) e correla l'apertura valvole con `gasHeating` orario Bosch, generando proposte di tuning (`recommendations`) con stima risparmio `m³/mese` (arricchite da `aiGateway` `role: 'fast'`).
 - **Dashboard Consumi (`public/js/energy.js`) & API (`server.js`)**: endpoint `GET /api/climate/analytics/summary`, `GET /api/climate/analytics/zone/:zoneId` e `POST /api/climate/analytics/analyze-now`; grafico Chart.js comparativo `Temp Reale vs Setpoint vs Valvola (%)` (`24h / 7g / 30g`), tabella efficienza stanze e card suggerimenti nella sezione *Consumi & Energia*.
 
+---
+
+## 📬 8. Hub Posta Multi-Account (Consegne Pacchi & Scadenzario Extra-Dolomiti) (`#36`)
+- **Connessione Gmail Multi-Account (`src/gmail-hub.js`)**: OAuth2 indipendente (`state: gmail_sync:alex|cinzia`) con scope `gmail.readonly`, token cifrati AES-256-GCM su TiDB (`gmail_token_alex`, `gmail_token_cinzia`), query privacy rigorosa e esclusione esplicita di Dolomiti Energia (già gestita da `src/dolomiti-bills-sync.js`). Nessun corpo email viene persistito.
+- **Parsing Semantico & PDF (`src/delivery-billing-parser.js`)**: estrazione strutturata pacchi (`home-active-deliveries`) e bollette extra-Dolomiti (`home-active-bills`, inclusi PDF allegati `application/pdf`) via `aiGateway.generateJSON({ role: 'fast' })`.
+- **Riconciliazione Visiva & Notifiche**: ascolto `camera:vision_alert` per allerta immediata corriere alla porta (`mail:courier_arrived`), riepilogo mattutino pacchi in arrivo e promemoria discreto a `<= 3 giorni` dalla scadenza bollette.
+- **UI & Status**: widget *"📦 Consegne di Casa"* in `#area-home` (`public/js/app.js`), sezione *"📅 Scadenzario Utenze Extra"* in *Consumi & Energia* (`public/js/energy.js`), box **Gmail Alex** / **Gmail Cinzia** in *Amministrazione* (`public/js/admin.js`) e card `gmail_hub` in Statuspage (`src/service-status.js`).
+
 
