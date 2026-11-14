@@ -147,4 +147,11 @@ Riorganizzata con un'architettura **modulare a schede (Tab Switcher)** con persi
 - **Web Push PWA (`src/web-push-manager.js`, `public/sw.js`)**: gestione chiavi VAPID (auto-generate e salvate su TiDB `kv_store`), sottoscrizioni browser multiple e deep-link al click sulla notifica.
 - **Sentinella Fuori Casa & Filtro Pet (`src/security-system.js`)**: ronda periodica automatica (5/10/15 min) sulle telecamere quando casa è in modalità Away (e risveglio istantaneo da `sensor:motion`), con analisi multimodale few-shot Gemini Vision per riconoscere **Lucifero (cane)** e **Camilla (gatto)** ed evitare falsi allarmi.
 
+---
+
+## 📊 7. Analisi Storica Termica Stanze & Thermal Learning Loop (`#60`)
+- **Campionatore 15 minuti (`src/thermal-analytics.js` + `src/db.js`)**: registra nella tabella TiDB `room_temp_history` (retention automatica 60 giorni) gli snapshot compatti di tutte le 10 zone Bosch (`tActual`, `tSet`, `valvePos`, `badge`), temperatura Corridoio Hue, temperatura esterna, mandata/modulazione caldaia e stato presenza (`anyHome`). Traccia inoltre gli override manuali (`climate:manual_override`).
+- **Motore di Inerzia & Correlazione Gas**: calcola per ogni stanza il tasso di raffreddamento/riscaldamento (`°C/ora`), le ore valvola aperta, il tempo sopra target, i guadagni passivi a valvola chiusa (infissi PVC triplo vetro) e correla l'apertura valvole con `gasHeating` orario Bosch, generando proposte di tuning (`recommendations`) con stima risparmio `m³/mese` (arricchite da `aiGateway` `role: 'fast'`).
+- **Dashboard Consumi (`public/js/energy.js`) & API (`server.js`)**: endpoint `GET /api/climate/analytics/summary`, `GET /api/climate/analytics/zone/:zoneId` e `POST /api/climate/analytics/analyze-now`; grafico Chart.js comparativo `Temp Reale vs Setpoint vs Valvola (%)` (`24h / 7g / 30g`), tabella efficienza stanze e card suggerimenti nella sezione *Consumi & Energia*.
+
 

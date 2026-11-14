@@ -162,13 +162,21 @@ class DatabaseManager {
         message TEXT,
         meta JSON,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
+      `CREATE TABLE IF NOT EXISTS room_temp_history (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        ts BIGINT NOT NULL,
+        sample_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        payload LONGTEXT NOT NULL,
+        INDEX idx_room_temp_ts (ts)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`
     ];
 
     for (const q of queries) {
       await this.pool.query(q);
     }
-    console.log('[TiDB DB] Tabelle kv_store, energy_history_store e activity_logs verificate.');
+    console.log('[TiDB DB] Tabelle kv_store, energy_history_store, activity_logs e room_temp_history verificate.');
   }
 
   /**
@@ -471,6 +479,65 @@ class DatabaseManager {
     } catch (err) {
       console.warn('[TiDB DB] Errore lettura activity_logs:', err.message);
       return [];
+    }
+  }
+
+  /**
+   * Inserisce uno snapshot termico in room_temp_history
+   */
+  async insertThermalSample(ts, payload) {
+    if (!this.pool) return false;
+    try {
+      const raw = typeof payload === 'string' ? payload : JSON.stringify(payload);
+      await this.pool.query(
+        'INSERT INTO room_temp_history (ts, sample_time, payload) VALUES (?, ?, ?)',
+        [Number(ts), new Date(Number(ts)), raw]
+      );
+      return true;
+    } catch (err) {
+      console.warn('[TiDB DB] Errore insertThermalSample:', err.message);
+      return false;
+    }
+  }
+
+  /**
+   * Legge gli snapshot termici da room_temp_history a partire da sinceTs
+   */
+  async getThermalSamples(sinceTs = 0, limit = 6000) {
+    if (!this.pool) return [];
+    try {
+      const [rows] = await this.pool.query(
+        'SELECT ts, payload FROM room_temp_history WHERE ts >= ? ORDER BY ts ASC LIMIT ?',
+        [Number(sinceTs), Number(limit)]
+      );
+      return rows.map((r) => {
+        try {
+          return typeof r.payload === 'string' ? JSON.parse(r.payload) : r.payload;
+        } catch (_) {
+          return null;
+        }
+      }).filter(Boolean);
+    } catch (err) {
+      console.warn('[TiDB DB] Errore getThermalSamples:', err.message);
+      return [];
+    }
+  }
+
+  /**
+   * Applica retention su room_temp_history (default 60 giorni)
+   */
+  async pruneThermalSamples(retentionDays = 60) {
+    if (!this.pool) return 0;
+    try {
+      const cutoffTs = Date.now() - Math.max(1, Number(retentionDays)) * 24 * 60 * 60 * 1000;
+      const [res] = await this.pool.query(
+        'DELETE FROM room_temp_history WHERE ts < ?',
+        [cutoffTs]
+      );
+      return res?.affectedRows || 0;
+    } catch (err) {
+      console.warn('[TiDB DB] Errore pruneThermalSamples:', err.message);
+      return 0;
     }
   }
 }

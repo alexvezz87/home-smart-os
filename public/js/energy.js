@@ -22,6 +22,10 @@ class EnergyManager {
 
     this.plugModalChart = null;
     this.plugModalTimeframe = '30d';
+
+    this.thermalDays = 7;
+    this.thermalSelectedZone = 'zn1';
+    this.thermalChart = null;
   }
 
   async renderView() {
@@ -384,10 +388,45 @@ class EnergyManager {
           </div>
         </div>
 
+        <!-- 6. Analisi Termica Stanze & Efficienza (Thermal Learning Loop #60) -->
+        <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
+          <div class="flex items-center justify-between flex-wrap gap-3 border-b border-slate-800 pb-3">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-rose-500/15 text-rose-400 border border-rose-500/30 flex items-center justify-center text-lg">
+                <i class="fa-solid fa-temperature-half"></i>
+              </div>
+              <div>
+                <h3 class="text-base font-bold text-white">Analisi Termica Stanze &amp; Efficienza</h3>
+                <p class="text-xs text-slate-400">Storico 15m per zona Bosch, inerzia infissi PVC triplo vetro, guadagni passivi e correlazione gas</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <select id="thermal-zone-select" onchange="window.energyManager.selectThermalZone(this.value)" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white"></select>
+              <div class="inline-flex rounded-xl bg-slate-900 border border-slate-800 p-0.5 text-xs">
+                <button onclick="window.energyManager.switchThermalDays(1)" data-thermal-days="1" class="thermal-days-btn px-2.5 py-1 rounded-lg text-slate-400 hover:text-white">24h</button>
+                <button onclick="window.energyManager.switchThermalDays(7)" data-thermal-days="7" class="thermal-days-btn px-2.5 py-1 rounded-lg bg-rose-600 text-white font-bold">7g</button>
+                <button onclick="window.energyManager.switchThermalDays(30)" data-thermal-days="30" class="thermal-days-btn px-2.5 py-1 rounded-lg text-slate-400 hover:text-white">30g</button>
+              </div>
+              <button onclick="window.energyManager.runThermalAnalyzeNow()" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all active:scale-95">
+                <i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Analizza Ora
+              </button>
+            </div>
+          </div>
+
+          <div class="h-64 relative">
+            <canvas id="thermalZoneChart"></canvas>
+          </div>
+
+          <div id="thermal-analytics-summary" class="space-y-3 text-xs text-slate-300">
+            <span class="text-slate-400">Caricamento analisi termica stanze...</span>
+          </div>
+        </div>
+
       </div>
     `;
 
     this.renderBoschGasChart();
+    this.loadThermalAnalytics();
   }
 
   toggleHeatmapOnHome() {
@@ -801,6 +840,203 @@ class EnergyManager {
     `;
 
     document.body.insertAdjacentHTML('beforeend', modalHtml);
+  }
+
+  async loadThermalAnalytics() {
+    const summaryEl = document.getElementById('thermal-analytics-summary');
+    const selectEl = document.getElementById('thermal-zone-select');
+    if (!summaryEl) return;
+
+    try {
+      const res = await fetch(`/api/climate/analytics/summary?days=${this.thermalDays}`);
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'Errore API');
+      const report = json.data || {};
+      const zones = Array.isArray(report.zones) ? report.zones : [];
+
+      if (selectEl) {
+        const boschZones = window.homeData?.evClimate?.bosch?.zones || [];
+        const options = zones.length > 0
+          ? zones.map((z) => ({ id: z.zoneId, name: z.name }))
+          : boschZones.map((z) => ({ id: z.id, name: z.name }));
+
+        if (options.length > 0) {
+          if (!options.some((o) => o.id === this.thermalSelectedZone)) {
+            this.thermalSelectedZone = options[0].id;
+          }
+          selectEl.innerHTML = options.map((o) =>
+            `<option value="${o.id}" ${o.id === this.thermalSelectedZone ? 'selected' : ''}>${o.name}</option>`
+          ).join('');
+        } else {
+          selectEl.innerHTML = '<option value="zn1">Nessuna zona campionata</option>';
+        }
+      }
+
+      const recs = Array.isArray(report.recommendations) ? report.recommendations : [];
+      const gasCorr = report.gasCorrelation || {};
+
+      summaryEl.innerHTML = `
+        ${report.aiSummary ? `
+          <div class="p-3 rounded-xl bg-indigo-950/30 border border-indigo-500/30 text-indigo-200 flex items-start gap-2">
+            <i class="fa-solid fa-robot text-indigo-400 mt-0.5"></i>
+            <span>${report.aiSummary}</span>
+          </div>
+        ` : ''}
+
+        <div class="flex items-center justify-between text-[11px] text-slate-400 flex-wrap gap-2">
+          <span>Campioni nel periodo (${this.thermalDays}g): <strong class="text-white">${report.sampleCount || 0}</strong></span>
+          <span>Correlazione Gas Bosch: <strong class="text-amber-300">${gasCorr.totalGasHeatingM3 ?? 0} m³</strong> (media valvole aperte: ${gasCorr.avgValveOpenWhenHeatingPct ?? '--'}%)</span>
+        </div>
+
+        ${zones.length > 0 ? `
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse text-[11px]">
+              <thead>
+                <tr class="border-b border-slate-800 text-slate-400">
+                  <th class="py-2 pr-3">Stanza</th>
+                  <th class="py-2 pr-3">Media °C</th>
+                  <th class="py-2 pr-3">Sopra Target</th>
+                  <th class="py-2 pr-3">Ore Valvola</th>
+                  <th class="py-2 pr-3">Raffr. °C/h</th>
+                  <th class="py-2 pr-3">Guadagno Passivo</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800/60">
+                ${zones.map((z) => `
+                  <tr class="hover:bg-slate-900/50 cursor-pointer" onclick="window.energyManager.selectThermalZone('${z.zoneId}')">
+                    <td class="py-2 pr-3 font-semibold text-white">${z.name}</td>
+                    <td class="py-2 pr-3 font-mono">${z.avgTemp ?? '--'}°C</td>
+                    <td class="py-2 pr-3 font-mono">${z.aboveTargetPct ?? 0}%</td>
+                    <td class="py-2 pr-3 font-mono">${z.valveOpenHours ?? 0}h</td>
+                    <td class="py-2 pr-3 font-mono">${z.coolingRatePerHour !== null ? z.coolingRatePerHour : '--'}</td>
+                    <td class="py-2 pr-3 font-mono text-emerald-400">${z.passiveGainHours > 0 ? `+${z.passiveGainHours}h` : '0h'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        ` : '<div class="text-slate-500">Nessun campione storico ancora disponibile: il campionatore registra ogni 15 minuti.</div>'}
+
+        ${recs.length > 0 ? `
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
+            ${recs.map((r) => `
+              <div class="p-3 rounded-xl bg-slate-900/90 border border-emerald-500/30 space-y-1">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="font-bold text-emerald-300">${r.title}</span>
+                  <span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 font-mono text-[10px]">-${r.estimatedSavedM3PerMonth ?? 0} m³/mese</span>
+                </div>
+                <p class="text-[11px] text-slate-300 leading-relaxed">${r.detail}</p>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+      `;
+
+      await this.renderThermalZoneChart();
+    } catch (err) {
+      summaryEl.innerHTML = `<span class="text-rose-400">Errore caricamento analisi termica: ${err.message}</span>`;
+    }
+  }
+
+  switchThermalDays(days) {
+    this.thermalDays = Number(days) || 7;
+    document.querySelectorAll('.thermal-days-btn').forEach((btn) => {
+      const active = Number(btn.getAttribute('data-thermal-days')) === this.thermalDays;
+      btn.className = `thermal-days-btn px-2.5 py-1 rounded-lg ${active ? 'bg-rose-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`;
+    });
+    this.loadThermalAnalytics();
+  }
+
+  selectThermalZone(zoneId) {
+    this.thermalSelectedZone = zoneId;
+    const selectEl = document.getElementById('thermal-zone-select');
+    if (selectEl) selectEl.value = zoneId;
+    this.renderThermalZoneChart();
+  }
+
+  async runThermalAnalyzeNow() {
+    try {
+      if (typeof showToast === 'function') showToast('Analisi termica AI in corso...', 'info');
+      const res = await fetch('/api/climate/analytics/analyze-now', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days: this.thermalDays })
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'Errore analisi');
+      if (typeof showToast === 'function') showToast('Analisi termica completata!', 'success');
+      await this.loadThermalAnalytics();
+    } catch (err) {
+      if (typeof showToast === 'function') showToast(err.message, 'error');
+    }
+  }
+
+  async renderThermalZoneChart() {
+    const canvas = document.getElementById('thermalZoneChart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    try {
+      const res = await fetch(`/api/climate/analytics/zone/${encodeURIComponent(this.thermalSelectedZone)}?days=${this.thermalDays}`);
+      const json = await res.json();
+      if (!res.ok || !json.success) return;
+      const points = json.data?.points || [];
+
+      if (this.thermalChart) {
+        this.thermalChart.destroy();
+        this.thermalChart = null;
+      }
+
+      const labels = points.map((p) => {
+        const d = new Date(p.ts);
+        return this.thermalDays <= 1
+          ? d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
+          : d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+      });
+
+      this.thermalChart = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Temp Reale (°C)',
+              data: points.map((p) => p.tActual),
+              borderColor: '#f43f5e',
+              backgroundColor: 'rgba(244,63,94,0.12)',
+              tension: 0.3,
+              yAxisID: 'yTemp'
+            },
+            {
+              label: 'Setpoint (°C)',
+              data: points.map((p) => p.tSet),
+              borderColor: '#38bdf8',
+              borderDash: [5, 4],
+              tension: 0.1,
+              yAxisID: 'yTemp'
+            },
+            {
+              label: 'Valvola (%)',
+              data: points.map((p) => p.valvePos),
+              borderColor: '#f59e0b',
+              backgroundColor: 'rgba(245,158,11,0.15)',
+              fill: true,
+              tension: 0.2,
+              yAxisID: 'yValve'
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { labels: { color: '#cbd5e1', font: { size: 11 } } } },
+          scales: {
+            x: { ticks: { color: '#94a3b8', maxTicksLimit: 8 }, grid: { color: 'rgba(148,163,184,0.08)' } },
+            yTemp: { type: 'linear', position: 'left', ticks: { color: '#fda4af' }, grid: { color: 'rgba(148,163,184,0.1)' } },
+            yValve: { type: 'linear', position: 'right', min: 0, max: 100, ticks: { color: '#fcd34d' }, grid: { drawOnChartArea: false } }
+          }
+        }
+      });
+    } catch (_) {}
   }
 }
 

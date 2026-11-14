@@ -52,6 +52,7 @@ let iliadboxClient = null;
 let aiGateway = null;
 let serviceStatus = null;
 let climateOptimizer = null;
+let thermalAnalytics = null;
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -957,6 +958,37 @@ app.post('/api/climate/optimizer/evaluate-now', async (req, res) => {
   }
 });
 
+// Analisi Storica Termica per Stanza (Thermal Learning Loop #60)
+app.get('/api/climate/analytics/summary', async (req, res) => {
+  try {
+    const days = Number(req.query.days || 7);
+    const data = await thermalAnalytics.getSummary({ days });
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/climate/analytics/zone/:zoneId', (req, res) => {
+  try {
+    const days = Number(req.query.days || 7);
+    const data = thermalAnalytics.getZoneSeries(req.params.zoneId, { days });
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/climate/analytics/analyze-now', async (req, res) => {
+  try {
+    const days = Number(req.body?.days || 7);
+    const data = await thermalAnalytics.analyze({ days, useAi: true });
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 app.post('/api/ev-climate/bosch/baby-comfort-profile', async (req, res) => {
   try {
     const result = await evClimateHub.applyBabyComfortProfile(req.body || {});
@@ -1782,6 +1814,7 @@ async function bootstrap() {
   iliadboxClient = require('./src/iliadbox-client');
   serviceStatus = require('./src/service-status');
   climateOptimizer = require('./src/climate-optimizer');
+  thermalAnalytics = require('./src/thermal-analytics');
   mcp = require('./src/google-home-mcp');
   ({ processAssistantCommand } = require('./src/assistant'));
   eventLogger = require('./src/event-logger');
@@ -1856,6 +1889,7 @@ async function bootstrap() {
   wallboxSync.init().catch((err) => console.warn('⚠️ [Wallbox Drive] Init background:', err.message));
   evClimateHub.syncAll().catch((err) => console.warn('⚠️ [EV-Climate Hub] Primo sync background:', err.message));
   climateOptimizer.init({ evClimateHub, securitySystem }).catch((err) => console.warn('⚠️ [ClimateOptimizer] Init background:', err.message));
+  thermalAnalytics.init({ evClimateHub, climateOptimizer }).catch((err) => console.warn('⚠️ [ThermalAnalytics] Init background:', err.message));
   setInterval(() => evClimateHub.syncAll().catch(() => {}), 60000);
 
   // Avvia il server TCP solo a bootstrap completato con successo
