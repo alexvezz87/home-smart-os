@@ -48,6 +48,7 @@ let eventBus = null;
 let iliadboxClient = null;
 let aiGateway = null;
 let serviceStatus = null;
+let climateOptimizer = null;
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -906,6 +907,9 @@ app.post('/api/ev-climate/bosch/setpoint', async (req, res) => {
   try {
     const { zoneId, temperature, pin, mode } = req.body || {};
     const result = await evClimateHub.setBoschZoneSetpoint(zoneId, temperature, { pin, mode });
+    if (climateOptimizer) {
+      climateOptimizer.recordManualOverride(result?.zoneId || zoneId);
+    }
     const snapshot = await mcp.getHomeSnapshot().catch(() => null);
     res.json({
       success: true,
@@ -914,6 +918,39 @@ app.post('/api/ev-climate/bosch/setpoint', async (req, res) => {
     });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// Ottimizzatore Termico Adattivo (Issue #33)
+app.get('/api/climate/optimizer/status', (req, res) => {
+  res.json({
+    success: true,
+    data: climateOptimizer ? climateOptimizer.getStatus() : null
+  });
+});
+
+app.post('/api/climate/optimizer/toggle', async (req, res) => {
+  try {
+    const data = await climateOptimizer.updateConfig(req.body || {});
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/climate/optimizer/evaluate-now', async (req, res) => {
+  try {
+    const dryRun = Boolean(req.body?.dryRun);
+    const evalRes = await climateOptimizer.evaluateNow({ reason: 'manual_api', dryRun });
+    res.json({
+      success: true,
+      data: {
+        evaluation: evalRes,
+        status: climateOptimizer.getStatus()
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -1591,6 +1628,7 @@ async function bootstrap() {
   aiGateway = require('./src/ai-gateway');
   iliadboxClient = require('./src/iliadbox-client');
   serviceStatus = require('./src/service-status');
+  climateOptimizer = require('./src/climate-optimizer');
   mcp = require('./src/google-home-mcp');
   ({ processAssistantCommand } = require('./src/assistant'));
   eventLogger = require('./src/event-logger');
@@ -1655,6 +1693,7 @@ async function bootstrap() {
   volvoTripsSync.init().catch((err) => console.warn('⚠️ [Volvo Drive] Init background:', err.message));
   wallboxSync.init().catch((err) => console.warn('⚠️ [Wallbox Drive] Init background:', err.message));
   evClimateHub.syncAll().catch((err) => console.warn('⚠️ [EV-Climate Hub] Primo sync background:', err.message));
+  climateOptimizer.init({ evClimateHub, securitySystem }).catch((err) => console.warn('⚠️ [ClimateOptimizer] Init background:', err.message));
   setInterval(() => evClimateHub.syncAll().catch(() => {}), 60000);
 
   // Avvia il server TCP solo a bootstrap completato con successo

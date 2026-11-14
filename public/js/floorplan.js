@@ -935,7 +935,13 @@ class FloorplanEngine {
           fill = '#0f172a';
           stroke = isSelected ? '#22d3ee' : '#334155';
         }
-        subBadge = (p.temperature && p.setpoint) ? `${p.temperature}°/${p.setpoint}°` : `${p.setpoint || p.temperature || 20.5}°`;
+        const optIcon = p.optBadge === 'solar_trim' ? '☀️'
+          : (p.optBadge === 'eco_away' ? '🍃'
+            : (p.optBadge === 'night_shift' ? '🌙'
+              : (p.optBadge === 'window_pause' ? '🪟' : '')));
+        if (p.optBadge === 'window_pause') stroke = isSelected ? '#22d3ee' : '#06b6d4';
+        const baseBadge = (p.temperature && p.setpoint) ? `${p.temperature}°/${p.setpoint}°` : `${p.setpoint || p.temperature || 20.5}°`;
+        subBadge = optIcon ? `${optIcon}${baseBadge}` : baseBadge;
       } else if (p.category === 'camera') {
         if (p.privacyMode) {
           iconGlyph = '&#xf070;'; // fa-eye-slash

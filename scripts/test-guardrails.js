@@ -9,6 +9,7 @@ const { IliadboxClient } = require('../src/iliadbox-client');
 const logger = require('../src/logger');
 const serviceStatus = require('../src/service-status');
 const { HueLocalManager } = require('../src/hue-local');
+const { ClimateOptimizer } = require('../src/climate-optimizer');
 
 test('EventBus: pubblicazione eventi tipizzati, wildcard e limite ring-buffer <= 100', () => {
   const bus = new HomeEventBus(100);
@@ -284,4 +285,42 @@ test('HueLocal SSE: parsing eventi motion, light_level e temperature verso event
   assert.equal(busTemp.length, 1);
   assert.equal(busLux.length, 1);
   assert.equal(busTemp[0].data.temperature, 21.3);
+});
+
+test('ClimateOptimizer: rampa graduale, finestra aperta, eco assente, solar trim e guardrail', () => {
+  const opt = new ClimateOptimizer();
+
+  // 1. Rampa graduale caldaia a condensazione (+0.5°C per ciclo)
+  assert.equal(opt.applyGentleRamp(17.0, 21.0), 17.5);
+  assert.equal(opt.applyGentleRamp(20.5, 18.0), 18.0);
+
+  // 2. Finestra aperta (calo > 0.8°C in < 5 minuti)
+  const t0 = 1_700_000_000_000;
+  let win = opt.detectWindowOpen('zn1', 21.0, 20.5, t0);
+  assert.equal(win.paused, false);
+  win = opt.detectWindowOpen('zn1', 20.0, 20.5, t0 + 120_000); // -1.0°C in 2 minuti
+  assert.equal(win.paused, true);
+  assert.equal(win.target, 15.0);
+
+  // 3. Eco Assente (allAway: true)
+  const ecoProp = opt.evaluateZoneProposal(
+    { id: 'zn3', name: 'Cucina', tempActual: 20.5, tempSetpoint: 20.5 },
+    { nowMs: t0, allAway: true, weather: { sunny: false } }
+  );
+  assert.equal(ecoProp.badge, 'eco_away');
+  assert.equal(ecoProp.targetSetpoint, 17.5);
+
+  // 4. Solar Trim su Salone alle 12:00 Europe/Rome (2026-11-14T11:00:00Z = 12:00 CET)
+  const noonMs = Date.parse('2026-11-14T11:00:00Z');
+  const solarProp = opt.evaluateZoneProposal(
+    { id: 'zn10', name: 'Salone', tempActual: 20.5, tempSetpoint: 20.5 },
+    { nowMs: noonMs, allAway: false, weather: { sunny: true, outdoorTemp: 14 } }
+  );
+  assert.equal(solarProp.badge, 'solar_trim');
+  assert.equal(solarProp.targetSetpoint, 19.5);
+
+  // 5. Override manuale utente protegge la zona per 30 minuti
+  opt.recordManualOverride('zn10', 30 * 60 * 1000, noonMs);
+  assert.equal(opt.isManualOverrideActive('zn10', noonMs + 60_000), true);
+  assert.equal(opt.isManualOverrideActive('zn10', noonMs + 31 * 60_000), false);
 });

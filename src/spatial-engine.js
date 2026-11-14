@@ -5,6 +5,7 @@ const merossEnergy = require('./meross-energy');
 const securitySystem = require('./security-system');
 const eventLogger = require('./event-logger');
 const db = require('./db');
+const climateOptimizer = require('./climate-optimizer');
 
 let eventBus = null;
 try {
@@ -1096,6 +1097,13 @@ class SpatialEngine {
         clone.batteryPercent = zBatt || 92;
         clone.deviceId = zData?.valve?.id || `bosch_trv_${p.pin}`;
         clone.zoneId = zData?.id || p.zoneId;
+        const opt = climateOptimizer.getZoneOptimization(clone.zoneId, p.boschName || p.name);
+        if (opt) {
+          clone.optBadge = opt.badge || null;
+          clone.optReason = opt.reason || null;
+          clone.optOriginalSetpoint = opt.originalSetpoint ?? null;
+          clone.optTargetSetpoint = opt.setpoint ?? null;
+        }
       } else if (p.category === 'printer') {
         const pr = homeSnapshot.printer || {};
         clone.online = Boolean(pr.online);
