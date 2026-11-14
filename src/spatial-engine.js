@@ -1172,6 +1172,7 @@ class SpatialEngine {
         clone.sensitivity = hueS.sensitivity ?? 2;
         clone.enabled = hueS.enabled !== false;
         clone.sseConnected = Boolean(hueLocal.sseConnected);
+        clone.nightTrailEnabled = this.nightTrailEnabled;
         clone.isOn = true;
       } else {
         const dMatch = devices.find(d =>
