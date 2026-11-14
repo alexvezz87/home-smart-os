@@ -133,16 +133,23 @@ class ThermalAnalytics {
         tSet: typeof z.tempSetpoint === 'number' ? Number(z.tempSetpoint) : null,
         valvePos: typeof z.valvePosition === 'number'
           ? Number(z.valvePosition)
-          : (typeof z.humidity === 'number' ? null : 0),
+          : (typeof z.valve?.position === 'number' ? Number(z.valve.position) : 0),
         badge: optState.badge || null
       };
     }
 
+    const supplyVal = typeof bosch.supplyTempC === 'number'
+      ? Number(bosch.supplyTempC)
+      : (typeof bosch.boiler?.supplyTemp === 'number' ? Number(bosch.boiler.supplyTemp) : null);
+    const modVal = typeof bosch.modulationPct === 'number'
+      ? Number(bosch.modulationPct)
+      : (typeof bosch.boiler?.modulation === 'number' ? Number(bosch.boiler.modulation) : null);
+
     const snapshot = {
       ts: nowMs,
       outdoorTemp: typeof bosch.outdoorTemp === 'number' ? Number(bosch.outdoorTemp) : null,
-      supplyTempC: typeof bosch.boiler?.supplyTemp === 'number' ? Number(bosch.boiler.supplyTemp) : null,
-      modulationPct: typeof bosch.boiler?.modulation === 'number' ? Number(bosch.boiler.modulation) : null,
+      supplyTempC: supplyVal,
+      modulationPct: modVal,
       anyHome,
       corridorTemp,
       zones
@@ -269,6 +276,23 @@ class ThermalAnalytics {
     };
   }
 
+  _toRomeHourKey(ts) {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Rome',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      hour12: false
+    }).formatToParts(new Date(ts));
+    const map = {};
+    for (const p of parts) {
+      if (p.type !== 'literal') map[p.type] = p.value;
+    }
+    const hh = map.hour === '24' ? '00' : map.hour;
+    return `${map.year}-${map.month}-${map.day}-${hh}`;
+  }
+
   async _computeGasCorrelation(samples) {
     let hourlyGas = [];
     try {
@@ -279,6 +303,8 @@ class ThermalAnalytics {
         const stored = await db.getHistory('bosch-energy-history');
         if (stored && Array.isArray(stored.hourly)) {
           hourlyGas = stored.hourly;
+        } else if (stored && stored.records && typeof stored.records === 'object') {
+          hourlyGas = Object.values(stored.records);
         }
       }
     } catch (_) {}
@@ -292,25 +318,27 @@ class ThermalAnalytics {
     }
 
     const gasByHourKey = new Map();
-    let totalGasHeatingM3 = 0;
     for (const h of hourlyGas) {
-      if (typeof h.gasHeating === 'number') {
-        totalGasHeatingM3 += h.gasHeating;
-      }
       if (h.date && h.hour !== undefined) {
-        const [dd, mm, yyyy] = String(h.date).split('-');
-        if (yyyy && mm && dd) {
-          const key = `${yyyy}-${mm}-${dd}-${String(h.hour).padStart(2, '0')}`;
+        const parts = String(h.date).split('-');
+        let key = null;
+        if (parts.length === 3 && parts[0].length === 2) {
+          key = `${parts[2]}-${parts[1]}-${parts[0]}-${String(h.hour).padStart(2, '0')}`;
+        } else if (parts.length === 3 && parts[0].length === 4) {
+          key = `${parts[0]}-${parts[1]}-${parts[2]}-${String(h.hour).padStart(2, '0')}`;
+        }
+        if (key) {
           gasByHourKey.set(key, Number(h.gasHeating) || 0);
         }
       }
     }
 
+    const sampleHourKeys = new Set();
     let matched = 0;
     let valveSum = 0;
     for (const s of samples) {
-      const d = new Date(s.ts);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}`;
+      const key = this._toRomeHourKey(s.ts);
+      sampleHourKeys.add(key);
       const gas = gasByHourKey.get(key);
       if (typeof gas === 'number' && gas > 0 && s.zones) {
         const zVals = Object.values(s.zones).map((z) => Number(z.valvePos) || 0);
@@ -319,6 +347,12 @@ class ThermalAnalytics {
           matched++;
         }
       }
+    }
+
+    let totalGasHeatingM3 = 0;
+    for (const key of sampleHourKeys) {
+      const g = gasByHourKey.get(key);
+      if (typeof g === 'number') totalGasHeatingM3 += g;
     }
 
     return {
@@ -365,7 +399,7 @@ class ThermalAnalytics {
     return recs.slice(0, 6);
   }
 
-  async analyze({ days = 7, useAi = true, nowMs = Date.now() } = {}) {
+  async analyze({ days = 7, useAi = true, persistReport = useAi, nowMs = Date.now() } = {}) {
     const safeDays = Math.max(1, Math.min(this.retentionDays, Number(days) || 7));
     const windowSamples = this._getSamplesWindow(safeDays, nowMs);
 
@@ -385,6 +419,7 @@ class ThermalAnalytics {
     const gasCorrelation = await this._computeGasCorrelation(windowSamples);
     let recommendations = this._buildDeterministicRecommendations(zones);
     let aiSummary = null;
+    let aiRecommendationsUsed = false;
 
     if (useAi && zones.length > 0 && aiGateway.getApiKey()) {
       try {
@@ -399,11 +434,13 @@ Restituisci JSON valido: { "summary": "sintesi breve in italiano (max 2 frasi)",
           parts: [{ text: prompt }]
         });
 
-        if (aiRes && aiRes.summary) {
-          aiSummary = aiRes.summary;
+        const aiPayload = (aiRes && aiRes.data && typeof aiRes.data === 'object') ? aiRes.data : aiRes;
+        if (aiPayload && aiPayload.summary) {
+          aiSummary = aiPayload.summary;
         }
-        if (aiRes && Array.isArray(aiRes.recommendations) && aiRes.recommendations.length > 0) {
-          recommendations = aiRes.recommendations.slice(0, 6);
+        if (aiPayload && Array.isArray(aiPayload.recommendations) && aiPayload.recommendations.length > 0) {
+          recommendations = aiPayload.recommendations.slice(0, 6);
+          aiRecommendationsUsed = true;
         }
       } catch (err) {
         logger.warn('Fallback analisi termica deterministica (AI non disponibile)', { error: err.message }, 'thermal-analytics');
@@ -417,18 +454,25 @@ Restituisci JSON valido: { "summary": "sintesi breve in italiano (max 2 frasi)",
       gasCorrelation,
       zones,
       recommendations,
-      aiSummary
+      aiSummary,
+      aiRecommendationsUsed
     };
 
-    this.latestReport = report;
-    await db.set(REPORT_DB_KEY, report, false).catch(() => {});
+    if (persistReport || !this.latestReport) {
+      this.latestReport = report;
+      await db.set(REPORT_DB_KEY, report, false).catch(() => {});
+    }
     return report;
   }
 
   async getSummary({ days = 7 } = {}) {
-    const report = await this.analyze({ days, useAi: false });
+    const safeDays = Math.max(1, Math.min(this.retentionDays, Number(days) || 7));
+    const report = await this.analyze({ days: safeDays, useAi: false, persistReport: false });
     if (this.latestReport && this.latestReport.aiSummary && !report.aiSummary) {
       report.aiSummary = this.latestReport.aiSummary;
+      if (this.latestReport.aiRecommendationsUsed && Number(this.latestReport.days) === safeDays && Array.isArray(this.latestReport.recommendations)) {
+        report.recommendations = this.latestReport.recommendations;
+      }
     }
     return report;
   }

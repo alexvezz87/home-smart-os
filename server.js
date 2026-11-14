@@ -914,6 +914,16 @@ app.post('/api/ev-climate/bosch/setpoint', async (req, res) => {
     if (climateOptimizer) {
       climateOptimizer.recordManualOverride(result?.zoneId || zoneId);
     }
+    if (eventBus) {
+      const parsedTarget = Number(temperature);
+      eventBus.publish('climate:manual_override', {
+        zoneId: result?.zoneId || zoneId,
+        room: result?.zoneName || result?.name || zoneId,
+        targetTemp: Number.isFinite(parsedTarget) ? parsedTarget : null,
+        previousTemp: typeof result?.previousTemp === 'number' ? result.previousTemp : null,
+        ts: Date.now()
+      });
+    }
     const snapshot = await mcp.getHomeSnapshot().catch(() => null);
     res.json({
       success: true,

@@ -842,6 +842,15 @@ class EnergyManager {
     document.body.insertAdjacentHTML('beforeend', modalHtml);
   }
 
+  _escapeHtml(str) {
+    return String(str ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   async loadThermalAnalytics() {
     const summaryEl = document.getElementById('thermal-analytics-summary');
     const selectEl = document.getElementById('thermal-zone-select');
@@ -865,7 +874,7 @@ class EnergyManager {
             this.thermalSelectedZone = options[0].id;
           }
           selectEl.innerHTML = options.map((o) =>
-            `<option value="${o.id}" ${o.id === this.thermalSelectedZone ? 'selected' : ''}>${o.name}</option>`
+            `<option value="${this._escapeHtml(o.id)}" ${o.id === this.thermalSelectedZone ? 'selected' : ''}>${this._escapeHtml(o.name)}</option>`
           ).join('');
         } else {
           selectEl.innerHTML = '<option value="zn1">Nessuna zona campionata</option>';
@@ -879,7 +888,7 @@ class EnergyManager {
         ${report.aiSummary ? `
           <div class="p-3 rounded-xl bg-indigo-950/30 border border-indigo-500/30 text-indigo-200 flex items-start gap-2">
             <i class="fa-solid fa-robot text-indigo-400 mt-0.5"></i>
-            <span>${report.aiSummary}</span>
+            <span>${this._escapeHtml(report.aiSummary)}</span>
           </div>
         ` : ''}
 
@@ -903,8 +912,8 @@ class EnergyManager {
               </thead>
               <tbody class="divide-y divide-slate-800/60">
                 ${zones.map((z) => `
-                  <tr class="hover:bg-slate-900/50 cursor-pointer" onclick="window.energyManager.selectThermalZone('${z.zoneId}')">
-                    <td class="py-2 pr-3 font-semibold text-white">${z.name}</td>
+                  <tr class="hover:bg-slate-900/50 cursor-pointer" onclick="window.energyManager.selectThermalZone('${this._escapeHtml(z.zoneId)}')">
+                    <td class="py-2 pr-3 font-semibold text-white">${this._escapeHtml(z.name)}</td>
                     <td class="py-2 pr-3 font-mono">${z.avgTemp ?? '--'}°C</td>
                     <td class="py-2 pr-3 font-mono">${z.aboveTargetPct ?? 0}%</td>
                     <td class="py-2 pr-3 font-mono">${z.valveOpenHours ?? 0}h</td>
@@ -922,10 +931,10 @@ class EnergyManager {
             ${recs.map((r) => `
               <div class="p-3 rounded-xl bg-slate-900/90 border border-emerald-500/30 space-y-1">
                 <div class="flex items-center justify-between gap-2">
-                  <span class="font-bold text-emerald-300">${r.title}</span>
+                  <span class="font-bold text-emerald-300">${this._escapeHtml(r.title)}</span>
                   <span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 font-mono text-[10px]">-${r.estimatedSavedM3PerMonth ?? 0} m³/mese</span>
                 </div>
-                <p class="text-[11px] text-slate-300 leading-relaxed">${r.detail}</p>
+                <p class="text-[11px] text-slate-300 leading-relaxed">${this._escapeHtml(r.detail)}</p>
               </div>
             `).join('')}
           </div>
@@ -934,7 +943,7 @@ class EnergyManager {
 
       await this.renderThermalZoneChart();
     } catch (err) {
-      summaryEl.innerHTML = `<span class="text-rose-400">Errore caricamento analisi termica: ${err.message}</span>`;
+      summaryEl.innerHTML = `<span class="text-rose-400">Errore caricamento analisi termica: ${this._escapeHtml(err.message)}</span>`;
     }
   }
 
