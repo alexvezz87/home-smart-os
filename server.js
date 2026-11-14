@@ -1,4 +1,7 @@
 require('dotenv').config();
+const logger = require('./src/logger');
+logger.initConsoleInterceptor();
+
 const http = require('http');
 const https = require('https');
 const net = require('net');
@@ -13,10 +16,16 @@ const auth = require('./src/auth');
 
 // Protezione globale contro eccezioni o rejection non gestite in driver terzi o websocket
 process.on('uncaughtException', (err) => {
-  console.error('⚠️ [Process uncaughtException]:', err.message, err.stack);
+  const msg = err?.message || String(err);
+  console.error('⚠️ [Process uncaughtException]:', msg, err?.stack || '');
+  logger.recordAudit({ level: 'error', source: 'process', action: 'uncaughtException', message: msg });
+  try { db.addLog('system_error', `uncaughtException: ${msg}`, { stack: logger.sanitizeForLog(err?.stack || '') }).catch(() => {}); } catch (_) {}
 });
 process.on('unhandledRejection', (reason) => {
-  console.error('⚠️ [Process unhandledRejection]:', reason);
+  const msg = reason?.message || String(reason);
+  console.error('⚠️ [Process unhandledRejection]:', msg);
+  logger.recordAudit({ level: 'error', source: 'process', action: 'unhandledRejection', message: msg });
+  try { db.addLog('system_error', `unhandledRejection: ${msg}`).catch(() => {}); } catch (_) {}
 });
 
 // Riferimenti ai moduli di dominio (caricati ordinatamente dopo l'idratazione da TiDB Cloud)
@@ -38,6 +47,7 @@ let dolomitiBillsSync = null;
 let eventBus = null;
 let iliadboxClient = null;
 let aiGateway = null;
+let serviceStatus = null;
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -204,6 +214,43 @@ app.post('/api/ev-climate/bosch/oauth-callback', async (req, res) => {
 
 // Protezione obbligatoria per tutte le altre API (/api/*)
 app.use(auth.middleware());
+
+// Middleware Audit HTTP per richieste mutanti ed errori >= 400
+const AUDIT_IGNORED_GET_PATHS = new Set([
+  '/api/events/recent',
+  '/api/system/status',
+  '/api/admin/logs',
+  '/api/history'
+]);
+
+app.use('/api', (req, res, next) => {
+  const startMs = Date.now();
+  res.on('finish', () => {
+    const statusCode = res.statusCode || 200;
+    const isMutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
+    const cleanPath = (req.originalUrl || req.url || '').split('?')[0];
+
+    if (!isMutating && statusCode < 400) return;
+    if (!isMutating && AUDIT_IGNORED_GET_PATHS.has(cleanPath) && statusCode < 400) return;
+    if (isMutating && AUDIT_IGNORED_GET_PATHS.has(cleanPath) && statusCode < 400) return;
+
+    const durationMs = Date.now() - startMs;
+    const actor = req.user?.email || req.user?.type || 'API';
+    const level = statusCode >= 500 ? 'error' : (statusCode >= 400 ? 'warn' : 'action');
+    const bodySummary = isMutating && req.body && Object.keys(req.body).length > 0
+      ? logger.sanitizeForLog(req.body)
+      : null;
+
+    logger.recordAudit({
+      level,
+      source: 'http-audit',
+      action: `${req.method} ${cleanPath}`,
+      message: `${req.method} ${cleanPath} -> ${statusCode} (${durationMs}ms) [${actor}]`,
+      meta: { method: req.method, path: cleanPath, statusCode, durationMs, actor, bodySummary }
+    });
+  });
+  next();
+});
 
 // API Philips Hue Bridge Locale & CLIP v2
 app.get('/api/hue/status', (req, res) => {
@@ -1269,6 +1316,48 @@ app.post('/api/ai/tts/test', async (req, res) => {
   }
 });
 
+// 1g-ter. Osservabilità: Stato Servizi (Statuspage) & Audit Log Unificato
+app.get('/api/system/status', async (req, res) => {
+  try {
+    const data = await serviceStatus.getSystemStatus();
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/admin/logs', async (req, res) => {
+  try {
+    const level = String(req.query.level || 'all');
+    const source = String(req.query.source || 'all');
+    const search = String(req.query.search || '');
+    const limit = Number(req.query.limit || 100);
+
+    let items = logger.getRecentLogs({ level, source, search, limit });
+
+    if (source === 'db' && typeof db.getLogs === 'function') {
+      const dbRows = await db.getLogs(limit).catch(() => []);
+      items = dbRows.map((r) => ({
+        id: `db-${r.id}`,
+        timestamp: r.created_at,
+        formattedTimestamp: logger.formatTimestamp(new Date(r.created_at)),
+        level: r.action === 'system_error' ? 'error' : 'action',
+        source: 'tidb',
+        action: r.action,
+        message: r.message
+      })).filter((item) => {
+        if (level !== 'all' && item.level !== level) return false;
+        if (search && !`${item.message} ${item.action}`.toLowerCase().includes(search.toLowerCase())) return false;
+        return true;
+      });
+    }
+
+    res.json({ success: true, items, status: logger.getStatus() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // 1h. WebSocket per streaming RTSP live verso il browser (fallback JSMpeg)
 app.ws('/api/stream/:cameraId', (ws, req) => {
   const { cameraId } = req.params;
@@ -1438,6 +1527,7 @@ async function bootstrap() {
   eventBus = require('./src/event-bus');
   aiGateway = require('./src/ai-gateway');
   iliadboxClient = require('./src/iliadbox-client');
+  serviceStatus = require('./src/service-status');
   mcp = require('./src/google-home-mcp');
   ({ processAssistantCommand } = require('./src/assistant'));
   eventLogger = require('./src/event-logger');
@@ -1454,9 +1544,44 @@ async function bootstrap() {
   wallboxSync = require('./src/wallbox-sync');
   dolomitiBillsSync = require('./src/dolomiti-bills-sync');
 
+  // Bridge EventBus -> Logger & EventLogger per tracciamento eventi chiave
+  const BRIDGED_EVENTS = new Set([
+    'presence:changed',
+    'ai:guardrail_blocked',
+    'camera:vision_alert',
+    'climate:setpoint_changed',
+    'system:notification'
+  ]);
+  eventBus.on('*', (evt) => {
+    if (!evt || !BRIDGED_EVENTS.has(evt.event)) return;
+    const level = evt.event === 'ai:guardrail_blocked' ? 'warn' : 'action';
+    logger.recordAudit({
+      level,
+      source: evt.source || 'eventBus',
+      action: evt.event,
+      message: `${evt.event}: ${JSON.stringify(logger.sanitizeForLog(evt.data))}`
+    });
+  });
+
   // Inizializza servizi hardware e telemetria
   aiGateway.init().catch((err) => console.warn('⚠️ [AIGateway] Init background:', err.message));
   iliadboxClient.init().catch((err) => console.warn('⚠️ [Iliadbox] Init background:', err.message));
+  serviceStatus.init({
+    db,
+    aiGateway,
+    iliadboxClient,
+    mcp,
+    hueLocal,
+    merossEnergy,
+    evClimateHub,
+    securitySystem,
+    dysonPurifier,
+    lgThinq,
+    pantumPrinter,
+    volvoTripsSync,
+    wallboxSync,
+    dolomitiBillsSync
+  }).catch((err) => console.warn('⚠️ [ServiceStatus] Init background:', err.message));
   merossEnergy.init();
   hueLocal.init();
   pantumPrinter.init().catch((err) => console.warn('⚠️ [Pantum] Init background:', err.message));

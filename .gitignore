@@ -41,8 +41,10 @@ Bosch Easy Control/
 mappa casa/
 cleanyourtv/
 
-# Binari locali, certificati SSL e Snapshot telecamere
+# Binari locali, certificati SSL, Log e Snapshot telecamere
 bin/
+logs/
+*.log
 public/snapshots/
 public/audio/tts/
 public/planimetria-hd.png

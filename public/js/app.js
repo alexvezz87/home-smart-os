@@ -48,12 +48,14 @@ function switchArea(area) {
   const areaEnergy = document.getElementById('area-energy');
   const areaMobility = document.getElementById('area-mobility');
   const areaAdmin = document.getElementById('area-admin');
+  const areaStatus = document.getElementById('area-status');
 
   // Gestione visibilità sezioni
   if (areaHome) areaHome.classList.toggle('hidden', area !== 'home');
   if (areaEnergy) areaEnergy.classList.toggle('hidden', area !== 'energy');
   if (areaMobility) areaMobility.classList.toggle('hidden', area !== 'mobility');
   if (areaAdmin) areaAdmin.classList.toggle('hidden', area !== 'admin');
+  if (areaStatus) areaStatus.classList.toggle('hidden', area !== 'status');
 
   // Aggiorna pulsanti Navigazione nella Sidebar Sinistra
   document.querySelectorAll('.nav-area-btn').forEach(btn => {
@@ -91,6 +93,8 @@ function switchArea(area) {
     window.mobilityManager.renderView();
   } else if (area === 'admin' && window.adminManager) {
     window.adminManager.renderView();
+  } else if (area === 'status' && window.statusManager) {
+    window.statusManager.renderView();
   }
 }
 

@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS activity_logs (
 | `kv_store` | `iliadbox-presence-config` | *(solo TiDB)* | 🔓 No | Associazione MAC residenti (Alex/Cinzia) e `awayGraceSeconds` |
 | `kv_store` | `home-presence-state` | *(solo TiDB)* | 🔓 No | Stato presenza persistito (`home`/`away`, `anyHome`) tra riavvii |
 | `kv_store` | `ai-gateway-usage-YYYY-MM-DD` | *(solo TiDB)* | 🔓 No | Contatori RPD giornalieri per modello AI Gateway (`Europe/Rome`) |
+| `kv_store` | `service-status-history` | *(solo TiDB)* | 🔓 No | Storico ultimi 36 controlli stato per ogni integrazione (Statuspage) |
 | `energy_history_store` | `bosch-energy-history` | `data/bosch-energy-history.json` | 🔓 No | Storico completo consumi gas caldaia Bosch CT200 (PointT API) |
 | `energy_history_store` | `historical-energy-analytics` | `data/historical-energy-analytics.json` | 🔓 No | Analisi consumi mensili/annuali (Volvo EX30, Wallbox ABB, Dolomiti) |
 | `energy_history_store` | `appliance-cycles` | `appliance-cycles.json` | 🔓 No | Cicli lavatrice rilevati da presa smart Meross |

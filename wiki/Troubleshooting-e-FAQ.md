@@ -36,3 +36,9 @@
 - **Pressione Acqua Caldaia Bassa (< 1.0 bar)**: Segnala il rischio di blocco della caldaia a condensazione. Ruotare dolcemente il rubinetto di carico nero sotto la caldaia finché il manometro e l'app indicano 1.2 - 1.5 bar, poi richiuderlo saldamente.
 - **Pressione Acqua Alta (> 2.5 bar)**: Sfiatare con l'apposita chiavetta uno o più caloriferi della casa per rilasciare l'eccesso d'acqua e ripristinare il range ottimale.
 - **Batterie Termovalvole Scariche**: Ciascuna testa termostatica Bosch è alimentata da 2 pile stilo alcaline AA 1.5V. L'allerta tempestiva segnala quando la batteria scende sotto la soglia di sicurezza prima che la valvola rimanga bloccata in posizione aperta o chiusa.
+
+---
+
+## 7. Osservabilità: Log Rotanti (`logs/`), Timestamp & Pagina "Stato Servizi"
+- **Timestamp Terminale & File Giornalieri**: Ogni riga di log console è prefissata con `[DD/MM/YYYY HH:mm:ss.SSS]` (fuso `Europe/Rome`) e salvata in `logs/home-os-YYYY-MM-DD.log` (tutti i livelli) e `logs/errors-YYYY-MM-DD.log` (`warn`/`error`/crash), con retention automatica di `14` giorni (`LOG_RETENTION_DAYS`) e redazione automatica di token/password/API key (`sanitizeForLog`). La cartella `logs/` è esclusa da Git.
+- **Diagnostica Rapida (`Stato Servizi`)**: La sezione **Stato Servizi** (`#area-status` nella sidebar sinistra, alimentata da `GET /api/system/status`) mostra lo stato di tutte le integrazioni (`Operativo`, `Degradato`, `Sloggato / Ricollega`, `Offline`), le 36 tacche storiche di uptime e la timeline degli incidenti recenti. I servizi in stato `auth_expired` mostrano un alert prioritario con collegamento diretto all'area **Amministrazione**.
