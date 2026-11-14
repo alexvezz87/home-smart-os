@@ -1690,9 +1690,22 @@ class AdminManager {
               <i class="fa-solid fa-clock-rotate-left text-purple-400"></i>
               <h4 class="text-xs font-bold text-white uppercase tracking-wider">Registro Eventi &amp; Audit Log</h4>
             </div>
-            <button onclick="window.adminManager.clearHistory()" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 transition-all flex items-center gap-1 active:scale-95">
-              <i class="fa-solid fa-trash-can text-[10px]"></i> Svuota Log
-            </button>
+            <div class="flex items-center gap-2 flex-wrap">
+              <select id="admin-logs-level" onchange="window.adminManager.loadHistory()" class="px-2 py-1 rounded-lg text-[11px] bg-slate-950 border border-slate-700 text-slate-200">
+                <option value="all">Tutti i livelli</option>
+                <option value="action">Azioni</option>
+                <option value="warn">Warning</option>
+                <option value="error">Errori</option>
+              </select>
+              <input id="admin-logs-search" type="text" placeholder="Cerca nei log..." onkeyup="if(event.key==='Enter') window.adminManager.loadHistory()"
+                     class="px-2.5 py-1 rounded-lg text-[11px] bg-slate-950 border border-slate-700 text-white w-36 focus:outline-none focus:border-indigo-500" />
+              <button onclick="window.adminManager.loadHistory()" class="px-2 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
+                Filtra
+              </button>
+              <button onclick="window.adminManager.clearHistory()" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 transition-all flex items-center gap-1 active:scale-95">
+                <i class="fa-solid fa-trash-can text-[10px]"></i> Svuota Log
+              </button>
+            </div>
           </div>
 
           <div id="admin-history-feed" class="space-y-2 max-h-96 overflow-y-auto pr-1">
@@ -1714,8 +1727,14 @@ class AdminManager {
     const feed = document.getElementById('admin-history-feed');
     if (!feed) return;
 
+    const levelEl = document.getElementById('admin-logs-level');
+    const searchEl = document.getElementById('admin-logs-search');
+    const level = levelEl ? levelEl.value : 'all';
+    const search = searchEl ? searchEl.value.trim() : '';
+
     try {
-      const res = await fetch('/api/history');
+      const qs = new URLSearchParams({ level, search, limit: '100' }).toString();
+      const res = await fetch(`/api/admin/logs?${qs}`);
       const json = await res.json();
       const items = json.items || [];
 
@@ -1723,28 +1742,27 @@ class AdminManager {
         feed.innerHTML = `
           <div class="text-center py-8 text-slate-500 text-xs">
             <i class="fa-solid fa-inbox text-lg mb-2 block"></i>
-            Nessun evento registrato recentemente.
+            Nessun evento trovato con i filtri correnti.
           </div>
         `;
         return;
       }
 
       feed.innerHTML = items.map(it => {
-        const dateStr = it.timestamp ? new Date(it.timestamp).toLocaleString('it-IT') : '';
+        const dateStr = it.formattedTimestamp || (it.timestamp ? new Date(it.timestamp).toLocaleString('it-IT') : '');
         let badgeColor = 'bg-slate-800 text-slate-300 border-slate-700';
-        if (it.category === 'security') badgeColor = 'bg-rose-500/20 text-rose-300 border-rose-500/30';
-        else if (it.category === 'energy') badgeColor = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
-        else if (it.category === 'voice') badgeColor = 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30';
-        else if (it.category === 'bosch_thermo') badgeColor = 'bg-orange-500/20 text-orange-300 border-orange-500/30';
+        if (it.level === 'error') badgeColor = 'bg-rose-500/20 text-rose-300 border-rose-500/30';
+        else if (it.level === 'warn') badgeColor = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+        else if (it.level === 'action') badgeColor = 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30';
 
         return `
           <div class="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800/80 flex items-start justify-between gap-2 text-xs">
-            <div class="space-y-0.5">
-              <div class="text-slate-200 font-medium">${it.message || it.description || ''}</div>
-              <div class="text-[10px] text-slate-500 font-mono">${dateStr}</div>
+            <div class="space-y-0.5 min-w-0">
+              <div class="text-slate-200 font-medium break-words">${this.escapeHtml(it.message || it.description || '')}</div>
+              <div class="text-[10px] text-slate-500 font-mono">${this.escapeHtml(dateStr)} · ${this.escapeHtml(it.source || 'system')}</div>
             </div>
             <span class="px-2 py-0.5 rounded-full text-[9px] font-bold border ${badgeColor} uppercase shrink-0 font-mono">
-              ${it.category || 'system'}
+              ${this.escapeHtml(it.level || it.category || 'info')}
             </span>
           </div>
         `;

@@ -6,6 +6,8 @@ const eventBus = require('../src/event-bus');
 const { HomeEventBus } = eventBus;
 const { AIGateway } = require('../src/ai-gateway');
 const { IliadboxClient } = require('../src/iliadbox-client');
+const logger = require('../src/logger');
+const serviceStatus = require('../src/service-status');
 
 test('EventBus: pubblicazione eventi tipizzati, wildcard e limite ring-buffer <= 100', () => {
   const bus = new HomeEventBus(100);
@@ -166,4 +168,75 @@ test('Iliadbox Presence: calcolo HMAC-SHA1 FreeboxOS e isteresi home -> grace ->
   assert.equal(state.alex.inGrace, false);
   assert.equal(state.cinzia.status, 'home');
   assert.equal(state.anyHome, true);
+});
+
+test('Logger: formatTimestamp DD/MM/YYYY HH:mm:ss.SSS e sanitizeForLog redazione segreti', () => {
+  const sampleDate = new Date('2026-11-14T18:04:31.123Z'); // 19:04:31.123 Europe/Rome (CET +1)
+  const formatted = logger.formatTimestamp(sampleDate);
+  assert.match(formatted, /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}\.\d{3}$/);
+  assert.equal(formatted, '14/11/2026 19:04:31.123');
+
+  const rawUrl = 'https://example.test/api?key=SECRET_KEY_123&token=TOK_999&safe=1';
+  const cleanUrl = logger.sanitizeForLog(rawUrl);
+  assert.ok(!cleanUrl.includes('SECRET_KEY_123'));
+  assert.ok(!cleanUrl.includes('TOK_999'));
+  assert.ok(cleanUrl.includes('***REDACTED***'));
+  assert.ok(cleanUrl.includes('safe=1'));
+
+  const cleanHeader = logger.sanitizeForLog('Authorization: Bearer my_super_secret_jwt_token_value');
+  assert.equal(cleanHeader, 'Authorization: Bearer ***REDACTED***');
+
+  const cleanObj = logger.sanitizeForLog({
+    user: 'alex',
+    password: 'my-password',
+    apiKey: 'AIzaTestFake',
+    appToken: 'fbx-token',
+    cloudPassword: 'cam-password',
+    clientSecret: 'oauth-secret',
+    nested: { token: 'nested-tok', ok: true }
+  });
+  assert.equal(cleanObj.user, 'alex');
+  assert.equal(cleanObj.password, '***REDACTED***');
+  assert.equal(cleanObj.apiKey, '***REDACTED***');
+  assert.equal(cleanObj.appToken, '***REDACTED***');
+  assert.equal(cleanObj.cloudPassword, '***REDACTED***');
+  assert.equal(cleanObj.clientSecret, '***REDACTED***');
+  assert.equal(cleanObj.nested.token, '***REDACTED***');
+  assert.equal(cleanObj.nested.ok, true);
+});
+
+test('ServiceStatus: mapping operational, auth_expired, degraded e summary globale', () => {
+  const services = serviceStatus.evaluateServicesSnapshot({
+    db: { isInitialized: true, pool: {} },
+    aiGateway: {
+      getStatus: () => ({
+        configured: true,
+        models: { fast: 'gemini-3.8-flash' },
+        usage: { fast: { model: 'gemini-3.8-flash', rpdUsed: 10, rpdLimit: 200 } }
+      })
+    },
+    iliadboxClient: {
+      getPresenceState: () => ({ connectionStatus: 'online', alex: { status: 'home' }, cinzia: { status: 'away' } })
+    },
+    evUnified: {
+      bosch: { connected: true },
+      volvo: { connected: false, tokenExpired: true },
+      wallbox: { connected: true }
+    }
+  });
+
+  const tidb = services.find((s) => s.id === 'tidb');
+  const iliad = services.find((s) => s.id === 'iliadbox');
+  const volvo = services.find((s) => s.id === 'volvo');
+  const gemini = services.find((s) => s.id === 'gemini_ai');
+
+  assert.equal(tidb.status, 'operational');
+  assert.equal(iliad.status, 'operational');
+  assert.equal(gemini.status, 'operational');
+  assert.equal(volvo.status, 'auth_expired');
+
+  const summary = serviceStatus.computeSummary(services);
+  assert.equal(summary.globalStatus, 'auth_expired');
+  assert.ok(summary.counts.auth_expired >= 1);
+  assert.ok(summary.headline.includes('sloggati'));
 });

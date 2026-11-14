@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const db = require('./db');
+const logger = require('./logger');
 
 const LOG_FILE = path.join(__dirname, '..', 'activity-log.json');
 const MAX_EVENTS = 100;
@@ -48,9 +49,20 @@ class EventLogger {
     }
     this.save();
 
-    // Persistenza asincrona su TiDB Cloud (activity_logs)
+    // Persistenza asincrona su TiDB Cloud (activity_logs) + file audit rotante
     try {
-      db.addLog(action, description, meta).catch(() => {});
+      const sanitizedMeta = logger.sanitizeForLog(meta);
+      const level = action === 'system_error' || action === 'error'
+        ? 'error'
+        : (action === 'warn' || action === 'guardrail' ? 'warn' : 'action');
+      logger.recordAudit({
+        level,
+        source: meta.source || 'EventLogger',
+        action,
+        message: description,
+        meta: sanitizedMeta
+      });
+      db.addLog(action, logger.sanitizeForLog(description), sanitizedMeta).catch(() => {});
     } catch (_) {}
 
     return entry;

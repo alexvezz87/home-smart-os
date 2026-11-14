@@ -29,7 +29,9 @@ Il backend di **Home Smart OS** è strutturato in moduli indipendenti all'intern
 | **Event Bus Centrale** | `src/event-bus.js` | Bus eventi reattivo (`EventEmitter` + wildcard `'*'`) con ring-buffer ultimi 100 eventi e tassonomia standardizzata (`presence:changed`, `ai:guardrail_blocked`, ecc.). |
 | **Presenza Iliadbox LAN** | `src/iliadbox-client.js` | Client FreeboxOS API v16 con autenticazione HMAC-SHA1, polling LAN (`/api/v16/lan/browser/pub/`) e isteresi anti-flap `awayGraceSeconds`. |
 | **AI Gateway & Guardrail** | `src/ai-gateway.js` | Gateway unificato Google AI Studio (`gemini-3.8-flash`, `gemini-4-argon`, `gemini-3.8-flash-tts`, `gemini-embedding-001`), rate-limiter Free Tier su TiDB e Guardrail Deterministici Hardware. |
-| **Event Logger** | `src/event-logger.js` | Registrazione centralizzata degli eventi operativi, sicurezza ed energia. |
+| **Logger & Audit Rotante** | `src/logger.js` | Interceptor console `[DD/MM/YYYY HH:mm:ss.SSS]` (`Europe/Rome`), file rotanti giornalieri in `logs/` (retention 14gg) e redazione automatica segreti (`sanitizeForLog`). |
+| **Stato Servizi (Statuspage)** | `src/service-status.js` | Aggregatore stato normalizzato (`operational`, `degraded`, `auth_expired`, `outage`), storico 36 tacche uptime su TiDB e feed incidenti (`GET /api/system/status`). |
+| **Event Logger** | `src/event-logger.js` | Registrazione centralizzata degli eventi operativi, sicurezza ed energia con bridge verso `logger.js` e TiDB. |
 
 ---
 
