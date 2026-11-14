@@ -368,3 +368,40 @@ test('ClimateOptimizer: idempotenza multi-ciclo solar_trim e ripristino fine fin
   assert.equal(restored.targetSetpoint, 20.5);
   assert.equal(restored.changed, true);
 });
+
+test('ClimateOptimizer (#61): tetto max 20.5°C, notte Camera 18°C, Eco Bagno Alex e sensibilità radiatore finestra', () => {
+  const opt = new ClimateOptimizer();
+  const dayMs = Date.parse('2026-11-14T16:00:00Z'); // 17:00 Europe/Rome
+  const nightMs = Date.parse('2026-11-14T22:00:00Z'); // 23:00 Europe/Rome
+
+  // 1. Tetto massimo comfort 20.5°C blocca setpoint residui > 20.5
+  const capped = opt.evaluateZoneProposal(
+    { id: 'zn4', name: 'Bagno Cinzia', tempActual: 20.5, tempSetpoint: 22.0 },
+    { nowMs: dayMs, weather: { sunny: false } }
+  );
+  assert.equal(capped.targetSetpoint, 20.5);
+
+  // 2. Camera da letto alle 23:00 resta a 18.0°C (non risale a 19.0°C)
+  const nightBedroom = opt.evaluateZoneProposal(
+    { id: 'zn7', name: 'Camera da letto', tempActual: 19.5, tempSetpoint: 18.0 },
+    { nowMs: nightMs, weather: { sunny: false } }
+  );
+  assert.equal(nightBedroom.badge, 'night_shift');
+  assert.equal(nightBedroom.targetSetpoint, 18.0);
+  assert.equal(nightBedroom.changed, false);
+
+  // 3. Bagno Alex condiviso su PG2 (20.5°C) viene attenuato a 18.5°C Eco di giorno
+  const bagnoAlex = opt.evaluateZoneProposal(
+    { id: 'zn6', name: 'Bagno Alex', tempActual: 20.0, tempSetpoint: 20.5 },
+    { nowMs: dayMs, weather: { sunny: false } }
+  );
+  assert.equal(bagnoAlex.badge, 'eco_away');
+  assert.equal(bagnoAlex.targetSetpoint, 18.5);
+
+  // 4. Radiatore sotto finestra (Camera da letto): calo -0.7°C (< 0.8 ma > 0.6) attiva finestra aperta
+  const winDrop = opt.detectWindowOpen('zn7', 20.0, 20.0, dayMs, { zoneName: 'Camera da letto' });
+  assert.equal(winDrop.paused, false);
+  const winTriggered = opt.detectWindowOpen('zn7', 19.3, 20.0, dayMs + 90_000, { zoneName: 'Camera da letto' });
+  assert.equal(winTriggered.paused, true);
+  assert.equal(winTriggered.target, 15.0);
+});
