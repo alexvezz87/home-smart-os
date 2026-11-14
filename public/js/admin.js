@@ -363,7 +363,7 @@ class AdminManager {
                     ${ev.babyComfort?.active ? 'Profilo Attivo' : 'Pronto'}
                   </span>
                 </div>
-                <p class="text-xs text-slate-400">Comfort costante 20-21°C per il neonato e la mamma · Valvole ECO in Cabina armadio e Bagno Alex (-15% gas)</p>
+                <p class="text-xs text-slate-400">Tetto massimo 20.5°C (PVC triplo vetro) · Camera 20.0°C→18.0°C post-21:30 · Valvole ECO Cabina/Bagno Alex</p>
               </div>
             </div>
 
@@ -385,32 +385,32 @@ class AdminManager {
           <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2.5 text-xs">
             <div class="p-2.5 rounded-xl bg-slate-900/90 border border-indigo-500/20 space-y-0.5">
               <div class="text-[10.5px] text-slate-400 font-semibold truncate">Salone (Giorno)</div>
-              <div class="text-base font-black text-amber-400 font-mono">21.0°C</div>
-              <div class="text-[9.5px] text-slate-400 leading-tight">Area gioco e relax</div>
+              <div class="text-base font-black text-amber-400 font-mono">20.0°C</div>
+              <div class="text-[9.5px] text-slate-400 leading-tight">Giorno (17.5°C notte)</div>
             </div>
 
             <div class="p-2.5 rounded-xl bg-slate-900/90 border border-indigo-500/20 space-y-0.5">
-              <div class="text-[10.5px] text-slate-400 font-semibold truncate">Camera (Nanna)</div>
-              <div class="text-base font-black text-amber-400 font-mono">20.5°C</div>
-              <div class="text-[9.5px] text-slate-400 leading-tight">Ideale sonno neonato</div>
+              <div class="text-[10.5px] text-slate-400 font-semibold truncate">Camera (20:00→21:30)</div>
+              <div class="text-base font-black text-amber-400 font-mono">20.0°→18.0°</div>
+              <div class="text-[9.5px] text-slate-400 leading-tight">Tiepida poi fresca sotto coperte</div>
             </div>
 
             <div class="p-2.5 rounded-xl bg-slate-900/90 border border-indigo-500/20 space-y-0.5">
               <div class="text-[10.5px] text-slate-400 font-semibold truncate">Bagno Cinzia</div>
-              <div class="text-base font-black text-amber-400 font-mono">22.0°C</div>
-              <div class="text-[9.5px] text-slate-400 leading-tight">Bagnetto e fasciatoio</div>
+              <div class="text-base font-black text-amber-400 font-mono">20.5°C</div>
+              <div class="text-[9.5px] text-slate-400 leading-tight">Max in fascia mattina/bagnetto</div>
             </div>
 
             <div class="p-2.5 rounded-xl bg-slate-900/90 border border-indigo-500/20 space-y-0.5">
               <div class="text-[10.5px] text-slate-400 font-semibold truncate">Cucina (Pasti)</div>
-              <div class="text-base font-black text-amber-400 font-mono">21.0°C</div>
-              <div class="text-[9.5px] text-slate-400 leading-tight">Colazione, pranzo, cena</div>
+              <div class="text-base font-black text-amber-400 font-mono">20.0°C</div>
+              <div class="text-[9.5px] text-slate-400 leading-tight">19.5°C pranzo · 17.5°C notte</div>
             </div>
 
             <div class="p-2.5 rounded-xl bg-slate-900/90 border border-emerald-500/20 space-y-0.5">
               <div class="text-[10.5px] text-emerald-400 font-semibold truncate">Cabina armadio (ECO)</div>
-              <div class="text-base font-black text-emerald-400 font-mono">17.5°C</div>
-              <div class="text-[9.5px] text-slate-400 leading-tight">Valvola 0% (zero sprechi)</div>
+              <div class="text-base font-black text-emerald-400 font-mono">17.0°C</div>
+              <div class="text-[9.5px] text-slate-400 leading-tight">16.5°C notte (zero sprechi)</div>
             </div>
           </div>
         </div>
@@ -1953,21 +1953,21 @@ class AdminManager {
 
     const slots = [
       { id: 0, label: 'Notte', time: '00:00 - 06:30', icon: 'fa-moon' },
-      { id: 1, label: 'Colazione', time: '06:30 - 09:30', icon: 'fa-mug-saucer' },
+      { id: 1, label: 'Mattina', time: '06:30 - 09:30', icon: 'fa-mug-saucer' },
       { id: 2, label: 'Giorno', time: '09:30 - 18:30', icon: 'fa-sun' },
-      { id: 3, label: 'Bagnetto / Cena', time: '18:30 - 20:30', icon: 'fa-bath' },
-      { id: 4, label: 'Nanna', time: '20:30 - 24:00', icon: 'fa-bed' }
+      { id: 3, label: 'Bagnetto / Pre-nanna', time: '18:30 - 21:30', icon: 'fa-bath' },
+      { id: 4, label: 'Sonno Notte', time: '21:30 - 24:00', icon: 'fa-bed' }
     ];
 
     const scheduleData = [
-      { name: 'Salone', icon: 'fa-couch', temps: ['19.5°', '20.5°', '21.0°', '20.8°', '20.0°'], note: 'Area gioco principale' },
-      { name: 'Camera da letto', icon: 'fa-bed', temps: ['20.5°', '19.5°', '19.5°', '19.5°', '20.5°'], note: 'Sonno confortevole Francesco' },
-      { name: 'Bagno Cinzia', icon: 'fa-bath', temps: ['20.0°', '21.5°', '20.5°', '21.8°', '20.5°'], note: 'Fasciatoio e bagnetto caldo' },
-      { name: 'Cucina', icon: 'fa-kitchen-set', temps: ['19.5°', '20.8°', '20.5°', '20.8°', '19.5°'], note: 'Angolo snack & pasti' },
-      { name: 'Cameretta', icon: 'fa-shapes', temps: ['20.0°', '20.0°', '20.0°', '20.0°', '20.0°'], note: 'Ambiente stabile' },
-      { name: 'Cabina armadio', icon: 'fa-door-closed', temps: ['17.5°', '17.5°', '17.5°', '17.5°', '17.5°'], isEco: true, note: 'Valvola 0% (zero sprechi)' },
-      { name: 'Bagno Alex', icon: 'fa-shower', temps: ['18.5°', '18.5°', '18.5°', '19.0°', '18.5°'], isEco: true, note: 'Valvola a riposo diurno' },
-      { name: 'Corridoi & Ingresso', icon: 'fa-arrow-right-to-bracket', temps: ['19.5°', '19.5°', '19.5°', '19.5°', '19.5°'], note: 'Cuscinetto termico stabile' }
+      { name: 'Salone (radiatore finestra)', icon: 'fa-couch', temps: ['17.5°', '20.0°', '20.0°', '19.0°', '17.5°'], note: 'Max 20.0°C · Eco 17.5°C notte' },
+      { name: 'Camera da letto (radiatore finestra)', icon: 'fa-bed', temps: ['18.0°', '18.0°', '18.0°', '20.0°', '18.0°'], note: 'Tepore 20:00→21:30 poi 18.0°C' },
+      { name: 'Bagno Cinzia (radiatore finestra)', icon: 'fa-bath', temps: ['17.5°', '20.5°', '18.5°', '20.5°', '17.5°'], note: 'Max assoluto 20.5°C mattina/bagnetto' },
+      { name: 'Cucina', icon: 'fa-kitchen-set', temps: ['17.5°', '20.0°', '18.5° / 19.5°', '20.0°', '17.5°'], note: 'Pasti 19.5–20.0°C · Eco 17.5°C' },
+      { name: 'Cameretta', icon: 'fa-shapes', temps: ['19.5°', '18.5°', '18.5°', '19.5°', '19.5°'], note: '18.5°C giorno · 19.5°C sera/notte' },
+      { name: 'Cabina armadio (radiatore accanto finestra)', icon: 'fa-door-closed', temps: ['16.5°', '17.0°', '17.0°', '17.0°', '16.5°'], isEco: true, note: 'ECO al minimo' },
+      { name: 'Bagno Alex', icon: 'fa-shower', temps: ['17.5°', '18.5°', '18.5°', '18.5°', '17.5°'], isEco: true, note: 'Attenuazione ECO (max 18.5°C)' },
+      { name: 'Corridoi & Ingresso', icon: 'fa-arrow-right-to-bracket', temps: ['17.5°', '18.5°', '18.5°', '18.5°', '17.5°'], note: 'Cuscinetto leggero + notte 17.5°C' }
     ];
 
     const modalHtml = `
@@ -2666,18 +2666,24 @@ AdminManager.prototype.renderClimateOptimizerPanel = function() {
 
   el.innerHTML = `
     <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
-      <div class="flex items-center gap-2">
-        <i class="fa-solid fa-temperature-arrow-down text-amber-400"></i>
-        <h4 class="text-xs font-bold text-white uppercase tracking-wider">Ottimizzatore Termico Adattivo (In Itinere)</h4>
-        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${cfg.enabled ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'}">
-          ${cfg.enabled ? 'Attivo (12m)' : 'Disattivato'}
-        </span>
+      <div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <i class="fa-solid fa-temperature-arrow-down text-amber-400"></i>
+          <h4 class="text-xs font-bold text-white uppercase tracking-wider">Riscaldamento Intelligente (Ottimizzatore Termico)</h4>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${cfg.enabled ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'}">
+            ${cfg.enabled ? 'Attivo (ciclo 12m)' : 'Disattivato'}
+          </span>
+        </div>
+        <div class="text-[10.5px] text-slate-400 mt-0.5">
+          Infissi PVC triplo vetro · Termosifoni su finestra: Salone, Camera, Bagno Cinzia, Cabina armadio
+        </div>
       </div>
-      <div class="flex items-center gap-2">
-        <label class="flex items-center gap-1.5 text-xs cursor-pointer">
-          <input type="checkbox" ${cfg.enabled ? 'checked' : ''} onchange="window.toggleClimateOptimizer({ enabled: this.checked })" class="rounded bg-slate-950 border-slate-700 text-emerald-500" />
-          <span class="text-slate-200 font-semibold">Abilitato</span>
-        </label>
+      <div class="flex items-center gap-2 flex-wrap">
+        <button onclick="window.toggleClimateOptimizer({ enabled: ${!cfg.enabled} })"
+                class="px-3 py-1 rounded-lg text-[11px] font-bold transition-all border ${cfg.enabled ? 'bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border-emerald-500/40' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'}">
+          <i class="fa-solid ${cfg.enabled ? 'fa-toggle-on text-emerald-400' : 'fa-toggle-off text-slate-400'} mr-1"></i>
+          ${cfg.enabled ? 'Attivo (Disattiva)' : 'Disattivato (Attiva)'}
+        </button>
         <button onclick="window.evaluateClimateOptimizerNow()" class="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-600 hover:bg-amber-500 text-white transition-all">
           <i class="fa-solid fa-bolt mr-1"></i> Valuta e Ottimizza Ora
         </button>
@@ -2707,12 +2713,21 @@ AdminManager.prototype.renderClimateOptimizerPanel = function() {
       <div class="font-mono text-slate-300">
         Risparmio stimato mese: <strong class="text-emerald-400">${met.savedGasM3 ?? 0} m³</strong> (~<strong class="text-emerald-400">${met.savedEuro ?? 0} €</strong>)
       </div>
-      <div class="flex items-center gap-1.5">
-        <span class="text-slate-400 text-[11px]">Tariffa (€/m³):</span>
-        <input id="opt-gas-price" type="number" step="0.05" min="0.1" max="5" value="${cfg.gasPricePerSmc ?? 1.10}"
-               class="w-16 px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-white font-mono text-[11px]" />
-        <button onclick="window.toggleClimateOptimizer({ gasPricePerSmc: Number(document.getElementById('opt-gas-price').value || 1.10) })"
-                class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-bold border border-slate-700">OK</button>
+      <div class="flex items-center gap-3 flex-wrap">
+        <div class="flex items-center gap-1.5">
+          <span class="text-slate-400 text-[11px]">Max Comfort (°C):</span>
+          <input id="opt-max-temp" type="number" step="0.5" min="17.0" max="23.5" value="${cfg.maxComfortTempC ?? 20.5}"
+                 class="w-16 px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-amber-300 font-mono text-[11px]" />
+          <button onclick="window.toggleClimateOptimizer({ maxComfortTempC: Number(document.getElementById('opt-max-temp').value || 20.5) })"
+                  class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-bold border border-slate-700">OK</button>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span class="text-slate-400 text-[11px]">Tariffa (€/m³):</span>
+          <input id="opt-gas-price" type="number" step="0.05" min="0.1" max="5" value="${cfg.gasPricePerSmc ?? 1.10}"
+                 class="w-16 px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-white font-mono text-[11px]" />
+          <button onclick="window.toggleClimateOptimizer({ gasPricePerSmc: Number(document.getElementById('opt-gas-price').value || 1.10) })"
+                  class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-bold border border-slate-700">OK</button>
+        </div>
       </div>
     </div>
     ${met.lastForecastMotivation ? `<div class="text-[11px] text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 rounded-lg p-2">🤖 ${this.escapeHtml(met.lastForecastMotivation)}</div>` : ''}

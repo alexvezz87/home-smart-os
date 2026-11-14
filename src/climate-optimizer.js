@@ -10,9 +10,25 @@ const METRICS_DB_KEY = 'climate-optimization-metrics';
 const EVALUATE_INTERVAL_MS = 12 * 60 * 1000; // 12 minuti
 const MANUAL_OVERRIDE_TTL_MS = 30 * 60 * 1000; // 30 minuti protezione comandi manuali
 const WINDOW_DROP_THRESHOLD_C = 0.8;
+const WINDOW_NEAR_RADIATOR_DROP_THRESHOLD_C = 0.6;
 const WINDOW_DROP_WINDOW_MS = 5 * 60 * 1000;
 const WINDOW_PAUSE_DURATION_MS = 15 * 60 * 1000;
 const GAS_SAVED_M3_PER_DEGREE_HOUR = 0.07;
+const DEFAULT_MAX_COMFORT_TEMP_C = 20.5;
+
+const BUILDING_THERMAL_PROFILE = {
+  glazing: 'Infissi PVC chiusura ermetica e triplo vetro (elevata inerzia e ritenzione termica)',
+  radiatorsUnderWindow: ['Salone', 'Camera da letto', 'Bagno Cinzia'],
+  radiatorsBesideWindow: ['Cabina armadio']
+};
+
+function isRadiatorNearWindowZone(zoneName = '') {
+  const lower = String(zoneName || '').toLowerCase();
+  return lower.includes('salone')
+    || lower.includes('camera da letto')
+    || lower.includes('bagno cinzia')
+    || lower.includes('cabina armadio');
+}
 
 function getRomeClock(date = new Date()) {
   try {
@@ -62,7 +78,8 @@ class ClimateOptimizer {
       enablePresenceTrim: true,
       enableNightShift: true,
       enableWindowProtect: true,
-      gasPricePerSmc: 1.10
+      gasPricePerSmc: 1.10,
+      maxComfortTempC: DEFAULT_MAX_COMFORT_TEMP_C
     };
 
     this.tempHistoryByZone = new Map(); // zoneId -> [{ ts, temp }]
@@ -181,10 +198,10 @@ class ClimateOptimizer {
   }
 
   /**
-   * Strategia 4: Rilevamento rapido finestra aperta (calo > 0.8°C in < 5 minuti).
+   * Strategia 4: Rilevamento rapido finestra aperta (calo > 0.6°C su radiatori vicino/sotto finestra, 0.8°C altrove in < 5 minuti).
    * Puro e testabile offline su `nowMs`.
    */
-  detectWindowOpen(zoneId, currentTemp, currentSetpoint, nowMs = Date.now()) {
+  detectWindowOpen(zoneId, currentTemp, currentSetpoint, nowMs = Date.now(), options = {}) {
     const id = String(zoneId);
     const existingPause = this.windowPauseByZone.get(id);
     if (existingPause) {
@@ -208,10 +225,14 @@ class ClimateOptimizer {
     const recent = history.filter((pt) => nowMs - pt.ts <= 10 * 60 * 1000);
     this.tempHistoryByZone.set(id, recent);
 
+    const dropThreshold = isRadiatorNearWindowZone(options.zoneName)
+      ? WINDOW_NEAR_RADIATOR_DROP_THRESHOLD_C
+      : WINDOW_DROP_THRESHOLD_C;
+
     const windowSamples = recent.filter((pt) => nowMs - pt.ts <= WINDOW_DROP_WINDOW_MS);
     if (windowSamples.length >= 2) {
       const maxTempInWindow = Math.max(...windowSamples.map((p) => p.temp));
-      if (maxTempInWindow - temp > WINDOW_DROP_THRESHOLD_C) {
+      if (maxTempInWindow - temp > dropThreshold) {
         const orig = Number.isFinite(Number(currentSetpoint)) ? Number(currentSetpoint) : 20.0;
         this.windowPauseByZone.set(id, {
           until: nowMs + WINDOW_PAUSE_DURATION_MS,
@@ -272,9 +293,9 @@ class ClimateOptimizer {
       : 'Setpoint standard mantenuto';
     let windowRestored = false;
 
-    // Priorità 1: Finestra Aperta
+    // Priorità 1: Finestra Aperta (più sensibile dove il termosifone è sotto o accanto alla finestra)
     if (this.config.enableWindowProtect && currentTemp !== null) {
-      const winCheck = this.detectWindowOpen(zone.id, currentTemp, baseline, nowMs);
+      const winCheck = this.detectWindowOpen(zone.id, currentTemp, baseline, nowMs, { zoneName: zone.name });
       if (winCheck.paused) {
         proposed = 15.0;
         badge = 'window_pause';
@@ -295,18 +316,25 @@ class ClimateOptimizer {
       }
     }
 
+    // Priorità 2b: Attenuazione ECO Bagno Alex (zn6 condiviso su PG2 Bagni con Bagno Cinzia)
+    if (!badge && nameLower.includes('bagno alex') && baseline > 18.5) {
+      proposed = 18.5;
+      badge = 'eco_away';
+      reason = 'Bagno Alex in attenuazione ECO (18.5°C su programma condiviso Bagni)';
+    }
+
     // Priorità 3: Zonizzazione Notturna (22:30 - 06:30)
     const isNight = clk.totalMinutes >= (22 * 60 + 30) || clk.totalMinutes <= (6 * 60 + 30);
     if (!badge && this.config.enableNightShift && isNight) {
       const isNightPriority = nameLower.includes('cameretta') || nameLower.includes('camera da letto');
       if (nameLower.includes('cameretta')) {
-        proposed = 19.5;
+        proposed = Math.min(baseline, 19.5);
         badge = 'night_shift';
-        reason = 'Zonizzazione Notturna prioritaria (Cameretta): mantenimento stabile 19.5°C';
+        reason = `Zonizzazione Notturna prioritaria (Cameretta): mantenimento stabile ${proposed}°C`;
       } else if (nameLower.includes('camera da letto')) {
-        proposed = 19.0;
+        proposed = Math.min(baseline, 18.0);
         badge = 'night_shift';
-        reason = 'Zonizzazione Notturna (Camera da letto): mantenimento confortevole 19.0°C';
+        reason = `Zonizzazione Notturna (Camera da letto): attenuazione sonno a ${proposed}°C`;
       } else if (!isNightPriority && baseline > 17.5) {
         proposed = 17.5;
         badge = 'night_shift';
@@ -324,18 +352,30 @@ class ClimateOptimizer {
       reason = `Irraggiamento solare previsto su ${zone.name}: trim preventivo -${trim}°C (${proposed}°C)`;
     }
 
+    // Rispetto tetto massimo comfort configurabile (default 20.5°C)
+    const maxComfort = Number.isFinite(Number(this.config.maxComfortTempC))
+      ? Number(this.config.maxComfortTempC)
+      : DEFAULT_MAX_COMFORT_TEMP_C;
+    if (proposed > maxComfort) {
+      proposed = maxComfort;
+      if (!badge) {
+        reason = `Tetto massimo Riscaldamento Intelligente (${maxComfort}°C)`;
+      }
+    }
+
     // Strategia 3: Rampa graduale caldaia a condensazione (solo in salita; bypass su fine finestra aperta)
     const ramped = windowRestored ? proposed : this.applyGentleRamp(currentSetpoint, proposed);
 
-    // Guardrail Deterministico Hardware Obbligatorio (15.0°C - 23.5°C)
+    // Guardrail Deterministico Hardware Obbligatorio (15.0°C - 23.5°C) + tetto comfort
     const guard = aiGateway.validateHardwareAction({
       action: 'climate:set_temp',
-      value: ramped,
+      value: Math.min(ramped, maxComfort),
       actor: 'climate-optimizer',
       nowMs
     });
 
-    const finalTarget = guard.finalValue !== undefined ? guard.finalValue : Math.min(23.5, Math.max(15.0, ramped));
+    const bounded = guard.finalValue !== undefined ? guard.finalValue : Math.min(23.5, Math.max(15.0, ramped));
+    const finalTarget = Math.min(bounded, maxComfort);
 
     return {
       zoneId: zone.id,
@@ -465,7 +505,12 @@ class ClimateOptimizer {
       const weather = await this.fetchWeatherForecast();
       const corridorTemp = hueLocal.motionSensor?.temperature ?? null;
 
-      const prompt = `Analizza l'inerzia termica della casa e suggerisci eventuali correzioni leggere per oggi.
+      const maxCap = Number(this.config.maxComfortTempC || DEFAULT_MAX_COMFORT_TEMP_C);
+      const prompt = `Analizza l'inerzia termica della casa e suggerisci eventuali correzioni leggere per oggi (SENZA mai superare ${maxCap}°C).
+Caratteristiche edificio:
+- Infissi: ${BUILDING_THERMAL_PROFILE.glazing} (elevata ritenzione del calore).
+- Termosifoni sotto finestra: ${BUILDING_THERMAL_PROFILE.radiatorsUnderWindow.join(', ')}.
+- Termosifoni accanto finestra: ${BUILDING_THERMAL_PROFILE.radiatorsBesideWindow.join(', ')}.
 Dati attuali:
 - Temperatura centrale corridoio (Hue): ${corridorTemp ?? 'N/D'} °C
 - Meteo esterno: ${JSON.stringify(weather)}
@@ -491,10 +536,10 @@ Restituisci JSON con schema: { "motivation": "frase breve in italiano", "adjustm
         for (const adj of data.adjustments) {
           const guard = aiGateway.validateHardwareAction({
             action: 'climate:set_temp',
-            value: adj.suggestedTemp,
+            value: Math.min(Number(adj.suggestedTemp || maxCap), maxCap),
             actor: 'thermal-forecaster'
           });
-          adj.validatedTemp = guard.finalValue;
+          adj.validatedTemp = Math.min(guard.finalValue, maxCap);
         }
       }
 
@@ -523,6 +568,10 @@ Restituisci JSON con schema: { "motivation": "frase breve in italiano", "adjustm
     if (patch.gasPricePerSmc !== undefined && Number.isFinite(Number(patch.gasPricePerSmc))) {
       this.config.gasPricePerSmc = Math.max(0.1, Math.min(5, Number(patch.gasPricePerSmc)));
     }
+    if (patch.maxComfortTempC !== undefined && Number.isFinite(Number(patch.maxComfortTempC))) {
+      const clamped = Math.max(17.0, Math.min(23.5, Number(patch.maxComfortTempC)));
+      this.config.maxComfortTempC = +(Math.round(clamped * 2) / 2).toFixed(1);
+    }
     await this.persistState();
     return this.getStatus();
   }
@@ -541,6 +590,7 @@ Restituisci JSON con schema: { "motivation": "frase breve in italiano", "adjustm
     const savedEuro = +(savedGasM3 * Number(this.config.gasPricePerSmc || 1.10)).toFixed(2);
     return {
       config: { ...this.config },
+      buildingProfile: BUILDING_THERMAL_PROFILE,
       metrics: {
         ...this.metrics,
         savedGasM3,

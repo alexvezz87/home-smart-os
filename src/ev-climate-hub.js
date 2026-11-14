@@ -404,13 +404,20 @@ class EvClimateHub {
       this.syncBoschEasyControl()
     ]);
 
-    // Automazione continua: se il Profilo Neonato "Cinzia & Francesco" è attivo,
-    // verifica ogni ora se è necessario adeguare le fasce (es. cena, nanna, risveglio)
+    // Automazione continua: esegue il vecchio profilo orario statico SOLO se esplicitamente attivo
+    // e il nuovo motore Riscaldamento Intelligente (ClimateOptimizer) non è abilitato.
     if (this.config.bosch?.babyComfortProfileActive && this.boschState.connected) {
-      const currentHour = new Date().getHours();
-      if (this._lastBabyProfileHour !== currentHour) {
-        this._lastBabyProfileHour = currentHour;
-        this.applyBabyComfortProfile().catch(() => {});
+      let optimizerEnabled = false;
+      try {
+        const opt = require('./climate-optimizer');
+        optimizerEnabled = Boolean(opt?.config?.enabled);
+      } catch (_) {}
+      if (!optimizerEnabled) {
+        const currentHour = new Date().getHours();
+        if (this._lastBabyProfileHour !== currentHour) {
+          this._lastBabyProfileHour = currentHour;
+          this.applyBabyComfortProfile().catch(() => {});
+        }
       }
     }
   }
@@ -2619,12 +2626,13 @@ class EvClimateHub {
         });
       }
 
-      // 4. Allerta Comfort Neonato Francesco & Mamma Cinzia
+      // 4. Allerta Comfort Neonato Francesco & Mamma Cinzia (solo se sotto al target reale o sotto 18.0°C)
       if (Array.isArray(b.zones)) {
         const familyZones = ['zn10', 'zn9', 'zn7', 'zn4', 'zn3']; // Salone, Cucina, Camera, Bagno Cinzia, Cameretta
         for (const z of b.zones) {
           if (familyZones.includes(z.id) && typeof z.tempActual === 'number') {
-            if (z.tempActual < 19.2) {
+            const targetRef = typeof z.tempSetpoint === 'number' ? z.tempSetpoint : 19.5;
+            if (z.tempActual < 18.0 || (z.tempActual < 19.0 && z.tempActual < targetRef - 0.8)) {
               alerts.push({
                 id: `comfort-baby-low-${z.id}`,
                 category: 'comfort',
@@ -2632,7 +2640,7 @@ class EvClimateHub {
                 icon: 'fa-baby',
                 title: `Temperatura Bassa in ${z.name}`,
                 value: `${z.tempActual}°C`,
-                message: `In ${z.name} la temperatura è scesa a ${z.tempActual}°C (sotto i 20.0°C consigliati per il piccolo Francesco e Cinzia). Si consiglia di verificare che le finestre siano chiuse o incrementare il setpoint radiatore.`
+                message: `In ${z.name} la temperatura è scesa a ${z.tempActual}°C rispetto al target ${targetRef}°C. Si consiglia di verificare eventuali finestre aperte.`
               });
             }
           }
@@ -2668,32 +2676,40 @@ class EvClimateHub {
     const now = new Date();
     const currentHour = now.getHours() + (now.getMinutes() / 60);
 
-    // Schema fasce orarie ottimizzato per Cinzia & Francesco:
-    // Salone (zn10): cuore della giornata (08:30 - 21:00) -> 21.0°C; notte -> 19.5°C
-    // Cucina (zn9): pasti (07:00-09:30, 12:00-14:30, 19:00-21:30) -> 20.8°C; resto -> 20.0°C
-    // Camera da letto (zn7): nanna bimbo (20:30-08:00) -> 20.5°C; giorno -> 19.5°C
-    // Bagno Cinzia (zn4): bagnetto (18:30-20:30) -> 21.8°C; mattina (07:00-09:30) -> 21.5°C; resto -> 20.5°C
-    // Cameretta (zn3): 20.0°C
-    // Cabina armadio (zn5): 17.5°C (Eco / nessun consumo inutile)
-    // Bagno Alex (zn6): 18.5°C (Eco durante il giorno)
-    // Ingresso (zn8) & Corridoio 2 (zn2) & Corridoio (zn1): 19.5°C (cuscinetto termico)
+    // Schema fasce orarie ottimizzato (Tetto massimo assoluto 20.5°C, infissi PVC triplo vetro):
+    // Salone (zn10): 08:00-21:00 -> 20.0°C; 21:00-22:30 -> 19.0°C; notte -> 17.5°C
+    // Cucina (zn9): pasti (07:00-09:30, 19:00-21:30 -> 20.0°C; 12:00-14:30 -> 19.5°C); giorno -> 18.5°C; notte -> 17.5°C
+    // Camera da letto (zn7): pre-nanna (20:00-21:30) -> 20.0°C; sonno e giorno -> 18.0°C
+    // Bagno Cinzia (zn4): mattina (06:30-09:30) e bagnetto (18:30-20:30) -> 20.5°C; giorno -> 18.5°C; notte -> 17.5°C
+    // Cameretta (zn3): sera/notte (20:00-08:00) -> 19.5°C; giorno -> 18.5°C
+    // Cabina armadio (zn5): giorno -> 17.0°C; notte -> 16.5°C
+    // Bagno Alex (zn6): 18.5°C (Eco)
+    // Ingresso (zn8) & Corridoi (zn1, zn2): 07:30-22:00 -> 18.5°C; notte -> 17.5°C
 
-    let saloneTarget = (currentHour >= 8.5 && currentHour < 21.0) ? 21.0 : 19.5;
-    let cucinaTarget = ((currentHour >= 7.0 && currentHour < 9.5) || (currentHour >= 12.0 && currentHour < 14.5) || (currentHour >= 19.0 && currentHour < 21.5)) ? 20.8 : 20.0;
-    let cameraTarget = (currentHour >= 20.5 || currentHour < 8.0) ? 20.5 : 19.5;
-    let bagnoCinziaTarget = (currentHour >= 18.5 && currentHour < 20.5) ? 21.8 : ((currentHour >= 7.0 && currentHour < 9.5) ? 21.5 : 20.5);
+    const saloneTarget = (currentHour >= 8.0 && currentHour < 21.0) ? 20.0 : ((currentHour >= 21.0 && currentHour < 22.5) ? 19.0 : 17.5);
+    let cucinaTarget = 17.5;
+    if ((currentHour >= 7.0 && currentHour < 9.5) || (currentHour >= 19.0 && currentHour < 21.5)) cucinaTarget = 20.0;
+    else if (currentHour >= 12.0 && currentHour < 14.5) cucinaTarget = 19.5;
+    else if (currentHour >= 9.5 && currentHour < 19.0) cucinaTarget = 18.5;
+    const cameraTarget = (currentHour >= 20.0 && currentHour < 21.5) ? 20.0 : 18.0;
+    let bagnoCinziaTarget = 17.5;
+    if ((currentHour >= 6.5 && currentHour < 9.5) || (currentHour >= 18.5 && currentHour < 20.5)) bagnoCinziaTarget = 20.5;
+    else if (currentHour >= 9.5 && currentHour < 22.5) bagnoCinziaTarget = 18.5;
+    const camerettaTarget = (currentHour >= 20.0 || currentHour < 8.0) ? 19.5 : 18.5;
+    const cabinaTarget = (currentHour >= 8.0 && currentHour < 22.0) ? 17.0 : 16.5;
+    const corridoiTarget = (currentHour >= 7.5 && currentHour < 22.0) ? 18.5 : 17.5;
 
     const schedulePlan = {
-      zn10: { name: 'Salone', target: saloneTarget, reason: 'Area gioco e permanenza diurna Francesco & Cinzia' },
-      zn9:  { name: 'Cucina', target: cucinaTarget, reason: 'Area pasti e colazione (angolo snack Meross)' },
-      zn7:  { name: 'Camera da letto', target: cameraTarget, reason: 'Sonno e riposo notturno (temperatura ideale 20.5°C)' },
-      zn4:  { name: 'Bagno Cinzia', target: bagnoCinziaTarget, reason: 'Fasciatoio e bagnetto serale confortevole' },
-      zn3:  { name: 'Cameretta', target: 20.0, reason: 'Stanza gioco ausiliaria e riposo' },
-      zn5:  { name: 'Cabina armadio', target: 17.5, reason: 'ECO: non vissuta, valvola chiusa per risparmio gas' },
-      zn6:  { name: 'Bagno Alex', target: 18.5, reason: 'ECO: valvola al minimo durante il giorno' },
-      zn8:  { name: 'Ingresso', target: 19.5, reason: 'Cuscinetto termico ingresso casa' },
-      zn2:  { name: 'Corridoio 2', target: 19.5, reason: 'Cuscinetto termico corridoio' },
-      zn1:  { name: 'Corridoio', target: 19.5, reason: 'CT200 termostato centrale' }
+      zn10: { name: 'Salone', target: saloneTarget, reason: 'Area gioco e permanenza (max 20.0°C + ritenzione PVC triplo vetro)' },
+      zn9:  { name: 'Cucina', target: cucinaTarget, reason: 'Area pasti (max 20.0°C compensando calore fornelli)' },
+      zn7:  { name: 'Camera da letto', target: cameraTarget, reason: 'Tepore pre-nanna 20:00-21:30 (20.0°C) poi sonno fresco a 18.0°C' },
+      zn4:  { name: 'Bagno Cinzia', target: bagnoCinziaTarget, reason: 'Mattina e bagnetto a 20.5°C, attenuazione fuori fascia' },
+      zn3:  { name: 'Cameretta', target: camerettaTarget, reason: 'Comfort notturno 19.5°C, attenuata di giorno (18.5°C)' },
+      zn5:  { name: 'Cabina armadio', target: cabinaTarget, reason: 'ECO: locale di servizio al minimo (16.5-17.0°C)' },
+      zn6:  { name: 'Bagno Alex', target: 18.5, reason: 'ECO: attenuazione costante a 18.5°C' },
+      zn8:  { name: 'Ingresso', target: corridoiTarget, reason: 'Cuscinetto termico ingresso' },
+      zn2:  { name: 'Corridoio 2', target: corridoiTarget, reason: 'Cuscinetto termico corridoio' },
+      zn1:  { name: 'Corridoio', target: corridoiTarget, reason: 'CT200 termostato centrale' }
     };
 
     const results = [];
@@ -2734,48 +2750,49 @@ class EvClimateHub {
     const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
     const programsPlan = {
-      // 5: Salone (zn10)
-      5: [
-        { t: 510, Th: 21.0, name: 0 },
-        { t: 1290, Th: 20.0, name: 0 },
-        { t: 1380, Th: 19.5, name: 0 }
+      // 1: Corridoi & Ingresso (zn1, zn2, zn8)
+      1: [
+        { t: 450, Th: 18.5, name: 0 },  // 07:30 -> 18.5°C
+        { t: 1320, Th: 17.5, name: 0 }  // 22:00 -> 17.5°C
       ],
-      // 6: Camera da letto (zn7)
-      6: [
-        { t: 480, Th: 19.5, name: 0 },
-        { t: 1230, Th: 20.5, name: 0 }
-      ],
-      // 2: Bagni (zn4 Bagno Cinzia, zn6 Bagno Alex)
+      // 2: Bagni (zn4 Bagno Cinzia, zn6 Bagno Alex) - max 20.5°C
       2: [
-        { t: 390, Th: 21.5, name: 0 },
-        { t: 570, Th: 20.5, name: 0 },
-        { t: 1110, Th: 22.0, name: 0 },
-        { t: 1230, Th: 20.5, name: 0 },
-        { t: 1380, Th: 20.0, name: 0 }
+        { t: 390, Th: 20.5, name: 0 },  // 06:30 -> 20.5°C
+        { t: 570, Th: 18.5, name: 0 },  // 09:30 -> 18.5°C
+        { t: 1110, Th: 20.5, name: 0 }, // 18:30 -> 20.5°C
+        { t: 1230, Th: 18.5, name: 0 }, // 20:30 -> 18.5°C
+        { t: 1350, Th: 17.5, name: 0 }  // 22:30 -> 17.5°C
       ],
-      // 3: Cucina (zn9)
+      // 3: Cucina (zn9) - max 20.0°C
       3: [
-        { t: 420, Th: 21.0, name: 0 },
-        { t: 570, Th: 20.0, name: 0 },
-        { t: 720, Th: 21.0, name: 0 },
-        { t: 870, Th: 20.0, name: 0 },
-        { t: 1140, Th: 21.0, name: 0 },
-        { t: 1290, Th: 19.5, name: 0 }
+        { t: 420, Th: 20.0, name: 0 },  // 07:00 -> 20.0°C
+        { t: 570, Th: 18.5, name: 0 },  // 09:30 -> 18.5°C
+        { t: 720, Th: 19.5, name: 0 },  // 12:00 -> 19.5°C
+        { t: 870, Th: 18.5, name: 0 },  // 14:30 -> 18.5°C
+        { t: 1140, Th: 20.0, name: 0 }, // 19:00 -> 20.0°C
+        { t: 1290, Th: 17.5, name: 0 }  // 21:30 -> 17.5°C
       ],
       // 4: Cameretta (zn3)
       4: [
-        { t: 480, Th: 20.0, name: 0 },
-        { t: 1260, Th: 20.0, name: 0 }
+        { t: 480, Th: 18.5, name: 0 },  // 08:00 -> 18.5°C
+        { t: 1200, Th: 19.5, name: 0 }  // 20:00 -> 19.5°C
+      ],
+      // 5: Salone (zn10) - max 20.0°C
+      5: [
+        { t: 480, Th: 20.0, name: 0 },  // 08:00 -> 20.0°C
+        { t: 1260, Th: 19.0, name: 0 }, // 21:00 -> 19.0°C
+        { t: 1350, Th: 17.5, name: 0 }  // 22:30 -> 17.5°C
+      ],
+      // 6: Camera da letto (zn7) - pre-nanna 20:00->21:30 a 20.0°C poi 18.0°C
+      6: [
+        { t: 480, Th: 18.0, name: 0 },  // 08:00 -> 18.0°C
+        { t: 1200, Th: 20.0, name: 0 }, // 20:00 -> 20.0°C
+        { t: 1290, Th: 18.0, name: 0 }  // 21:30 -> 18.0°C
       ],
       // 7: Cabina armadio (zn5)
       7: [
-        { t: 480, Th: 17.5, name: 0 },
-        { t: 1320, Th: 17.5, name: 0 }
-      ],
-      // 1: Corridoi & Ingresso (zn1, zn2, zn8)
-      1: [
-        { t: 420, Th: 19.5, name: 0 },
-        { t: 1320, Th: 19.5, name: 0 }
+        { t: 480, Th: 17.0, name: 0 },  // 08:00 -> 17.0°C
+        { t: 1320, Th: 16.5, name: 0 }  // 22:00 -> 16.5°C
       ]
     };
 
