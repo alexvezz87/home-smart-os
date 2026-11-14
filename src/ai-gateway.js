@@ -98,6 +98,7 @@ class AIGateway {
     this.guardrailHistory = [];
     this.cooldownMap = new Map();
     this.flushTimer = null;
+    this.lastAuthError = null;
     this.httpClient = options.httpClient || axios;
   }
 
@@ -457,6 +458,7 @@ class AIGateway {
         if (!text) {
           throw new Error(`Risposta vuota dal modello ${model}`);
         }
+        this.lastAuthError = null;
         return {
           text,
           model,
@@ -465,6 +467,10 @@ class AIGateway {
           taskName
         };
       } catch (err) {
+        const httpStatus = err?.response?.status;
+        if (httpStatus === 401 || httpStatus === 403) {
+          this.lastAuthError = httpStatus;
+        }
         lastError = err;
       }
     }
@@ -628,6 +634,7 @@ class AIGateway {
     return {
       configured: Boolean(key),
       maskedKey: key ? `${key.substring(0, 6)}...${key.substring(key.length - 4)}` : null,
+      lastAuthError: this.lastAuthError,
       dateKey: this.dateKey,
       models: { ...this.models },
       usage,

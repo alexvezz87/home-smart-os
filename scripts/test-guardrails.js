@@ -218,6 +218,10 @@ test('ServiceStatus: mapping operational, auth_expired, degraded e summary globa
     iliadboxClient: {
       getPresenceState: () => ({ connectionStatus: 'online', alex: { status: 'home' }, cinzia: { status: 'away' } })
     },
+    mcp: { mcpOAuthExpired: true, cachedResources: [] },
+    hueLocal: { getStatus: () => ({ isPaired: true, v2Ready: true, lightsCount: 12 }) },
+    merossEnergy: { devicesMap: new Map([['id1', {}]]), getStatus: () => ({ plugs: [{ name: 'Presa' }] }) },
+    securitySystem: { cameras: { cam1: { online: true }, cam2: { online: true } } },
     evUnified: {
       bosch: { connected: true },
       volvo: { connected: false, tokenExpired: true },
@@ -229,10 +233,18 @@ test('ServiceStatus: mapping operational, auth_expired, degraded e summary globa
   const iliad = services.find((s) => s.id === 'iliadbox');
   const volvo = services.find((s) => s.id === 'volvo');
   const gemini = services.find((s) => s.id === 'gemini_ai');
+  const hue = services.find((s) => s.id === 'hue');
+  const cams = services.find((s) => s.id === 'cameras');
+  const mcpSrv = services.find((s) => s.id === 'google_home_mcp');
+  const meross = services.find((s) => s.id === 'meross');
 
   assert.equal(tidb.status, 'operational');
   assert.equal(iliad.status, 'operational');
   assert.equal(gemini.status, 'operational');
+  assert.equal(hue.status, 'operational');
+  assert.equal(cams.status, 'operational');
+  assert.equal(meross.status, 'operational');
+  assert.equal(mcpSrv.status, 'auth_expired');
   assert.equal(volvo.status, 'auth_expired');
 
   const summary = serviceStatus.computeSummary(services);

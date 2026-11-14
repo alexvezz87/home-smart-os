@@ -75,13 +75,24 @@ function evaluateServicesSnapshot(modules = {}) {
   });
 
   const mcpRef = modules.mcp;
-  const mcpConnected = Boolean(mcpRef && (mcpRef.isConnected || mcpRef.cachedSnapshot || mcpRef.devices?.length > 0));
+  let mcpStatus = 'degraded';
+  let mcpDetail = 'In attesa di sincronizzazione MCP';
+  if (mcpRef) {
+    if (mcpRef.mcpOAuthExpired) {
+      mcpStatus = 'auth_expired';
+      mcpDetail = 'Token OAuth Google Home MCP scaduto / sloggato';
+    } else if (mcpRef.isConnected || mcpRef.lastKnownSnapshot || (Array.isArray(mcpRef.cachedResources) && mcpRef.cachedResources.length > 0)) {
+      const devCount = Array.isArray(mcpRef.cachedResources) ? mcpRef.cachedResources.length : 0;
+      mcpStatus = 'operational';
+      mcpDetail = devCount > 0 ? `Bridge MCP operativo (${devCount} risorse in cache)` : 'Bridge MCP operativo';
+    }
+  }
   services.push({
     id: 'google_home_mcp',
     category: 'ai',
     name: 'Google Home / Nest MCP',
-    status: mcpRef ? (mcpConnected ? 'operational' : 'degraded') : 'degraded',
-    detail: mcpConnected ? 'Bridge MCP operativo' : 'In attesa di sincronizzazione MCP',
+    status: mcpStatus,
+    detail: mcpDetail,
     actionArea: 'admin'
   });
 
@@ -119,10 +130,10 @@ function evaluateServicesSnapshot(modules = {}) {
   let hueStatus = 'degraded';
   let hueDetail = 'Bridge Hue non inizializzato';
   if (hueStatusObj) {
-    if (hueStatusObj.connected || hueStatusObj.paired) {
+    if (hueStatusObj.connected || hueStatusObj.isPaired || hueStatusObj.paired) {
       hueStatus = 'operational';
-      hueDetail = `Bridge LAN CLIP v2 attivo (${hueStatusObj.lightsCount || 0} luci)`;
-    } else if (hueStatusObj.needsPairing) {
+      hueDetail = `Bridge LAN ${hueStatusObj.v2Ready ? 'CLIP v2' : 'v1'} attivo (${hueStatusObj.lightsCount || 0} luci)`;
+    } else if (hueStatusObj.needsPairing || (hueStatusObj.bridgeIp && hueStatusObj.isPaired === false)) {
       hueStatus = 'auth_expired';
       hueDetail = 'Richiede pairing Link Button su Bridge Hue';
     } else {
@@ -143,13 +154,16 @@ function evaluateServicesSnapshot(modules = {}) {
   const merossStatusObj = safeCall(() => merossRef?.getStatus?.(), null) || merossRef;
   let merossStatus = 'degraded';
   let merossDetail = 'Connessione Meross in attesa';
-  if (merossStatusObj) {
-    if (merossStatusObj.authError || merossStatusObj.tokenExpired) {
+  const merossDevicesCount = merossRef?.devicesMap?.size || merossStatusObj?.plugs?.length || merossStatusObj?.devices?.size || 0;
+  if (merossRef || merossStatusObj) {
+    if (merossRef?.authError || merossRef?.tokenExpired || merossStatusObj?.authError || merossStatusObj?.tokenExpired) {
       merossStatus = 'auth_expired';
       merossDetail = 'Token Meross Cloud scaduto: riautenticazione richiesta';
-    } else if (merossStatusObj.connected || merossStatusObj.isConnected || merossStatusObj.devices?.size > 0) {
+    } else if (merossStatusObj?.connected || merossStatusObj?.isConnected || merossRef?.isConnected || merossDevicesCount > 0) {
       merossStatus = 'operational';
-      merossDetail = 'MQTT Cloud Meross connesso';
+      merossDetail = merossDevicesCount > 0
+        ? `MQTT Cloud Meross connesso (${merossDevicesCount} dispositivi)`
+        : 'MQTT Cloud Meross connesso';
     }
   }
   services.push({
@@ -170,13 +184,16 @@ function evaluateServicesSnapshot(modules = {}) {
   if (bosch) {
     if (bosch.connected) {
       boschStatus = 'operational';
-      boschDetail = 'Bosch PointT Cloud connesso';
+      boschDetail = 'Bosch PointT / EasyControl connesso';
     } else if (bosch.connectedMode === 'auth_error' || bosch.authError) {
       boschStatus = 'auth_expired';
       boschDetail = 'Sessione SingleKey ID scaduta: rifare login Bosch';
+    } else if (bosch.connectedMode === 'not_configured') {
+      boschStatus = 'degraded';
+      boschDetail = 'Credenziali Bosch non configurate';
     } else {
       boschStatus = 'outage';
-      boschDetail = bosch.error || 'Bosch PointT non connesso';
+      boschDetail = bosch.lastError || bosch.error || 'Bosch PointT non connesso';
     }
   }
   services.push({
@@ -189,8 +206,11 @@ function evaluateServicesSnapshot(modules = {}) {
   });
 
   const secRef = modules.securitySystem;
-  const cams = Array.isArray(secRef?.cameras) ? secRef.cameras : [];
-  const onlineCams = cams.filter((c) => c.online !== false && !c.offline).length;
+  const rawCams = secRef?.cameras;
+  const cams = Array.isArray(rawCams)
+    ? rawCams
+    : (rawCams && typeof rawCams === 'object' ? Object.values(rawCams) : []);
+  const onlineCams = cams.filter((c) => c && c.online !== false && !c.offline).length;
   services.push({
     id: 'cameras',
     category: 'lan',
@@ -206,19 +226,20 @@ function evaluateServicesSnapshot(modules = {}) {
     id: 'dyson',
     category: 'lan',
     name: 'Purificatore Dyson HP11',
-    status: dysonObj?.connected || dysonObj?.mqttConnected ? 'operational' : 'degraded',
-    detail: dysonObj?.connected || dysonObj?.mqttConnected ? 'MQTT locale / Cloud attivo' : 'Modalità fallback / standby',
+    status: (dysonObj?.online || dysonObj?.mqttConnected || dysonObj?.connected) ? 'operational' : 'degraded',
+    detail: (dysonObj?.online || dysonObj?.mqttConnected || dysonObj?.connected) ? 'MQTT locale / Cloud attivo' : 'Modalità fallback / standby',
     actionArea: 'admin'
   });
 
   const thinqRef = modules.lgThinq;
   const thinqObj = safeCall(() => thinqRef?.getStatus?.(), null);
+  const thinqAuthErr = Boolean(thinqObj?.authError || /401|403|auth|token|pat/i.test(String(thinqObj?.lastError || '')));
   services.push({
     id: 'lg_thinq',
     category: 'lan',
     name: 'Elettrodomestici LG ThinQ',
-    status: thinqObj?.connected ? 'operational' : (thinqObj?.authError ? 'auth_expired' : 'degraded'),
-    detail: thinqObj?.connected ? 'API ThinQ Connect operativa' : (thinqObj?.configured ? 'In attesa polling' : 'PAT non configurato'),
+    status: thinqObj?.connected ? 'operational' : (thinqAuthErr ? 'auth_expired' : 'degraded'),
+    detail: thinqObj?.connected ? 'API ThinQ Connect operativa' : (thinqAuthErr ? 'Token PAT LG ThinQ rifiutato o scaduto' : (thinqObj?.configured ? 'In attesa polling' : 'PAT non configurato')),
     actionArea: 'admin'
   });
 
@@ -238,15 +259,16 @@ function evaluateServicesSnapshot(modules = {}) {
   let volvoStatus = 'degraded';
   let volvoDetail = 'Volvo EX30 non configurata';
   if (volvo) {
+    const soc = volvo.batteryChargeLevel ?? volvo.batteryLevel;
     if (volvo.connected) {
       volvoStatus = 'operational';
-      volvoDetail = `Volvo Connected API v2 attiva${volvo.batteryLevel !== undefined ? ` (SOC ${volvo.batteryLevel}%)` : ''}`;
+      volvoDetail = `Volvo Connected API v2 attiva${soc !== undefined && soc !== null ? ` (SOC ${soc}%)` : ''}`;
     } else if (volvo.authError || volvo.tokenExpired || volvo.connectedMode === 'auth_error' || volvo.needsAuth) {
       volvoStatus = 'auth_expired';
       volvoDetail = 'Token OAuth2 Volvo scaduto o mancante: riautenticazione richiesta';
     } else {
       volvoStatus = 'degraded';
-      volvoDetail = volvo.error || 'Telemetria Volvo non connessa';
+      volvoDetail = volvo.lastError || volvo.error || 'Telemetria Volvo non connessa';
     }
   }
   services.push({
@@ -259,27 +281,36 @@ function evaluateServicesSnapshot(modules = {}) {
   });
 
   const wallbox = evUnified?.wallbox;
+  const wallboxAuthErr = Boolean(wallbox?.authError || wallbox?.connectedMode === 'auth_error');
   services.push({
     id: 'wallbox',
     category: 'mobility',
     name: 'ABB Wallbox Terra AC',
-    status: wallbox?.connected ? 'operational' : (wallbox?.authError ? 'auth_expired' : 'degraded'),
-    detail: wallbox?.connected ? 'ChargeDot / ChargerSync connessa' : 'Wallbox in standby o non connessa',
+    status: wallbox?.connected ? 'operational' : (wallboxAuthErr ? 'auth_expired' : 'degraded'),
+    detail: wallbox?.connected
+      ? 'ChargeDot / ChargerSync connessa'
+      : (wallboxAuthErr ? 'Credenziali ABB Wallbox rifiutate: verifica in Amministrazione' : (wallbox?.lastError || 'Wallbox in standby o non connessa')),
     actionArea: 'admin'
   });
 
   const tripsSync = modules.volvoTripsSync;
   const tripsStatus = safeCall(() => tripsSync?.getStatus?.(), null);
-  const driveAuthExpired = Boolean(tripsStatus?.authError || tripsStatus?.needsAuth);
+  const driveLastErr = String(tripsStatus?.lastSyncError || '');
+  const driveAuthExpired = Boolean(
+    tripsStatus?.authError ||
+    tripsStatus?.needsAuth ||
+    /invalid_grant|401|403|unauthorized|token|auth/i.test(driveLastErr) ||
+    (tripsStatus?.hasGoogleOAuth && !tripsStatus?.hasDriveToken && tripsStatus?.authMode === 'none')
+  );
   const driveConnected = Boolean(tripsStatus?.configured || tripsStatus?.connected);
   services.push({
     id: 'drive_sync',
     category: 'mobility',
     name: 'Google Drive Sync (Viaggi / Wallbox / Bollette)',
-    status: driveAuthExpired ? 'auth_expired' : (driveConnected ? 'operational' : 'degraded'),
+    status: driveAuthExpired ? 'auth_expired' : (driveLastErr ? 'degraded' : (driveConnected ? 'operational' : 'degraded')),
     detail: driveAuthExpired
       ? 'Autorizzazione Google Drive scaduta: ricollega in Amministrazione'
-      : (driveConnected ? 'Sync automatica 24h attiva' : 'In attesa configurazione Drive'),
+      : (driveLastErr ? `Ultimo errore sync: ${driveLastErr}` : (driveConnected ? 'Sync automatica 24h attiva' : 'In attesa configurazione Drive')),
     actionArea: 'admin'
   });
 
