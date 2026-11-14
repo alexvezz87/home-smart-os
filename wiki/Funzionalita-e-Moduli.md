@@ -25,7 +25,10 @@ Il backend di **Home Smart OS** è strutturato in moduli indipendenti all'intern
 | **Purificatore Dyson HP11** | `src/dyson-purifier.js` | Integrazione MyDyson Cloud (OTP + manifest AES-256-CBC) e MQTT locale (`:1883`) per Pin `#13`: sensori PM2.5, PM10, VOC, NO2, temperatura, umidità, durata filtri e controllo ventola/Auto/Notte/oscillazione. |
 | **Google Home MCP** | `src/google-home-mcp.js` | Client JSON-RPC per il server MCP di Google Home con caching e sincronizzazione stato. |
 | **Assistente Naturale** | `src/assistant.js` | Interprete di comandi vocali e testuali in lingua italiana per il controllo rapido della casa. |
-| **Gemini Vision Engine** | `src/gemini-vision.js` | Scene understanding semantico con Google Gemini Multimodal Vision (Gemini 1.5/2.0 Flash) su fotogrammi telecamere. |
+| **Gemini Vision Engine** | `src/gemini-vision.js` | Scene understanding semantico con Google Gemini Multimodal Vision (`gemini-3.8-flash` via `ai-gateway.js`) su fotogrammi telecamere. |
+| **Event Bus Centrale** | `src/event-bus.js` | Bus eventi reattivo (`EventEmitter` + wildcard `'*'`) con ring-buffer ultimi 100 eventi e tassonomia standardizzata (`presence:changed`, `ai:guardrail_blocked`, ecc.). |
+| **Presenza Iliadbox LAN** | `src/iliadbox-client.js` | Client FreeboxOS API v16 con autenticazione HMAC-SHA1, polling LAN (`/api/v16/lan/browser/pub/`) e isteresi anti-flap `awayGraceSeconds`. |
+| **AI Gateway & Guardrail** | `src/ai-gateway.js` | Gateway unificato Google AI Studio (`gemini-3.8-flash`, `gemini-4-argon`, `gemini-3.8-flash-tts`, `gemini-embedding-001`), rate-limiter Free Tier su TiDB e Guardrail Deterministici Hardware. |
 | **Event Logger** | `src/event-logger.js` | Registrazione centralizzata degli eventi operativi, sicurezza ed energia. |
 
 ---

@@ -48,11 +48,12 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 
 ---
 
-## 6. Google Gemini Multimodal Vision API (`src/gemini-vision.js`)
-- **Endpoint**: Google Generative Language API v1beta (`models/gemini-3.5-flash:generateContent`, con resilienza automatica multi-modello su `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite` e `gemini-3.8-flash`).
-- **Autenticazione**: Chiave `GEMINI_API_KEY` o `GOOGLE_API_KEY` (da variabile d'ambiente o salvata con cifratura nel database TiDB Cloud `kv_store`).
-- **Funzionamento On-Demand**: Il motore acquisisce un frame JPEG in memoria tramite `go2rtc.captureSnapshotBuffer` solo quando interrogato (on-demand), convertendolo in base64 senza inviare flussi continui nel cloud.
-- **Integrazione**: Richiamato dall'Assistente Vocale/Chat (`src/assistant.js`), dal pulsante *"Analisi AI"* nel Maxi-Player (`public/js/camera-theater.js`) e dai controlli diagnostici in Amministrazione (`public/js/admin.js`).
+## 6. Google AI Gateway & Gemini Multimodal API (`src/ai-gateway.js`, `src/gemini-vision.js`)
+- **Catalogo Modelli Centralizzato**: `gemini-3.8-flash` (`fast`, default globale), `gemini-3.8-flash-lite-preview` (`lite`, fallback), `gemini-4-argon` (`reasoning`), `gemini-robotics-er-2-preview` (`spatial`), `gemini-3.8-flash-tts` (`tts`) e `gemini-embedding-001` (`embedding`).
+- **Rate-Limiter & Quote Free Tier**: Tracciamento per modello delle chiamate al minuto (**RPM**) e giornaliere (**RPD**, reset a mezzanotte `Europe/Rome`) persistito su TiDB `kv_store` (`ai-gateway-usage-YYYY-MM-DD`), con downgrade automatico a `lite` o errore HTTP `429` a esaurimento quota.
+- **Guardrail Deterministici Hardware (`validateHardwareAction`)**: Clamp temperatura clima `[15.0°C, 23.5°C]`, clamp amperaggio EV `[6A, maxAmps]`, blocco azioni critiche (`volvo:unlock`, `door:unlock`, `alarm:disarm`, `power:override`) senza `humanConfirmed: true` e anti-spam cooldown su TTS/Vision con pubblicazione eventi `ai:guardrail_blocked` su `eventBus`.
+- **Autenticazione & Vision On-Demand**: Chiave `GEMINI_API_KEY` da `.env` o TiDB `kv_store` (`gemini-api-key`). `gemini-vision.js` delega a `aiGateway.generateText` per analizzare i frame JPEG catturati da `go2rtc`.
+- **Endpoint**: `GET /api/ai/status`, `POST /api/ai/tts/test`, `GET /api/events/recent`.
 
 ---
 
@@ -78,3 +79,10 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 - **Autenticazione & Provisioning**: Flusso OTP MyDyson Cloud (`appapi.cp.dyson.com/v3/userregistration/email/auth` + `verify`) e lettura `/v2/provisioningservice/manifest` con decifratura AES-256-CBC di `localCredentials`. Token e password MQTT locale sono persistiti cifrati su TiDB `kv_store` (`dyson-config`) e `dyson-config.json` (gitignored).
 - **Controllo & Telemetria MQTT Locale**: Connessione diretta al broker MQTT del purificatore sulla porta `1883` (`<productType>/<serial>/status/current` e `/command`), con auto-discovery LAN. Espone PM2.5, PM10, VOC, NO2, temperatura (°C), umidità (%), durata residua filtri e comandi `STATE-SET` (Power, Auto, Notte, Oscillazione, Velocità 1-10).
 - **Endpoint & UI**: `/api/dyson/status`, `/api/dyson/refresh`, `/api/dyson/control`, `/api/dyson/auth/start`, `/api/dyson/auth/verify`, `snapshot.dyson` in `/api/home`, Pin `#13` arricchito (`src/spatial-engine.js`, `public/js/floorplan.js`), drawer (`public/js/device-sheet.js`), card OTP in Amministrazione (`public/js/admin.js`) e assistente vocale (`src/assistant.js`).
+
+---
+
+## 10. Router Iliadbox / FreeboxOS API v16 (`src/iliadbox-client.js`)
+- **Protocollo & Autenticazione**: API locale FreeboxOS `v16` su `ILIADBOX_HOST` (`http://192.168.1.254` di default) con flusso challenge-response `HMAC-SHA1(ILIADBOX_APP_TOKEN, challenge)` (`GET /api/v16/login/` + `POST /api/v16/login/session/`), invio header `X-Fbx-App-Auth` e rinnovo automatico sessione su HTTP `403` / `auth_required`.
+- **Sensore Presenza LAN**: Polling periodico (default `20s`) su `GET /api/v16/lan/browser/pub/` con mappatura dei MAC address residenti salvata esclusivamente su TiDB (`iliadbox-presence-config`, mai nel codice) e isteresi anti-flap `awayGraceSeconds` (default `120s`) prima di emettere `presence:changed` su `eventBus`.
+- **Endpoint**: `GET /api/presence`, `GET /api/admin/iliadbox/devices`, `POST /api/admin/iliadbox/config`.
