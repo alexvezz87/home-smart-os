@@ -207,6 +207,7 @@ class AdminManager {
     }
     if (this.activeTab === 'system') {
       this.loadHistory();
+      this.loadBackbonePanels();
     }
   }
 
@@ -1546,6 +1547,16 @@ class AdminManager {
           </div>
         </div>
 
+        <!-- Spina Dorsale: Presenza Casa (Iliadbox LAN) & AI Gateway / Guardrail -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div id="admin-iliadbox-panel" class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
+            <div class="text-xs text-slate-400"><i class="fa-solid fa-circle-notch fa-spin mr-1.5 text-cyan-400"></i> Caricamento presenza Iliadbox LAN...</div>
+          </div>
+          <div id="admin-ai-gateway-panel" class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
+            <div class="text-xs text-slate-400"><i class="fa-solid fa-circle-notch fa-spin mr-1.5 text-indigo-400"></i> Caricamento AI Gateway &amp; Guardrail...</div>
+          </div>
+        </div>
+
         <!-- Stampante Laser Wi-Fi Pantum P2500W (IPP LAN) -->
         <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
           <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
@@ -2208,12 +2219,332 @@ window.testGeminiVision = async function(camId) {
       return;
     }
 
-    if (titleEl) titleEl.textContent = `Esito Analisi ${json.camera || camId} (${json.model || 'Gemini 1.5 Flash'})`;
+    if (titleEl) titleEl.textContent = `Esito Analisi ${json.camera || camId} (${json.model || 'Gemini 3.8 Flash'})`;
     if (timeEl) timeEl.textContent = new Date(json.timestamp).toLocaleTimeString('it-IT');
     if (textEl) textEl.textContent = json.analysis;
     if (typeof showToast === 'function') showToast('✅ Analisi Gemini completata!', 'success');
 
   } catch (err) {
     if (textEl) textEl.innerHTML = `<span class="text-rose-400">Errore: ${err.message}</span>`;
+  }
+};
+
+// ============================================================================
+// Spina Dorsale: Presenza Iliadbox LAN & AI Gateway / Guardrail
+// ============================================================================
+AdminManager.prototype.loadBackbonePanels = async function() {
+  try {
+    const [presRes, devRes, aiRes] = await Promise.all([
+      fetch('/api/presence').then((r) => r.json()).catch(() => null),
+      fetch('/api/admin/iliadbox/devices?refresh=0').then((r) => r.json()).catch(() => null),
+      fetch('/api/ai/status').then((r) => r.json()).catch(() => null)
+    ]);
+    this.iliadboxState = {
+      presence: presRes?.data || null,
+      devicesData: devRes?.data || null
+    };
+    this.aiGatewayStatus = aiRes?.data || null;
+    this.renderIliadboxPanel();
+    this.renderAiGatewayPanel();
+  } catch (err) {
+    console.warn('Errore caricamento pannelli spina dorsale:', err.message);
+  }
+};
+
+AdminManager.prototype.getFilteredIliadboxDevices = function(devices = [], query = '') {
+  const q = String(query || '').trim().toLowerCase();
+  const sorted = [...devices].sort((a, b) => {
+    const aAssigned = a.assignedTo ? 1 : 0;
+    const bAssigned = b.assignedTo ? 1 : 0;
+    if (aAssigned !== bAssigned) return bAssigned - aAssigned;
+    const aActive = a.active ? 1 : 0;
+    const bActive = b.active ? 1 : 0;
+    if (aActive !== bActive) return bActive - aActive;
+    return String(a.hostname || '').localeCompare(String(b.hostname || ''), 'it');
+  });
+
+  if (!q) {
+    return sorted.slice(0, 50);
+  }
+  return sorted.filter((d) => {
+    const haystack = `${d.hostname || ''} ${d.mac || ''} ${d.vendor || ''} ${d.assignedTo || ''}`.toLowerCase();
+    return haystack.includes(q);
+  });
+};
+
+AdminManager.prototype.renderIliadboxDeviceRows = function(devices = []) {
+  const query = this.iliadboxSearchQuery || '';
+  if (devices.length === 0) {
+    return '<div class="text-[11px] text-slate-500 italic">Nessun dispositivo LAN in cache. Premi "Scansiona LAN" con ILIADBOX_APP_TOKEN configurato.</div>';
+  }
+  const filtered = this.getFilteredIliadboxDevices(devices, query);
+  if (filtered.length === 0) {
+    return `<div class="text-[11px] text-slate-500 italic">Nessun dispositivo corrispondente a "${this.escapeHtml(query)}".</div>`;
+  }
+  return filtered.map((d) => `
+    <div class="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-950/60 border border-slate-800/80 text-[11px]">
+      <div class="min-w-0">
+        <div class="font-semibold text-white truncate flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full ${d.active ? 'bg-emerald-400' : 'bg-slate-600'}"></span>
+          ${this.escapeHtml(d.hostname)}
+        </div>
+        <div class="text-[10px] text-slate-400 font-mono truncate">${this.escapeHtml(d.mac)}${d.vendor ? ' · ' + this.escapeHtml(d.vendor) : ''}</div>
+      </div>
+      <div class="flex items-center gap-1 shrink-0">
+        <button onclick="window.assignIliadboxMac('${this.escapeHtml(d.mac)}', 'alex')"
+                class="px-2 py-0.5 rounded text-[10px] font-bold border ${d.assignedTo === 'alex' ? 'bg-cyan-600 text-white border-cyan-400' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'}">
+          Alex
+        </button>
+        <button onclick="window.assignIliadboxMac('${this.escapeHtml(d.mac)}', 'cinzia')"
+                class="px-2 py-0.5 rounded text-[10px] font-bold border ${d.assignedTo === 'cinzia' ? 'bg-pink-600 text-white border-pink-400' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'}">
+          Cinzia
+        </button>
+      </div>
+    </div>
+  `).join('');
+};
+
+AdminManager.prototype.renderIliadboxPanel = function() {
+  const el = document.getElementById('admin-iliadbox-panel');
+  if (!el) return;
+
+  const pres = this.iliadboxState?.presence || {};
+  const devData = this.iliadboxState?.devicesData || {};
+  const conn = pres.connectionStatus || devData.connectionStatus || 'unconfigured';
+  const cfg = devData.config || { alexMacs: [], cinziaMacs: [], awayGraceSeconds: 120 };
+  const devices = Array.isArray(devData.devices) ? devData.devices : [];
+  const activeCount = devices.filter((d) => d.active).length;
+
+  const connBadge = conn === 'online'
+    ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Online</span>'
+    : (conn === 'auth_error'
+      ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">Errore Auth</span>'
+      : '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">Non configurato / Offline</span>');
+
+  const personBadge = (name, info) => {
+    const st = info?.status || 'unknown';
+    const cls = st === 'home'
+      ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+      : 'bg-slate-800 text-slate-400 border-slate-700';
+    const label = st === 'home' ? (info?.inGrace ? 'In Casa (Grace)' : 'In Casa') : (st === 'away' ? 'Fuori Casa' : 'N/D');
+    return `<span class="px-2 py-0.5 rounded-lg text-[10px] font-bold border ${cls}">${this.escapeHtml(name)}: ${label}</span>`;
+  };
+
+  el.innerHTML = `
+    <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
+      <div class="flex items-center gap-2">
+        <i class="fa-solid fa-house-signal text-cyan-400"></i>
+        <h4 class="text-xs font-bold text-white uppercase tracking-wider">Presenza Casa (Iliadbox LAN)</h4>
+        ${connBadge}
+      </div>
+      <button onclick="window.refreshIliadboxDevices()" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all">
+        <i class="fa-solid fa-rotate mr-1"></i> Scansiona LAN
+      </button>
+    </div>
+
+    <div class="flex items-center justify-between flex-wrap gap-2">
+      <div class="flex items-center gap-2 flex-wrap">
+        ${personBadge('Alex', pres.alex)}
+        ${personBadge('Cinzia', pres.cinzia)}
+      </div>
+      <div class="flex items-center gap-1.5 text-[11px]">
+        <span class="text-slate-400">Grace (s):</span>
+        <input id="iliadbox-grace-input" type="number" min="0" max="3600" value="${Number(cfg.awayGraceSeconds ?? 120)}"
+               class="w-16 px-2 py-1 rounded bg-slate-950 border border-slate-700 text-white font-mono text-[11px]" />
+        <button onclick="window.saveIliadboxConfig()" class="px-2 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-[10px]">Salva</button>
+      </div>
+    </div>
+
+    <div class="text-[10.5px] text-slate-400 font-mono">
+      Alex MAC: ${cfg.alexMacs?.length ? this.escapeHtml(cfg.alexMacs.join(', ')) : 'nessuno'} ·
+      Cinzia MAC: ${cfg.cinziaMacs?.length ? this.escapeHtml(cfg.cinziaMacs.join(', ')) : 'nessuno'}
+    </div>
+
+    <div class="flex items-center gap-2">
+      <div class="relative flex-1">
+        <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-500"></i>
+        <input id="iliadbox-device-search" type="text"
+               value="${this.escapeHtml(this.iliadboxSearchQuery || '')}"
+               oninput="window.filterIliadboxDevices(this.value)"
+               placeholder="Cerca dispositivo, marca o MAC (es. Pixel, iPhone)..."
+               class="w-full pl-7 pr-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500" />
+      </div>
+      <span class="text-[10px] text-slate-400 font-mono shrink-0">${activeCount} online / ${devices.length}</span>
+    </div>
+
+    <div id="iliadbox-device-list" class="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+      ${this.renderIliadboxDeviceRows(devices)}
+    </div>
+  `;
+};
+
+AdminManager.prototype.renderAiGatewayPanel = function() {
+  const el = document.getElementById('admin-ai-gateway-panel');
+  if (!el) return;
+
+  const status = this.aiGatewayStatus || {};
+  const usage = status.usage || {};
+  const blocks = Array.isArray(status.guardrailBlocks) ? status.guardrailBlocks : [];
+  const roles = ['fast', 'reasoning', 'tts'];
+
+  const barRow = (role) => {
+    const u = usage[role] || { model: role, rpdUsed: 0, rpdLimit: 100, rpmUsed: 0, rpmLimit: 10 };
+    const pct = Math.min(100, Math.round(((u.rpdUsed || 0) / Math.max(1, u.rpdLimit || 1)) * 100));
+    return `
+      <div class="space-y-1">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-mono text-slate-200">${this.escapeHtml(u.model)}</span>
+          <span class="font-mono text-slate-400">RPD ${u.rpdUsed}/${u.rpdLimit} · RPM ${u.rpmUsed}/${u.rpmLimit}</span>
+        </div>
+        <div class="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+          <div class="h-full bg-indigo-500 transition-all" style="width: ${pct}%"></div>
+        </div>
+      </div>
+    `;
+  };
+
+  el.innerHTML = `
+    <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
+      <div class="flex items-center gap-2">
+        <i class="fa-solid fa-brain text-indigo-400"></i>
+        <h4 class="text-xs font-bold text-white uppercase tracking-wider">AI Gateway &amp; Guardrail</h4>
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${status.configured ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'}">
+          ${status.configured ? 'API Attiva' : 'Key Mancante'}
+        </span>
+      </div>
+      <button onclick="window.testAiTts()" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 transition-all">
+        <i class="fa-solid fa-volume-high mr-1"></i> Test Voce TTS
+      </button>
+    </div>
+
+    <div class="space-y-2">
+      ${roles.map(barRow).join('')}
+    </div>
+
+    <div id="admin-ai-tts-result" class="hidden text-[11px] p-2 rounded-lg bg-slate-950/70 border border-slate-800"></div>
+
+    <div class="space-y-1">
+      <div class="text-[10px] font-bold uppercase text-slate-400">Ultimi Guardrail Triggered (${blocks.length})</div>
+      <div class="max-h-28 overflow-y-auto space-y-1 pr-1">
+        ${blocks.length === 0
+          ? '<div class="text-[11px] text-slate-500 italic">Nessun blocco guardrail registrato in questa sessione.</div>'
+          : blocks.slice(0, 6).map((b) => `
+            <div class="text-[10.5px] p-1.5 rounded bg-rose-500/10 border border-rose-500/20 text-rose-200 flex items-center justify-between gap-2">
+              <span class="truncate"><strong>${this.escapeHtml(b.action)}</strong>: ${this.escapeHtml(b.reason)}</span>
+              <span class="text-[9.5px] text-slate-400 shrink-0 font-mono">${this.escapeHtml(b.clampedOrBlocked || '')}</span>
+            </div>
+          `).join('')}
+      </div>
+    </div>
+  `;
+};
+
+window.filterIliadboxDevices = function(query) {
+  if (!window.adminManager) return;
+  window.adminManager.iliadboxSearchQuery = String(query || '');
+  const listEl = document.getElementById('iliadbox-device-list');
+  if (!listEl) return;
+  const devices = Array.isArray(window.adminManager.iliadboxState?.devicesData?.devices)
+    ? window.adminManager.iliadboxState.devicesData.devices
+    : [];
+  listEl.innerHTML = window.adminManager.renderIliadboxDeviceRows(devices);
+};
+
+window.refreshIliadboxDevices = async function() {
+  try {
+    const res = await fetch('/api/admin/iliadbox/devices?refresh=1').then((r) => r.json());
+    if (res.success && window.adminManager) {
+      window.adminManager.iliadboxState = window.adminManager.iliadboxState || {};
+      window.adminManager.iliadboxState.devicesData = res.data;
+      const pres = await fetch('/api/presence').then((r) => r.json()).catch(() => null);
+      if (pres?.success) window.adminManager.iliadboxState.presence = pres.data;
+      window.adminManager.renderIliadboxPanel();
+    }
+  } catch (err) {
+    if (typeof showToast === 'function') showToast('Errore scansione LAN: ' + err.message, 'error');
+  }
+};
+
+window.assignIliadboxMac = async function(mac, person) {
+  if (!window.adminManager) return;
+  const cfg = window.adminManager.iliadboxState?.devicesData?.config || { alexMacs: [], cinziaMacs: [], awayGraceSeconds: 120 };
+  const alex = new Set(cfg.alexMacs || []);
+  const cinzia = new Set(cfg.cinziaMacs || []);
+  if (person === 'alex') {
+    if (alex.has(mac)) alex.delete(mac);
+    else { alex.add(mac); cinzia.delete(mac); }
+  } else {
+    if (cinzia.has(mac)) cinzia.delete(mac);
+    else { cinzia.add(mac); alex.delete(mac); }
+  }
+  const graceEl = document.getElementById('iliadbox-grace-input');
+  const awayGraceSeconds = graceEl ? Number(graceEl.value || 120) : (cfg.awayGraceSeconds ?? 120);
+
+  const res = await fetch('/api/admin/iliadbox/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      alexMacs: Array.from(alex),
+      cinziaMacs: Array.from(cinzia),
+      awayGraceSeconds
+    })
+  }).then((r) => r.json());
+
+  if (res.success) {
+    if (typeof showToast === 'function') showToast('✅ Associazione MAC aggiornata', 'success');
+    await window.adminManager.loadBackbonePanels();
+  }
+};
+
+window.saveIliadboxConfig = async function() {
+  if (!window.adminManager) return;
+  const cfg = window.adminManager.iliadboxState?.devicesData?.config || { alexMacs: [], cinziaMacs: [], awayGraceSeconds: 120 };
+  const graceEl = document.getElementById('iliadbox-grace-input');
+  const awayGraceSeconds = graceEl ? Number(graceEl.value || 120) : 120;
+
+  const res = await fetch('/api/admin/iliadbox/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      alexMacs: cfg.alexMacs || [],
+      cinziaMacs: cfg.cinziaMacs || [],
+      awayGraceSeconds
+    })
+  }).then((r) => r.json());
+
+  if (res.success) {
+    if (typeof showToast === 'function') showToast('✅ Grace period salvato', 'success');
+    await window.adminManager.loadBackbonePanels();
+  }
+};
+
+window.testAiTts = async function() {
+  const box = document.getElementById('admin-ai-tts-result');
+  if (box) {
+    box.classList.remove('hidden');
+    box.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-1 text-indigo-400"></i> Sintesi vocale Gemini 3.8 TTS in corso...';
+  }
+  try {
+    const res = await fetch('/api/ai/tts/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'Ciao! Home Smart OS è operativo con Gemini 3.8 TTS.' })
+    }).then((r) => r.json());
+
+    if (!res.success) {
+      if (box) box.innerHTML = `<span class="text-rose-400">${window.adminManager.escapeHtml(res.error || 'Errore TTS')}</span>`;
+      return;
+    }
+    if (box) {
+      box.innerHTML = `
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-emerald-400">Audio pronto (${res.data.bytes} byte · ${window.adminManager.escapeHtml(res.data.model)})</span>
+          ${res.data.audioUrl ? `<audio controls autoplay src="${window.adminManager.escapeHtml(res.data.audioUrl)}" class="h-7"></audio>` : ''}
+        </div>
+      `;
+    }
+    await window.adminManager?.loadBackbonePanels();
+  } catch (err) {
+    if (box) box.innerHTML = `<span class="text-rose-400">${window.adminManager?.escapeHtml(err.message)}</span>`;
   }
 };

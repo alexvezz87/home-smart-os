@@ -44,6 +44,7 @@ cleanyourtv/
 # Binari locali, certificati SSL e Snapshot telecamere
 bin/
 public/snapshots/
+public/audio/tts/
 public/planimetria-hd.png
 
 # Bacheca incarichi locale Orchestratore (Cervello -> Braccio)

@@ -35,6 +35,9 @@ let dysonPurifier = null;
 let volvoTripsSync = null;
 let wallboxSync = null;
 let dolomitiBillsSync = null;
+let eventBus = null;
+let iliadboxClient = null;
+let aiGateway = null;
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -1192,6 +1195,80 @@ app.post('/api/vision/config', async (req, res) => {
   }
 });
 
+// 1g-bis. Spina Dorsale EventBus, Presenza Iliadbox & AI Gateway
+app.get('/api/events/recent', (req, res) => {
+  const limit = Number(req.query.limit || 50);
+  const eventFilter = req.query.event ? String(req.query.event) : null;
+  res.json({
+    success: true,
+    data: eventBus ? eventBus.getRecentEvents(limit, eventFilter) : []
+  });
+});
+
+app.get('/api/presence', (req, res) => {
+  res.json({
+    success: true,
+    data: iliadboxClient ? iliadboxClient.getPresenceState() : null
+  });
+});
+
+app.get('/api/admin/iliadbox/devices', async (req, res) => {
+  try {
+    const force = req.query.refresh !== '0';
+    const data = await iliadboxClient.getLanDevices(force);
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/admin/iliadbox/config', async (req, res) => {
+  try {
+    const { alexMacs, cinziaMacs, awayGraceSeconds } = req.body || {};
+    const result = await iliadboxClient.saveConfig({ alexMacs, cinziaMacs, awayGraceSeconds });
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/ai/status', (req, res) => {
+  res.json({
+    success: true,
+    data: aiGateway ? aiGateway.getStatus() : null
+  });
+});
+
+app.post('/api/ai/tts/test', async (req, res) => {
+  try {
+    const { text, voiceName, styleInstruction } = req.body || {};
+    const sampleText = (text && String(text).trim()) || 'Home Smart OS attivo. Tutti i sistemi sono operativi.';
+    const result = await aiGateway.synthesizeSpeech({
+      text: sampleText,
+      voiceName: voiceName || 'Kore',
+      styleInstruction: styleInstruction || '',
+      saveToFile: true
+    });
+    res.json({
+      success: true,
+      data: {
+        model: result.model,
+        voiceName: result.voiceName,
+        mimeType: result.mimeType,
+        bytes: result.bytes,
+        audioUrl: result.audioUrl
+      }
+    });
+  } catch (error) {
+    const status = error.statusCode || (error.notConfigured ? 400 : 500);
+    res.status(status).json({
+      success: false,
+      quotaExceeded: Boolean(error.quotaExceeded),
+      error: error.message
+    });
+  }
+});
+
 // 1h. WebSocket per streaming RTSP live verso il browser (fallback JSMpeg)
 app.ws('/api/stream/:cameraId', (ws, req) => {
   const { cameraId } = req.params;
@@ -1358,6 +1435,9 @@ async function bootstrap() {
   await db.initDb();
 
   // Caricamento dei moduli di dominio ORA che i file JSON/cache sono garantiti da TiDB
+  eventBus = require('./src/event-bus');
+  aiGateway = require('./src/ai-gateway');
+  iliadboxClient = require('./src/iliadbox-client');
   mcp = require('./src/google-home-mcp');
   ({ processAssistantCommand } = require('./src/assistant'));
   eventLogger = require('./src/event-logger');
@@ -1375,6 +1455,8 @@ async function bootstrap() {
   dolomitiBillsSync = require('./src/dolomiti-bills-sync');
 
   // Inizializza servizi hardware e telemetria
+  aiGateway.init().catch((err) => console.warn('⚠️ [AIGateway] Init background:', err.message));
+  iliadboxClient.init().catch((err) => console.warn('⚠️ [Iliadbox] Init background:', err.message));
   merossEnergy.init();
   hueLocal.init();
   pantumPrinter.init().catch((err) => console.warn('⚠️ [Pantum] Init background:', err.message));

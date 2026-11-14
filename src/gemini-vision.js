@@ -1,51 +1,34 @@
-const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const eventLogger = require('./event-logger');
 const go2rtc = require('./go2rtc-manager');
-const db = require('./db');
+const aiGateway = require('./ai-gateway');
 
 class GeminiVisionEngine {
   constructor() {
-    this.cachedApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || null;
-    this.modelName = process.env.GEMINI_VISION_MODEL || 'gemini-3.5-flash';
-    this.fallbackModels = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
-    this.initApiKeyFromDb();
+    this.modelName = process.env.GEMINI_VISION_MODEL || aiGateway.models.fast || 'gemini-3.8-flash';
+    this.fallbackModels = ['gemini-3.8-flash-lite-preview', 'gemini-3.5-flash-lite'];
   }
 
   async initApiKeyFromDb() {
-    if (this.cachedApiKey) return;
-    try {
-      const stored = await db.get('gemini-api-key');
-      if (stored && stored.key) {
-        this.cachedApiKey = stored.key;
-        console.log('🤖 [GeminiVision] Chiave API caricata con successo da TiDB kv_store');
-      }
-    } catch (_) {}
+    return aiGateway.initApiKeyFromDb();
   }
 
   getApiKey() {
-    return this.cachedApiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || null;
+    return aiGateway.getApiKey();
   }
 
   async setApiKey(key) {
-    const cleanKey = (key || '').trim();
-    this.cachedApiKey = cleanKey || null;
-    try {
-      await db.set('gemini-api-key', { key: cleanKey, updatedAt: new Date().toISOString() }, true);
-      eventLogger.log('vision', 'Chiave GEMINI_API_KEY aggiornata', { source: 'Amministrazione' });
-      return { success: true, message: 'Chiave API salvata con successo.' };
-    } catch (err) {
-      console.warn('⚠️ [GeminiVision] Errore salvataggio chiave su DB:', err.message);
-      return { success: true, message: 'Chiave memorizzata in sessione locale.' };
-    }
+    const result = await aiGateway.setApiKey(key);
+    eventLogger.log('vision', 'Chiave GEMINI_API_KEY aggiornata', { source: 'Amministrazione' });
+    return result;
   }
 
   getStatus() {
-    const key = this.getApiKey();
+    const gwStatus = aiGateway.getStatus();
     return {
-      configured: Boolean(key),
-      maskedKey: key ? `${key.substring(0, 6)}...${key.substring(key.length - 4)}` : null,
+      configured: gwStatus.configured,
+      maskedKey: gwStatus.maskedKey,
       model: this.modelName
     };
   }
@@ -163,77 +146,47 @@ Rispondi con un paragrafo discorsivo fluido di 2-4 frasi chiare, precise e rassi
       ? `${systemPrompt}\n\nRichiesta specifica dell'utente: "${userPrompt}"` 
       : `${systemPrompt}\n\nDescrivi cosa sta succedendo in questa stanza in questo momento.`;
 
-    const candidateModels = [
-      this.modelName,
-      ...this.fallbackModels
-    ].filter((v, i, a) => a.indexOf(v) === i);
-
-    let lastError = null;
-    for (const model of candidateModels) {
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-        
-        const payload = {
-          contents: [
-            {
-              parts: [
-                { text: promptText },
-                {
-                  inlineData: {
-                    mimeType: 'image/jpeg',
-                    data: base64Image
-                  }
-                }
-              ]
+    try {
+      const result = await aiGateway.generateText({
+        role: 'fast',
+        parts: [
+          { text: promptText },
+          {
+            inlineData: {
+              mimeType: 'image/jpeg',
+              data: base64Image
             }
-          ],
-          generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 1200
           }
-        };
+        ],
+        temperature: 0.1,
+        maxOutputTokens: 1200,
+        taskName: `camera_vision:${cam.id}`,
+        allowDowngrade: true
+      });
 
-        const res = await axios.post(url, payload, {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 12000
-        });
+      const replyText = result.text || 'Nessuna descrizione disponibile.';
+      eventLogger.log('vision', `Analisi completata per "${cam.name}": ${replyText.substring(0, 100)}...`, {
+        camera: cam.name,
+        room: cam.room,
+        model: result.model
+      });
 
-        const candidates = res.data?.candidates;
-        if (!candidates || candidates.length === 0) {
-          throw new Error('Nessuna risposta generata da Gemini Vision');
-        }
-
-        const replyText = candidates[0]?.content?.parts?.[0]?.text?.trim() || 'Nessuna descrizione disponibile.';
-
-        eventLogger.log('vision', `Analisi completata per "${cam.name}": ${replyText.substring(0, 100)}...`, {
-          camera: cam.name,
-          room: cam.room,
-          model
-        });
-
-        return {
-          success: true,
-          camera: cam.name,
-          room: cam.room,
-          model,
-          analysis: replyText,
-          timestamp: new Date().toISOString()
-        };
-
-      } catch (err) {
-        lastError = err;
-        const statusCode = err.response?.status;
-        const errMsg = err.response?.data?.error?.message || err.message;
-        console.warn(`⚠️ [GeminiVision] Modello ${model} ha risposto con errore (${statusCode || 'ERR'}): ${errMsg}. Tento fallback...`);
-      }
+      return {
+        success: true,
+        camera: cam.name,
+        room: cam.room,
+        model: result.model,
+        analysis: replyText,
+        timestamp: new Date().toISOString()
+      };
+    } catch (err) {
+      console.error('❌ [GeminiVision] Errore durante analisi via AIGateway:', err.message);
+      return {
+        success: false,
+        quotaExceeded: Boolean(err.quotaExceeded),
+        message: `Errore durante l'analisi visiva con Gemini: ${err.message}`
+      };
     }
-
-    console.error('❌ [GeminiVision] Tutti i modelli candidati hanno fallito:', lastError?.response?.data || lastError?.message);
-    const finalErrMsg = lastError?.response?.data?.error?.message || lastError?.message || 'Errore sconosciuto';
-    return {
-      success: false,
-      message: `Errore durante l'analisi visiva con Gemini: ${finalErrMsg}`
-    };
   }
 }
 

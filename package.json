@@ -4,7 +4,8 @@
   "description": "Sistema Operativo Smart Home Unificato (Google Home, Bosch CT200, ABB Terra AC, Volvo EX30, Meross, Hue, Tapo)",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test scripts/test-guardrails.js"
   },
   "keywords": [],
   "author": "",
