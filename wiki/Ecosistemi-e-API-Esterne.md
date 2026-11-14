@@ -88,3 +88,9 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 - **Protocollo & Autenticazione**: API locale FreeboxOS `v16` su `ILIADBOX_HOST` (`http://192.168.1.254` di default) con flusso challenge-response `HMAC-SHA1(ILIADBOX_APP_TOKEN, challenge)` (`GET /api/v16/login/` + `POST /api/v16/login/session/`), invio header `X-Fbx-App-Auth` e rinnovo automatico sessione su HTTP `403` / `auth_required`.
 - **Sensore Presenza LAN**: Polling periodico (default `20s`) su `GET /api/v16/lan/browser/pub/` con mappatura dei MAC address residenti salvata esclusivamente su TiDB (`iliadbox-presence-config`, mai nel codice) e isteresi anti-flap `awayGraceSeconds` (default `120s`) prima di emettere `presence:changed` su `eventBus`.
 - **Endpoint**: `GET /api/presence`, `GET /api/admin/iliadbox/devices`, `POST /api/admin/iliadbox/config`.
+
+---
+
+## 📲 Telegram Bot API & Web Push (VAPID)
+- **Telegram Bot API (`src/telegram-bot.js`)**: polling HTTPS REST su `api.telegram.org/bot<TOKEN>/getUpdates`, `sendMessage`, `sendPhoto` (multipart nativo) e `answerCallbackQuery`. Token da `TELEGRAM_BOT_TOKEN` o TiDB `telegram-config`; accesso consentito esclusivamente ai `chat_id` in whitelist (`TELEGRAM_ALLOWED_USERS` o abbinati via `/start auth_<token>`).
+- **Web Push PWA (`src/web-push-manager.js`, `public/sw.js`)**: protocollo Web Push RFC 8030 / VAPID tramite libreria `web-push`, chiavi VAPID auto-generate e persistite in TiDB (`web-push-vapid-keys`), endpoint `GET /api/push/vapid-public-key`, `POST /api/push/subscribe`, `POST /api/push/unsubscribe`, `GET/POST /api/notifications/config`, `POST /api/notifications/test`, `POST /api/telegram/pairing-link` e `GET/POST/DELETE /api/security/pet-refs`.

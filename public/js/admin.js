@@ -202,6 +202,9 @@ class AdminManager {
     if (this.activeTab === 'climate') {
       this.loadClimateOptimizerPanel();
     }
+    if (this.activeTab === 'security') {
+      this.loadNotificationsPanel();
+    }
     if (this.activeTab === 'floorplan' && window.dragEditor) {
       window.dragEditor.renderUnplacedTray();
     }
@@ -1521,8 +1524,256 @@ class AdminManager {
           </div>
         </div>
 
+        <!-- 4. HUB NOTIFICHE TELEGRAM, WEB PUSH & SENTINELLA PET (LUCIFERO & CAMILLA) -->
+        <div class="p-4 rounded-xl bg-slate-900/80 border border-emerald-500/30 space-y-4">
+          <div class="flex items-center justify-between flex-wrap gap-3">
+            <div class="flex items-center gap-2.5">
+              <i class="fa-brands fa-telegram text-sky-400 text-lg"></i>
+              <div>
+                <h4 class="text-sm font-bold text-white">Hub Notifiche, Telegram Bot & Sentinella Pet</h4>
+                <p class="text-[11px] text-slate-400">Avvisi critici istantanei, pairing Telegram sicuro, Web Push PWA e riconoscimento Lucifero &amp; Camilla</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <button onclick="window.adminManager.enableWebPushHere()" class="px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-semibold transition-all">
+                <i class="fa-solid fa-bell mr-1"></i>Abilita Web Push su questo dispositivo
+              </button>
+              <button onclick="window.adminManager.sendNotificationTest()" class="px-3 py-1.5 rounded-lg bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/40 text-xs font-semibold transition-all">
+                <i class="fa-solid fa-paper-plane mr-1"></i>Test Notifica
+              </button>
+            </div>
+          </div>
+
+          <div id="admin-notifications-container" class="text-xs text-slate-400">
+            Caricamento stato Hub Notifiche...
+          </div>
+        </div>
+
       </div>
     `;
+  }
+
+  async loadNotificationsPanel() {
+    const container = document.getElementById('admin-notifications-container');
+    if (!container) return;
+    try {
+      const res = await fetch('/api/notifications/config');
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Errore caricamento');
+
+      const tg = data.telegram || {};
+      const wp = data.webPush || {};
+      const cats = (data.notifier && data.notifier.categories) || {};
+      const sentinel = data.sentinel || {};
+      const petRefs = data.petRefs || [];
+
+      container.innerHTML = `
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-slate-200"><i class="fa-brands fa-telegram text-sky-400 mr-1.5"></i>Telegram Bot</span>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${tg.polling ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}">
+                ${tg.polling ? `@${tg.botUsername || 'bot'} Attivo` : (tg.configured ? 'Configurato (Polling fermo)' : 'Non configurato')}
+              </span>
+            </div>
+            <div class="flex gap-2">
+              <input id="admin-tg-token-input" type="password" placeholder="Incolla Bot Token (BotFather)" class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-sky-500" />
+              <button onclick="window.adminManager.saveTelegramToken()" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold">Salva</button>
+            </div>
+            <div class="flex items-center justify-between gap-2 pt-1">
+              <span class="text-[11px] text-slate-400">Chat autorizzate: <strong class="text-white">${tg.allowedUsersCount || 0}</strong></span>
+              <button onclick="window.adminManager.generateTelegramPairingLink()" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-500/30 font-semibold">
+                <i class="fa-solid fa-link mr-1"></i>Genera Link Abbinamento
+              </button>
+            </div>
+            <div id="admin-tg-pairing-box" class="hidden p-2.5 rounded-lg bg-sky-950/40 border border-sky-500/30 text-[11px] text-sky-200 break-all"></div>
+          </div>
+
+          <div class="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-slate-200"><i class="fa-solid fa-sliders text-emerald-400 mr-1.5"></i>Categorie &amp; Web Push</span>
+              <span class="text-[11px] text-slate-400">${wp.subscriptionsCount || 0} dispositivi PWA</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              ${['security', 'climate', 'energy', 'system'].map((cat) => `
+                <label class="flex items-center justify-between p-2 rounded-lg bg-slate-900 border border-slate-800 cursor-pointer">
+                  <span class="capitalize text-slate-200 font-medium">${cat}</span>
+                  <input type="checkbox" ${cats[cat] !== false ? 'checked' : ''} onchange="window.adminManager.toggleNotifyCategory('${cat}', this.checked)" class="accent-emerald-500" />
+                </label>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-4 p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-3">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <span class="font-bold text-slate-200"><i class="fa-solid fa-paw text-amber-400 mr-1.5"></i>Sentinella Fuori Casa &amp; Filtro Pet (Lucifero &amp; Camilla)</span>
+              <p class="text-[11px] text-slate-400">Ronda periodica AI sulle telecamere quando casa è in Away (ignora Lucifero &amp; Camilla)</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <select id="admin-sentinel-interval" onchange="window.adminManager.updateSentinelConfig()" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white">
+                ${[5, 10, 15].map((m) => `<option value="${m}" ${Number(sentinel.intervalMinutes || 10) === m ? 'selected' : ''}>Ogni ${m} min</option>`).join('')}
+              </select>
+              <label class="flex items-center gap-1.5 text-xs text-slate-200 cursor-pointer">
+                <input id="admin-sentinel-enabled" type="checkbox" ${sentinel.enabled !== false ? 'checked' : ''} onchange="window.adminManager.updateSentinelConfig()" class="accent-amber-500" />
+                Attiva
+              </label>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 flex-wrap">
+            <select id="admin-pet-name" class="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white">
+              <option value="Lucifero">Lucifero (Cane)</option>
+              <option value="Camilla">Camilla (Gatto)</option>
+            </select>
+            <input id="admin-pet-file" type="file" accept="image/*" class="text-[11px] text-slate-300" />
+            <button onclick="window.adminManager.uploadPetRef()" class="px-3 py-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 font-semibold">
+              <i class="fa-solid fa-upload mr-1"></i>Carica Foto Riferimento
+            </button>
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            ${petRefs.length === 0
+              ? '<span class="text-[11px] text-slate-500">Nessuna foto di riferimento caricata per Lucifero &amp; Camilla.</span>'
+              : petRefs.map((r) => `
+                  <span class="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-[11px] text-slate-200">
+                    🐾 <strong>${r.petName}</strong>
+                    <button onclick="window.adminManager.deletePetRef('${r.id}')" class="text-rose-400 hover:text-rose-300" title="Rimuovi"><i class="fa-solid fa-xmark"></i></button>
+                  </span>
+                `).join('')
+            }
+          </div>
+        </div>
+      `;
+    } catch (err) {
+      container.innerHTML = `<span class="text-rose-400">Errore caricamento Hub Notifiche: ${err.message}</span>`;
+    }
+  }
+
+  async saveTelegramToken() {
+    const input = document.getElementById('admin-tg-token-input');
+    const token = input ? input.value.trim() : '';
+    if (!token) return window.showToast?.('Inserisci il Token Telegram BotFather', 'error');
+    try {
+      const res = await fetch('/api/notifications/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegramToken: token })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Errore salvataggio token');
+      window.showToast?.('Token Telegram salvato e verificato!', 'success');
+      this.loadNotificationsPanel();
+    } catch (err) {
+      window.showToast?.(err.message, 'error');
+    }
+  }
+
+  async generateTelegramPairingLink() {
+    try {
+      const res = await fetch('/api/telegram/pairing-link', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Errore generazione link');
+      const box = document.getElementById('admin-tg-pairing-box');
+      if (box) {
+        box.classList.remove('hidden');
+        box.innerHTML = `Apri su Telegram: <a href="${data.url}" target="_blank" class="underline font-bold">${data.url}</a><br/>Oppure invia al bot: <code>${data.command}</code>`;
+      }
+    } catch (err) {
+      window.showToast?.(err.message, 'error');
+    }
+  }
+
+  async toggleNotifyCategory(category, enabled) {
+    try {
+      await fetch('/api/notifications/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categories: { [category]: Boolean(enabled) } })
+      });
+      window.showToast?.(`Categoria "${category}" aggiornata`, 'success');
+    } catch (err) {
+      window.showToast?.(err.message, 'error');
+    }
+  }
+
+  async enableWebPushHere() {
+    try {
+      await window.subscribeWebPush();
+      window.showToast?.('Notifiche Web Push attivate su questo dispositivo!', 'success');
+      this.loadNotificationsPanel();
+    } catch (err) {
+      window.showToast?.(err.message, 'error');
+    }
+  }
+
+  async sendNotificationTest() {
+    try {
+      const res = await fetch('/api/notifications/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ level: 'critical', channel: 'both' })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Errore invio test');
+      window.showToast?.('Notifica di test inviata!', 'success');
+    } catch (err) {
+      window.showToast?.(err.message, 'error');
+    }
+  }
+
+  async updateSentinelConfig() {
+    const enabled = document.getElementById('admin-sentinel-enabled')?.checked;
+    const intervalMinutes = Number(document.getElementById('admin-sentinel-interval')?.value || 10);
+    try {
+      await fetch('/api/notifications/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sentinel: { enabled, intervalMinutes } })
+      });
+      window.showToast?.('Configurazione Sentinella aggiornata', 'success');
+    } catch (err) {
+      window.showToast?.(err.message, 'error');
+    }
+  }
+
+  async uploadPetRef() {
+    const petName = document.getElementById('admin-pet-name')?.value || 'Lucifero';
+    const fileInput = document.getElementById('admin-pet-file');
+    const file = fileInput && fileInput.files && fileInput.files[0];
+    if (!file) return window.showToast?.('Seleziona una foto di Lucifero o Camilla', 'error');
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const res = await fetch('/api/security/pet-refs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            petName,
+            base64Data: reader.result,
+            mimeType: file.type || 'image/jpeg'
+          })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Errore upload');
+        window.showToast?.(`Foto di riferimento per ${petName} salvata!`, 'success');
+        this.loadNotificationsPanel();
+      } catch (err) {
+        window.showToast?.(err.message, 'error');
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async deletePetRef(id) {
+    try {
+      await fetch(`/api/security/pet-refs/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      this.loadNotificationsPanel();
+    } catch (err) {
+      window.showToast?.(err.message, 'error');
+    }
   }
 
   // =========================================================================

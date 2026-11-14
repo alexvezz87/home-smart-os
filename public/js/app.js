@@ -36,7 +36,57 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Polling automatico ogni 30 secondi
   setInterval(loadDashboard, 30000);
+
+  // Registrazione Service Worker PWA per Web Push
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
 });
+
+function _urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+window.subscribeWebPush = async function subscribeWebPush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    throw new Error('Web Push non supportato su questo browser');
+  }
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    throw new Error('Permesso notifiche negato dall\'utente');
+  }
+  const reg = await navigator.serviceWorker.register('/sw.js');
+  await navigator.serviceWorker.ready;
+  const keyRes = await fetch('/api/push/vapid-public-key');
+  const keyData = await keyRes.json();
+  if (!keyRes.ok || !keyData.publicKey) {
+    throw new Error(keyData.error || 'Chiave VAPID pubblica non disponibile');
+  }
+  const subscription = await reg.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: _urlBase64ToUint8Array(keyData.publicKey)
+  });
+  const subRes = await fetch('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      subscription,
+      userAgent: navigator.userAgent
+    })
+  });
+  const subData = await subRes.json();
+  if (!subRes.ok || !subData.success) {
+    throw new Error(subData.error || 'Errore salvataggio sottoscrizione');
+  }
+  return subData;
+};
 
 /**
  * Routing tra le 3 Macro-Aree

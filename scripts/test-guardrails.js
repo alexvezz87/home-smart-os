@@ -405,3 +405,109 @@ test('ClimateOptimizer (#61): tetto max 20.5°C, notte Camera 18°C, Eco Bagno A
   assert.equal(winTriggered.paused, true);
   assert.equal(winTriggered.target, 15.0);
 });
+
+test('TelegramBotManager (#35): whitelist chat_id e pairing token usa-e-getta', async () => {
+  const { TelegramBotManager } = require('../src/telegram-bot');
+  const bot = new TelegramBotManager();
+  bot.allowedUsers = new Set(['123456789']);
+  bot.botUsername = 'home_test_bot';
+
+  assert.equal(bot.isAuthorized('123456789'), true);
+  assert.equal(bot.isAuthorized(123456789), true);
+  assert.equal(bot.isAuthorized('999999999'), false);
+  assert.equal(bot.isAuthorized(null), false);
+
+  // Utente non autorizzato viene rifiutato senza crash
+  const rejected = await bot.handleUpdate({
+    message: { chat: { id: 999999999 }, from: { username: 'intruder' }, text: '/stato' }
+  });
+  assert.equal(rejected.rejected, true);
+  assert.equal(rejected.handled, false);
+
+  // Pairing link usa-e-getta
+  const link = bot.createPairingLink(60_000);
+  assert.ok(link.url.includes('t.me/home_test_bot?start=auth_'));
+  assert.equal(bot.consumePairingToken(link.token), true);
+  assert.equal(bot.consumePairingToken(link.token), false);
+});
+
+test('Notifier (#35): routing severità, deduplicazione cooldown e mute categoria', async () => {
+  const { Notifier } = require('../src/notifier');
+  const notifier = new Notifier();
+  const tgCalls = [];
+  const wpCalls = [];
+
+  notifier.deps = {
+    telegramBot: {
+      token: 'fake-token',
+      sendMessage: async (text, opts) => { tgCalls.push({ text, opts }); return { sent: 1 }; },
+      sendPhoto: async (buf, caption, opts) => { tgCalls.push({ buf, caption, opts }); return { sent: 1 }; }
+    },
+    webPushManager: {
+      sendNotification: async (payload) => { wpCalls.push(payload); return { sent: 1 }; }
+    }
+  };
+
+  // Critical -> Telegram + Web Push
+  const r1 = await notifier.send({
+    level: 'critical',
+    category: 'security',
+    title: 'Allarme Test',
+    message: 'Movimento corridoio',
+    dedupKey: 'corridoio:1',
+    cooldownMs: 60_000
+  });
+  assert.equal(r1.sent, true);
+  assert.equal(tgCalls.length, 1);
+  assert.equal(wpCalls.length, 1);
+
+  // Stesso dedupKey entro cooldown -> skippato
+  const r2 = await notifier.send({
+    level: 'critical',
+    category: 'security',
+    title: 'Allarme Test',
+    message: 'Movimento corridoio duplicato',
+    dedupKey: 'corridoio:1',
+    cooldownMs: 60_000
+  });
+  assert.equal(r2.skipped, true);
+  assert.equal(r2.reason, 'cooldown_active');
+  assert.equal(tgCalls.length, 1);
+
+  // Info -> solo Web Push discreto
+  const r3 = await notifier.send({
+    level: 'info',
+    category: 'climate',
+    title: 'Clima',
+    message: 'Eco attivo'
+  });
+  assert.equal(r3.sent, true);
+  assert.equal(tgCalls.length, 1);
+  assert.equal(wpCalls.length, 2);
+
+  // Mute categoria blocca invio
+  notifier.muteCategory('climate', 60_000);
+  const r4 = await notifier.send({
+    level: 'info',
+    category: 'climate',
+    title: 'Clima',
+    message: 'Altro update'
+  });
+  assert.equal(r4.skipped, true);
+  assert.equal(r4.reason, 'category_disabled_or_muted');
+});
+
+test('WebPushManager (#35): generazione chiavi VAPID e gestione sottoscrizioni', () => {
+  const { WebPushManager, generateNativeVapidKeys } = require('../src/web-push-manager');
+  const keys = generateNativeVapidKeys();
+  assert.ok(keys.publicKey && keys.publicKey.length > 40);
+  assert.ok(keys.privateKey && keys.privateKey.length > 20);
+
+  const mgr = new WebPushManager();
+  mgr.publicKey = keys.publicKey;
+  mgr.privateKey = keys.privateKey;
+  const st = mgr.getStatus();
+  assert.equal(st.vapidReady, true);
+  assert.equal(st.configured, true);
+  assert.equal(st.publicKey, keys.publicKey);
+});

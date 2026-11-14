@@ -27,6 +27,7 @@
     "puppeteer-core": "^25.16.0",
     "rtsp-relay": "^1.9.0",
     "tapo-camera-client": "^1.0.1",
+    "web-push": "^4.0.0",
     "xlsx": "^0.18.5"
   }
 }
