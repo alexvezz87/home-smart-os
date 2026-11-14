@@ -2251,6 +2251,59 @@ AdminManager.prototype.loadBackbonePanels = async function() {
   }
 };
 
+AdminManager.prototype.getFilteredIliadboxDevices = function(devices = [], query = '') {
+  const q = String(query || '').trim().toLowerCase();
+  const sorted = [...devices].sort((a, b) => {
+    const aAssigned = a.assignedTo ? 1 : 0;
+    const bAssigned = b.assignedTo ? 1 : 0;
+    if (aAssigned !== bAssigned) return bAssigned - aAssigned;
+    const aActive = a.active ? 1 : 0;
+    const bActive = b.active ? 1 : 0;
+    if (aActive !== bActive) return bActive - aActive;
+    return String(a.hostname || '').localeCompare(String(b.hostname || ''), 'it');
+  });
+
+  if (!q) {
+    return sorted.slice(0, 50);
+  }
+  return sorted.filter((d) => {
+    const haystack = `${d.hostname || ''} ${d.mac || ''} ${d.vendor || ''} ${d.assignedTo || ''}`.toLowerCase();
+    return haystack.includes(q);
+  });
+};
+
+AdminManager.prototype.renderIliadboxDeviceRows = function(devices = []) {
+  const query = this.iliadboxSearchQuery || '';
+  if (devices.length === 0) {
+    return '<div class="text-[11px] text-slate-500 italic">Nessun dispositivo LAN in cache. Premi "Scansiona LAN" con ILIADBOX_APP_TOKEN configurato.</div>';
+  }
+  const filtered = this.getFilteredIliadboxDevices(devices, query);
+  if (filtered.length === 0) {
+    return `<div class="text-[11px] text-slate-500 italic">Nessun dispositivo corrispondente a "${this.escapeHtml(query)}".</div>`;
+  }
+  return filtered.map((d) => `
+    <div class="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-950/60 border border-slate-800/80 text-[11px]">
+      <div class="min-w-0">
+        <div class="font-semibold text-white truncate flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full ${d.active ? 'bg-emerald-400' : 'bg-slate-600'}"></span>
+          ${this.escapeHtml(d.hostname)}
+        </div>
+        <div class="text-[10px] text-slate-400 font-mono truncate">${this.escapeHtml(d.mac)}${d.vendor ? ' · ' + this.escapeHtml(d.vendor) : ''}</div>
+      </div>
+      <div class="flex items-center gap-1 shrink-0">
+        <button onclick="window.assignIliadboxMac('${this.escapeHtml(d.mac)}', 'alex')"
+                class="px-2 py-0.5 rounded text-[10px] font-bold border ${d.assignedTo === 'alex' ? 'bg-cyan-600 text-white border-cyan-400' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'}">
+          Alex
+        </button>
+        <button onclick="window.assignIliadboxMac('${this.escapeHtml(d.mac)}', 'cinzia')"
+                class="px-2 py-0.5 rounded text-[10px] font-bold border ${d.assignedTo === 'cinzia' ? 'bg-pink-600 text-white border-pink-400' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'}">
+          Cinzia
+        </button>
+      </div>
+    </div>
+  `).join('');
+};
+
 AdminManager.prototype.renderIliadboxPanel = function() {
   const el = document.getElementById('admin-iliadbox-panel');
   if (!el) return;
@@ -2260,6 +2313,7 @@ AdminManager.prototype.renderIliadboxPanel = function() {
   const conn = pres.connectionStatus || devData.connectionStatus || 'unconfigured';
   const cfg = devData.config || { alexMacs: [], cinziaMacs: [], awayGraceSeconds: 120 };
   const devices = Array.isArray(devData.devices) ? devData.devices : [];
+  const activeCount = devices.filter((d) => d.active).length;
 
   const connBadge = conn === 'online'
     ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Online</span>'
@@ -2306,30 +2360,20 @@ AdminManager.prototype.renderIliadboxPanel = function() {
       Cinzia MAC: ${cfg.cinziaMacs?.length ? this.escapeHtml(cfg.cinziaMacs.join(', ')) : 'nessuno'}
     </div>
 
-    <div class="max-h-44 overflow-y-auto space-y-1.5 pr-1">
-      ${devices.length === 0
-        ? '<div class="text-[11px] text-slate-500 italic">Nessun dispositivo LAN in cache. Premi "Scansiona LAN" con ILIADBOX_APP_TOKEN configurato.</div>'
-        : devices.slice(0, 20).map((d) => `
-          <div class="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-950/60 border border-slate-800/80 text-[11px]">
-            <div class="min-w-0">
-              <div class="font-semibold text-white truncate flex items-center gap-1.5">
-                <span class="w-1.5 h-1.5 rounded-full ${d.active ? 'bg-emerald-400' : 'bg-slate-600'}"></span>
-                ${this.escapeHtml(d.hostname)}
-              </div>
-              <div class="text-[10px] text-slate-400 font-mono truncate">${this.escapeHtml(d.mac)}${d.vendor ? ' · ' + this.escapeHtml(d.vendor) : ''}</div>
-            </div>
-            <div class="flex items-center gap-1 shrink-0">
-              <button onclick="window.assignIliadboxMac('${this.escapeHtml(d.mac)}', 'alex')"
-                      class="px-2 py-0.5 rounded text-[10px] font-bold border ${d.assignedTo === 'alex' ? 'bg-cyan-600 text-white border-cyan-400' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'}">
-                Alex
-              </button>
-              <button onclick="window.assignIliadboxMac('${this.escapeHtml(d.mac)}', 'cinzia')"
-                      class="px-2 py-0.5 rounded text-[10px] font-bold border ${d.assignedTo === 'cinzia' ? 'bg-pink-600 text-white border-pink-400' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'}">
-                Cinzia
-              </button>
-            </div>
-          </div>
-        `).join('')}
+    <div class="flex items-center gap-2">
+      <div class="relative flex-1">
+        <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-500"></i>
+        <input id="iliadbox-device-search" type="text"
+               value="${this.escapeHtml(this.iliadboxSearchQuery || '')}"
+               oninput="window.filterIliadboxDevices(this.value)"
+               placeholder="Cerca dispositivo, marca o MAC (es. Pixel, iPhone)..."
+               class="w-full pl-7 pr-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500" />
+      </div>
+      <span class="text-[10px] text-slate-400 font-mono shrink-0">${activeCount} online / ${devices.length}</span>
+    </div>
+
+    <div id="iliadbox-device-list" class="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+      ${this.renderIliadboxDeviceRows(devices)}
     </div>
   `;
 };
@@ -2393,6 +2437,17 @@ AdminManager.prototype.renderAiGatewayPanel = function() {
       </div>
     </div>
   `;
+};
+
+window.filterIliadboxDevices = function(query) {
+  if (!window.adminManager) return;
+  window.adminManager.iliadboxSearchQuery = String(query || '');
+  const listEl = document.getElementById('iliadbox-device-list');
+  if (!listEl) return;
+  const devices = Array.isArray(window.adminManager.iliadboxState?.devicesData?.devices)
+    ? window.adminManager.iliadboxState.devicesData.devices
+    : [];
+  listEl.innerHTML = window.adminManager.renderIliadboxDeviceRows(devices);
 };
 
 window.refreshIliadboxDevices = async function() {
