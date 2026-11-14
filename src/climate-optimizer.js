@@ -33,6 +33,7 @@ function getRomeClock(date = new Date()) {
     const minute = Number(map.minute);
     return {
       monthKey: `${map.year}-${map.month}`,
+      dateKey: `${map.year}-${map.month}-${map.day}`,
       hour,
       minute,
       totalMinutes: hour * 60 + minute
@@ -42,6 +43,7 @@ function getRomeClock(date = new Date()) {
     const m = date.getMinutes();
     return {
       monthKey: date.toISOString().slice(0, 7),
+      dateKey: date.toISOString().slice(0, 10),
       hour: h,
       minute: m,
       totalMinutes: h * 60 + m
@@ -65,8 +67,10 @@ class ClimateOptimizer {
 
     this.tempHistoryByZone = new Map(); // zoneId -> [{ ts, temp }]
     this.windowPauseByZone = new Map(); // zoneId -> { until, originalSetpoint }
+    this.baselineByZone = new Map(); // zoneId -> { originalSetpoint, lastAppliedTarget }
     this.manualOverrideByZone = new Map(); // zoneId -> untilMs
     this.lastRampAtByZone = new Map(); // zoneId -> tsMs
+    this.lastGasTickAt = 0;
     this.zoneStates = {}; // zoneId -> { id, name, currentTemp, setpoint, originalSetpoint, badge, reason, updatedAt }
 
     this.metrics = {
@@ -127,7 +131,7 @@ class ClimateOptimizer {
     if (this.forecastTimer) clearInterval(this.forecastTimer);
     this.forecastTimer = setInterval(() => {
       const clk = getRomeClock();
-      const slot = `${clk.monthKey}-${clk.hour}`;
+      const slot = `${clk.dateKey}-${clk.hour}`;
       if (this.config.enabled && (clk.hour === 6 || clk.hour === 13) && clk.minute < 15 && this.lastForecastSlot !== slot) {
         this.lastForecastSlot = slot;
         this.runThermalForecast().catch(() => {});
@@ -145,7 +149,10 @@ class ClimateOptimizer {
 
   recordManualOverride(zoneId, ttlMs = MANUAL_OVERRIDE_TTL_MS, nowMs = Date.now()) {
     if (!zoneId) return;
-    this.manualOverrideByZone.set(String(zoneId), nowMs + ttlMs);
+    const id = String(zoneId);
+    this.manualOverrideByZone.set(id, nowMs + ttlMs);
+    this.baselineByZone.delete(id);
+    this.windowPauseByZone.delete(id);
   }
 
   isManualOverrideActive(zoneId, nowMs = Date.now()) {
@@ -185,6 +192,10 @@ class ClimateOptimizer {
         return { paused: true, target: 15.0, originalSetpoint: existingPause.originalSetpoint };
       }
       this.windowPauseByZone.delete(id);
+      if (Number.isFinite(Number(currentTemp))) {
+        this.tempHistoryByZone.set(id, [{ ts: nowMs, temp: Number(currentTemp) }]);
+      }
+      return { paused: false, justExpired: true, restoreSetpoint: existingPause.originalSetpoint };
     }
 
     if (!Number.isFinite(Number(currentTemp))) {
@@ -246,13 +257,20 @@ class ClimateOptimizer {
   evaluateZoneProposal(zone, context = {}) {
     const nowMs = context.nowMs || Date.now();
     const clk = getRomeClock(new Date(nowMs));
+    const zoneIdStr = String(zone.id);
     const nameLower = String(zone.name || '').toLowerCase();
-    const baseline = Number(zone.tempSetpoint ?? 20.0);
+    const currentSetpoint = Number(zone.tempSetpoint ?? 20.0);
+    const tracked = this.baselineByZone.get(zoneIdStr);
+    const hasTrackedBaseline = tracked && Math.abs(currentSetpoint - tracked.lastAppliedTarget) < 0.25;
+    const baseline = hasTrackedBaseline ? tracked.originalSetpoint : currentSetpoint;
     const currentTemp = zone.tempActual !== undefined && zone.tempActual !== null ? Number(zone.tempActual) : null;
 
     let proposed = baseline;
     let badge = null;
-    let reason = 'Setpoint standard mantenuto';
+    let reason = hasTrackedBaseline && Math.abs(currentSetpoint - baseline) >= 0.5
+      ? `Ripristino graduale verso setpoint base (${baseline}°C)`
+      : 'Setpoint standard mantenuto';
+    let windowRestored = false;
 
     // Priorità 1: Finestra Aperta
     if (this.config.enableWindowProtect && currentTemp !== null) {
@@ -261,6 +279,10 @@ class ClimateOptimizer {
         proposed = 15.0;
         badge = 'window_pause';
         reason = `Finestra aperta rilevata (calo termico rapido): pausa riscaldamento a 15.0°C`;
+      } else if (winCheck.justExpired) {
+        windowRestored = true;
+        proposed = winCheck.restoreSetpoint ?? baseline;
+        reason = `Fine pausa finestra aperta: ripristino setpoint originale (${proposed}°C)`;
       }
     }
 
@@ -302,8 +324,8 @@ class ClimateOptimizer {
       reason = `Irraggiamento solare previsto su ${zone.name}: trim preventivo -${trim}°C (${proposed}°C)`;
     }
 
-    // Strategia 3: Rampa graduale caldaia a condensazione (solo in salita)
-    const ramped = this.applyGentleRamp(baseline, proposed);
+    // Strategia 3: Rampa graduale caldaia a condensazione (solo in salita; bypass su fine finestra aperta)
+    const ramped = windowRestored ? proposed : this.applyGentleRamp(currentSetpoint, proposed);
 
     // Guardrail Deterministico Hardware Obbligatorio (15.0°C - 23.5°C)
     const guard = aiGateway.validateHardwareAction({
@@ -320,16 +342,16 @@ class ClimateOptimizer {
       zoneName: zone.name,
       currentTemp,
       originalSetpoint: baseline,
+      currentSetpoint,
       targetSetpoint: finalTarget,
-      changed: Math.abs(finalTarget - baseline) >= 0.5,
+      changed: Math.abs(finalTarget - currentSetpoint) >= 0.5,
       badge,
       reason,
       guardrailClamped: Boolean(guard.clamped)
     };
   }
 
-  async evaluateNow({ reason = 'manual', dryRun = false } = {}) {
-    const nowMs = Date.now();
+  async evaluateNow({ reason = 'manual', dryRun = false, nowMs = Date.now() } = {}) {
     const clk = getRomeClock(new Date(nowMs));
     if (this.metrics.monthKey !== clk.monthKey) {
       this.metrics.monthKey = clk.monthKey;
@@ -346,6 +368,7 @@ class ClimateOptimizer {
       (this.securitySystem?.mode === 'away');
     const weather = await this.fetchWeatherForecast();
     const corridorTemp = hueLocal.motionSensor?.temperature ?? null;
+    const shouldAccumulateGas = !dryRun && (reason === 'scheduled' || (nowMs - this.lastGasTickAt >= 10 * 60 * 1000));
 
     const results = [];
     for (const z of zones) {
@@ -375,34 +398,50 @@ class ClimateOptimizer {
         updatedAt: new Date(nowMs).toISOString()
       };
 
-      if (prop.changed && !dryRun && this.evClimateHub && unified?.bosch?.connected) {
-        try {
-          await this.evClimateHub.setBoschZoneSetpoint(z.id, prop.targetSetpoint);
-          if (prop.targetSetpoint < prop.originalSetpoint) {
-            const deltaDeg = prop.originalSetpoint - prop.targetSetpoint;
-            // Accumula stima metano risparmiato per ciclo (~12 min = 0.2h)
-            this.metrics.savedGasM3 = +(this.metrics.savedGasM3 + deltaDeg * GAS_SAVED_M3_PER_DEGREE_HOUR * 0.2).toFixed(3);
+      if (!dryRun && this.evClimateHub && unified?.bosch?.connected) {
+        if (prop.changed) {
+          try {
+            await this.evClimateHub.setBoschZoneSetpoint(z.id, prop.targetSetpoint);
+            eventBus.publish('climate:setpoint_changed', {
+              room: z.name,
+              zoneId: z.id,
+              targetTemp: prop.targetSetpoint,
+              previousTemp: prop.currentSetpoint,
+              badge: prop.badge,
+              reason: prop.reason,
+              actor: 'climate-optimizer',
+              source: 'climate-optimizer'
+            });
+            eventLogger.log('bosch_thermo', `[ClimateOptimizer] ${z.name}: ${prop.currentSetpoint}°C -> ${prop.targetSetpoint}°C (${prop.reason})`, {
+              room: z.name,
+              value: prop.targetSetpoint,
+              source: 'ClimateOptimizer'
+            });
+          } catch (err) {
+            console.warn(`⚠️ [ClimateOptimizer] Errore applicazione setpoint su ${z.name}:`, err.message);
           }
-          eventBus.publish('climate:setpoint_changed', {
-            room: z.name,
-            zoneId: z.id,
-            targetTemp: prop.targetSetpoint,
-            previousTemp: prop.originalSetpoint,
-            badge: prop.badge,
-            reason: prop.reason,
-            actor: 'climate-optimizer',
-            source: 'climate-optimizer'
+        }
+
+        if (prop.badge || Math.abs(prop.targetSetpoint - prop.originalSetpoint) >= 0.25) {
+          this.baselineByZone.set(String(z.id), {
+            originalSetpoint: prop.originalSetpoint,
+            lastAppliedTarget: prop.targetSetpoint
           });
-          eventLogger.log('bosch_thermo', `[ClimateOptimizer] ${z.name}: ${prop.originalSetpoint}°C -> ${prop.targetSetpoint}°C (${prop.reason})`, {
-            room: z.name,
-            value: prop.targetSetpoint,
-            source: 'ClimateOptimizer'
-          });
-        } catch (err) {
-          console.warn(`⚠️ [ClimateOptimizer] Errore applicazione setpoint su ${z.name}:`, err.message);
+        } else {
+          this.baselineByZone.delete(String(z.id));
+        }
+
+        if (shouldAccumulateGas && prop.targetSetpoint < prop.originalSetpoint) {
+          const deltaDeg = prop.originalSetpoint - prop.targetSetpoint;
+          // Accumula stima metano risparmiato per ciclo (~12 min = 0.2h)
+          this.metrics.savedGasM3 = +(this.metrics.savedGasM3 + deltaDeg * GAS_SAVED_M3_PER_DEGREE_HOUR * 0.2).toFixed(3);
         }
       }
       results.push(prop);
+    }
+
+    if (shouldAccumulateGas) {
+      this.lastGasTickAt = nowMs;
     }
 
     this.metrics.lastEvaluationAt = new Date(nowMs).toISOString();

@@ -10,6 +10,15 @@ class DeviceSheetManager {
     this.activePlayer = null;
   }
 
+  escapeHtml(str) {
+    return String(str ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   /**
    * Apre il drawer contestuale con i dati del pin selezionato
    */

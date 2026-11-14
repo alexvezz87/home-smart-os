@@ -324,3 +324,47 @@ test('ClimateOptimizer: rampa graduale, finestra aperta, eco assente, solar trim
   assert.equal(opt.isManualOverrideActive('zn10', noonMs + 60_000), true);
   assert.equal(opt.isManualOverrideActive('zn10', noonMs + 31 * 60_000), false);
 });
+
+test('ClimateOptimizer: idempotenza multi-ciclo solar_trim e ripristino fine finestra aperta', async () => {
+  let boschSetpoint = 20.5;
+  let calls = [];
+  const fakeHub = {
+    getUnifiedStatus: () => ({
+      bosch: {
+        connected: true,
+        zones: [{ id: 'zn10', name: 'Salone', tempActual: 20.5, tempSetpoint: boschSetpoint }]
+      }
+    }),
+    setBoschZoneSetpoint: async (zoneId, temp) => {
+      calls.push({ zoneId, temp });
+      boschSetpoint = temp;
+    }
+  };
+  const opt = new ClimateOptimizer({ evClimateHub: fakeHub });
+  opt.fetchWeatherForecast = async () => ({ sunny: true, outdoorTemp: 14, cloudCover: 10, weatherCode: 0 });
+  opt.persistState = async () => {};
+
+  const noonMs = Date.parse('2026-11-14T11:00:00Z'); // 12:00 Europe/Rome
+  await opt.evaluateNow({ reason: 'scheduled', nowMs: noonMs });
+  assert.equal(boschSetpoint, 19.5);
+  assert.equal(calls.length, 1);
+
+  // Ciclo successivo (+12 min): Bosch ora legge 19.5, NON deve sottrarre altri -1.0°C!
+  await opt.evaluateNow({ reason: 'scheduled', nowMs: noonMs + 12 * 60 * 1000 });
+  assert.equal(boschSetpoint, 19.5);
+  assert.equal(calls.length, 1);
+
+  // Simula finestra aperta -> pausa 15.0°C -> ripristino dopo 15m al setpoint base 20.5
+  const optWin = new ClimateOptimizer();
+  const w0 = Date.parse('2026-11-14T16:00:00Z'); // 17:00 Europe/Rome (fuori finestra solare/notte)
+  optWin.evaluateZoneProposal({ id: 'zn1', name: 'Salone', tempActual: 21.0, tempSetpoint: 20.5 }, { nowMs: w0, weather: { sunny: false } });
+  const paused = optWin.evaluateZoneProposal({ id: 'zn1', name: 'Salone', tempActual: 19.8, tempSetpoint: 20.5 }, { nowMs: w0 + 60_000, weather: { sunny: false } });
+  assert.equal(paused.badge, 'window_pause');
+  assert.equal(paused.targetSetpoint, 15.0);
+  optWin.baselineByZone.set('zn1', { originalSetpoint: 20.5, lastAppliedTarget: 15.0 });
+
+  const restored = optWin.evaluateZoneProposal({ id: 'zn1', name: 'Salone', tempActual: 20.0, tempSetpoint: 15.0 }, { nowMs: w0 + 17 * 60_000, weather: { sunny: false } });
+  assert.equal(restored.badge, null);
+  assert.equal(restored.targetSetpoint, 20.5);
+  assert.equal(restored.changed, true);
+});
