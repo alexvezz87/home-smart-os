@@ -116,7 +116,7 @@ window.loadHomeDeliveriesWidget = async function loadHomeDeliveriesWidget(recipi
     const items = Array.isArray(json.items) ? json.items : [];
     const active = items.filter((d) => d.status !== 'delivered').slice(0, 6);
 
-    if (items.length === 0) {
+    if (items.length === 0 && (!recipient || recipient === 'all')) {
       container.innerHTML = '';
       return;
     }
@@ -145,7 +145,9 @@ window.loadHomeDeliveriesWidget = async function loadHomeDeliveriesWidget(recipi
           </div>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-          ${listToRender.map((d) => `
+          ${listToRender.length === 0
+            ? `<div class="col-span-full py-3 text-center text-xs text-slate-500">Nessuna consegna trovata per <strong>${escapeMailHtml(recipient)}</strong>.</div>`
+            : listToRender.map((d) => `
             <div class="p-3 rounded-xl bg-slate-950/70 border border-slate-800 space-y-1 text-xs">
               <div class="flex items-center justify-between gap-2">
                 <span class="font-bold text-white truncate">${escapeMailHtml(d.store || 'Negozio')}</span>

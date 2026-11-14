@@ -698,11 +698,30 @@ test('GmailHub & DeliveryBillingParser (#36): query privacy, filtro Dolomiti, un
   assert.equal(remindedAgain.length, 0);
 
   // Riconciliazione visiva corriere
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const { dateStr: todayStr } = parser._getRomeDateAndHour();
   parser.deliveries = [
     { id: 'trk:1', store: 'Amazon', courier: 'Amazon Logistics', recipient: 'Cinzia', status: 'out_for_delivery', expectedDate: todayStr }
   ];
   const rec = await parser.reconcileCourierArrival({ camera: 'Ingresso', summary: 'Corriere Amazon alla porta con un pacco' });
   assert.equal(rec.matched, true);
   assert.equal(sentNotifs.some((n) => n.level === 'critical' && n.category === 'security'), true);
+
+  // Guard Gemini mancante: syncAll non marca email come processate senza API key
+  const aiGateway = require('../src/ai-gateway');
+  const prevGetKey = aiGateway.getApiKey;
+  try {
+    let marked = false;
+    parser.gmailHub = {
+      getStatus: () => ({ accounts: { alex: { connected: true }, cinzia: { connected: false } } }),
+      fetchCandidateMessages: async () => [{ id: 'm-1' }],
+      markProcessed: async () => { marked = true; }
+    };
+    aiGateway.getApiKey = () => '';
+    const skipRes = await parser.syncAll();
+    assert.equal(skipRes.synced, false);
+    assert.equal(skipRes.reason, 'gemini_not_configured');
+    assert.equal(marked, false);
+  } finally {
+    aiGateway.getApiKey = prevGetKey;
+  }
 });

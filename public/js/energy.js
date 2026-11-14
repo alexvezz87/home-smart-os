@@ -1073,15 +1073,6 @@ class EnergyManager {
     } catch (_) {}
   }
 
-  escapeHtml(str) {
-    return String(str ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
   async loadExtraBills(statusFilter = 'all') {
     const container = document.getElementById('extra-bills-list');
     if (!container) return;
@@ -1129,17 +1120,17 @@ class EnergyManager {
               <div class="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 flex items-center justify-between gap-3">
                 <div class="space-y-1 min-w-0">
                   <div class="flex items-center gap-2 flex-wrap">
-                    <span class="font-bold text-white truncate">${this.escapeHtml(b.provider || 'Fornitore')}</span>
+                    <span class="font-bold text-white truncate">${this._escapeHtml(b.provider || 'Fornitore')}</span>
                     ${dueBadge(b)}
                   </div>
                   <div class="text-[11px] text-slate-400">
-                    Scadenza: <span class="font-mono text-slate-200">${this.escapeHtml(b.dueDate || '--')}</span> · Intestato: <strong>${this.escapeHtml(b.recipient || 'Casa')}</strong>
-                    ${b.billedUnits ? ` · ${this.escapeHtml(b.billedUnits)}` : ''}
+                    Scadenza: <span class="font-mono text-slate-200">${this._escapeHtml(b.dueDate || '--')}</span> · Intestato: <strong>${this._escapeHtml(b.recipient || 'Casa')}</strong>
+                    ${b.billedUnits ? ` · ${this._escapeHtml(b.billedUnits)}` : ''}
                   </div>
                 </div>
                 <div class="text-right shrink-0 space-y-1.5">
                   <div class="text-sm font-black text-white font-mono">${Number(b.amountEur || 0).toFixed(2)} €</div>
-                  <button onclick="window.energyManager.toggleExtraBillStatus('${this.escapeHtml(b.id)}', '${nextStatus}')" class="px-2.5 py-1 rounded-lg text-[10px] font-semibold ${b.status === 'paid' ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-emerald-600/25 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-600/35'}">
+                  <button onclick="window.energyManager.toggleExtraBillStatus('${this._escapeHtml(b.id)}', '${nextStatus}')" class="px-2.5 py-1 rounded-lg text-[10px] font-semibold ${b.status === 'paid' ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-emerald-600/25 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-600/35'}">
                     ${b.status === 'paid' ? 'Segna da pagare' : 'Segna Pagata'}
                   </button>
                 </div>
@@ -1149,7 +1140,7 @@ class EnergyManager {
         </div>
       `;
     } catch (err) {
-      container.innerHTML = `<span class="text-rose-400">Errore caricamento scadenzario: ${this.escapeHtml(err.message)}</span>`;
+      container.innerHTML = `<span class="text-rose-400">Errore caricamento scadenzario: ${this._escapeHtml(err.message)}</span>`;
     }
   }
 
@@ -1165,7 +1156,7 @@ class EnergyManager {
       window.showToast?.(`Bolletta aggiornata a "${status}"`, 'success');
       this.loadExtraBills('all');
     } catch (err) {
-      window.showToast?.(this.escapeHtml(err.message), 'error');
+      window.showToast?.(this._escapeHtml(err.message), 'error');
     }
   }
 }

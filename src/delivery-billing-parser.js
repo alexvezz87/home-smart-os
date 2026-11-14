@@ -71,12 +71,32 @@ class DeliveryBillingParser {
     });
   }
 
+  _getRomeDateAndHour(nowMs = Date.now()) {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Rome',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      hour12: false
+    }).formatToParts(new Date(nowMs));
+    const map = {};
+    for (const p of parts) {
+      if (p.type !== 'literal') map[p.type] = p.value;
+    }
+    const hour = map.hour === '24' ? 0 : Number(map.hour);
+    return {
+      dateStr: `${map.year}-${map.month}-${map.day}`,
+      hour
+    };
+  }
+
   async reconcileCourierArrival(evt = {}) {
     const summary = String(evt.summary || '').toLowerCase();
     const courierMentioned = /corrier|pacco|consegna|bartolini|brt|dhl|gls|amazon|poste|porta|persona/.test(summary);
     if (!courierMentioned) return { matched: false };
 
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const { dateStr: todayStr } = this._getRomeDateAndHour();
     const outToday = this.deliveries.filter(
       (d) => d.status === 'out_for_delivery' && (!d.expectedDate || d.expectedDate === todayStr)
     );
@@ -219,6 +239,7 @@ Altrimenti: {"type":"ignore"}`;
 
   async syncAll() {
     if (!this.gmailHub) return { synced: false, reason: 'no_gmail_hub' };
+    if (!aiGateway.getApiKey()) return { synced: false, reason: 'gemini_not_configured' };
     let parsedDeliveries = 0;
     let parsedBills = 0;
     const processedIds = [];
@@ -230,15 +251,19 @@ Altrimenti: {"type":"ignore"}`;
       try {
         const candidates = await this.gmailHub.fetchCandidateMessages(account, 15);
         for (const msg of candidates) {
-          processedIds.push(msg.id);
-          const parsed = await this.parseMessage(msg);
-          if (!parsed) continue;
-          if (parsed.type === 'delivery') {
-            this._upsertDelivery(parsed, msg);
-            parsedDeliveries++;
-          } else if (parsed.type === 'bill') {
-            this._upsertBill(parsed, msg);
-            parsedBills++;
+          try {
+            const parsed = await this.parseMessage(msg);
+            processedIds.push(msg.id);
+            if (!parsed) continue;
+            if (parsed.type === 'delivery') {
+              this._upsertDelivery(parsed, msg);
+              parsedDeliveries++;
+            } else if (parsed.type === 'bill') {
+              this._upsertBill(parsed, msg);
+              parsedBills++;
+            }
+          } catch (msgErr) {
+            logger.warn(`Parsing messaggio Gmail ${msg.id} rimandato`, { error: msgErr.message }, 'mail-parser');
           }
         }
       } catch (err) {
@@ -264,7 +289,7 @@ Altrimenti: {"type":"ignore"}`;
   }
 
   async checkDueReminders({ nowMs = Date.now() } = {}) {
-    const todayStr = new Date(nowMs).toISOString().slice(0, 10);
+    const { dateStr: todayStr } = this._getRomeDateAndHour(nowMs);
     const reminded = [];
 
     for (const bill of this.bills) {
@@ -301,9 +326,8 @@ Altrimenti: {"type":"ignore"}`;
   }
 
   async sendMorningDeliveriesSummary({ nowMs = Date.now() } = {}) {
-    const d = new Date(nowMs);
-    const todayStr = d.toISOString().slice(0, 10);
-    if (d.getHours() < 7 || this.remindersState.lastMorningSummaryDate === todayStr) {
+    const { dateStr: todayStr, hour } = this._getRomeDateAndHour(nowMs);
+    if (hour < 7 || this.remindersState.lastMorningSummaryDate === todayStr) {
       return false;
     }
 
