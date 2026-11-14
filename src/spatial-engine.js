@@ -6,6 +6,11 @@ const securitySystem = require('./security-system');
 const eventLogger = require('./event-logger');
 const db = require('./db');
 
+let eventBus = null;
+try {
+  eventBus = require('./event-bus');
+} catch (_) {}
+
 const CUSTOM_LAYOUT_FILE = path.join(__dirname, '..', 'spatial-custom-layout.json');
 
 /**
@@ -17,6 +22,15 @@ class SpatialEngine {
     this.autoCinemaEnabled = true;
     this.lastTvState = false;
     this.reflexInterval = null;
+    this.nightTrailEnabled = true;
+    this.nightTrailActive = false;
+    this.nightTrailOffTimer = null;
+
+    if (typeof hueLocal.on === 'function') {
+      hueLocal.on('motion', (evt) => {
+        this.handleNightCorridorMotion(evt).catch(() => {});
+      });
+    }
 
     // Definizione completa dei 32 nodi fisici sulla planimetria (coordinate % x, y su planimetria.png)
     this.pins = [
@@ -1150,8 +1164,14 @@ class SpatialEngine {
           : (clone.isOn ? 'Attivo (Cloud)' : 'Standby');
       } else if (p.category === 'sensor') {
         const dMatch = devices.find(d => d.category === 'sensor');
-        clone.temperature = dMatch?.extra?.temperature || homeSnapshot.stats?.temperature || 20.9;
-        clone.motion = Boolean(dMatch?.extra?.motion);
+        const hueS = hueLocal.motionSensor || {};
+        clone.temperature = hueS.temperature ?? dMatch?.extra?.temperature ?? homeSnapshot.stats?.temperature ?? 20.9;
+        clone.motion = hueS.motion !== undefined ? Boolean(hueS.motion) : Boolean(dMatch?.extra?.motion);
+        clone.lux = hueS.lux ?? null;
+        clone.dark = hueS.dark ?? null;
+        clone.sensitivity = hueS.sensitivity ?? 2;
+        clone.enabled = hueS.enabled !== false;
+        clone.sseConnected = Boolean(hueLocal.sseConnected);
         clone.isOn = true;
       } else {
         const dMatch = devices.find(d =>
@@ -1331,6 +1351,107 @@ class SpatialEngine {
       targetName: target.name,
       angleDeg: relativePan
     };
+  }
+
+  /**
+   * Verifica se l'orario ricade nella finestra notturna (23:00 - 06:30 Europe/Rome).
+   */
+  isNightWindow(date = new Date()) {
+    try {
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/Rome',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      }).formatToParts(date);
+      const hour = Number(parts.find((p) => p.type === 'hour')?.value || 0) % 24;
+      const minute = Number(parts.find((p) => p.type === 'minute')?.value || 0);
+      const mins = hour * 60 + minute;
+      return mins >= (23 * 60) || mins <= (6 * 60 + 30);
+    } catch (_) {
+      const h = date.getHours();
+      const m = date.getMinutes();
+      const mins = h * 60 + m;
+      return mins >= (23 * 60) || mins <= (6 * 60 + 30);
+    }
+  }
+
+  getNightTrailConfig() {
+    return {
+      nightTrailEnabled: this.nightTrailEnabled,
+      nightTrailActive: this.nightTrailActive
+    };
+  }
+
+  setNightTrailConfig({ enabled } = {}) {
+    if (enabled !== undefined) {
+      this.nightTrailEnabled = Boolean(enabled);
+    }
+    return this.getNightTrailConfig();
+  }
+
+  /**
+   * Scia Luminosa Notturna "Antiriflesso" (5-10% ambra 2000K) attivata da SSE Hue Motion.
+   */
+  async handleNightCorridorMotion(evt = {}) {
+    if (!this.nightTrailEnabled) return { triggered: false, reason: 'disabled' };
+
+    const corridorLights = ['Corridoio letto', 'Corridoio studio', 'Corridoio salone'];
+
+    if (evt.active) {
+      if (this.nightTrailOffTimer) {
+        clearTimeout(this.nightTrailOffTimer);
+        this.nightTrailOffTimer = null;
+      }
+
+      if (!this.isNightWindow(evt.now ? new Date(evt.now) : new Date())) {
+        return { triggered: false, reason: 'daytime' };
+      }
+
+      // Verifica buio reale dal sensore crepuscolare Hue (nessuna attivazione se c'è già luce)
+      const isDark = evt.dark === true || (evt.lux !== null && evt.lux !== undefined && evt.lux < 15);
+      if (!isDark) {
+        return { triggered: false, reason: 'not_dark' };
+      }
+
+      // Compatibilità progressiva #34/#35: evita accensione se Vision segnala solo pet mentre si dorme
+      if (eventBus && typeof eventBus.getRecentEvents === 'function') {
+        const recentAlerts = eventBus.getRecentEvents(5, 'camera:vision_alert');
+        const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+        const petOnly = recentAlerts.some((a) =>
+          new Date(a.timestamp).getTime() >= fiveMinAgo && a.data?.petOnly === true
+        );
+        if (petOnly) {
+          return { triggered: false, reason: 'pet_only_sleeping' };
+        }
+      }
+
+      this.nightTrailActive = true;
+      for (const name of corridorLights) {
+        await hueLocal.setColorAndTemp({ lightName: name, kelvin: 2000, brightness: 8 }).catch(() => {});
+      }
+      eventLogger.log('night_trail', '🌙 Scia Luminosa Notturna Antiriflesso (8% 2000K) attivata in Corridoio');
+      return { triggered: true, mode: 'on', brightness: 8, kelvin: 2000 };
+    }
+
+    // Spegnimento morbido dopo 75s dall'evento motion: false
+    if (this.nightTrailActive) {
+      if (this.nightTrailOffTimer) clearTimeout(this.nightTrailOffTimer);
+      this.nightTrailOffTimer = setTimeout(async () => {
+        this.nightTrailOffTimer = null;
+        this.nightTrailActive = false;
+        for (const name of corridorLights) {
+          await hueLocal.toggleLightByName(name, false).catch(() => {});
+        }
+        eventLogger.log('night_trail', '🌑 Scia Luminosa Notturna Corridoio spenta automaticamente');
+      }, 75000);
+      if (typeof this.nightTrailOffTimer.unref === 'function') {
+        this.nightTrailOffTimer.unref();
+      }
+      return { triggered: true, mode: 'scheduled_off', delayMs: 75000 };
+    }
+
+    return { triggered: false, reason: 'idle' };
   }
 }
 

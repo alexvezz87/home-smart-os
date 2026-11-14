@@ -1,5 +1,10 @@
 const fs = require('fs');
 const path = require('path');
+let eventBus = null;
+try {
+  eventBus = require('./event-bus');
+} catch (_) {}
+
 const eventLogger = require('./event-logger');
 const go2rtc = require('./go2rtc-manager');
 const db = require('./db');
@@ -1330,6 +1335,39 @@ class SecuritySystem {
       alert: alertMsg,
       timestamp: cam.lastMotion
     };
+  }
+
+  /**
+   * Aggancio Sentinella istantaneo a latenza zero su movimento Sensore Corridoio Hue SSE.
+   */
+  initHueSentinel(hueLocal, iliadboxClient) {
+    if (!hueLocal || typeof hueLocal.on !== 'function' || this._hueSentinelBound) return;
+    this._hueSentinelBound = true;
+
+    hueLocal.on('motion', (evt) => {
+      if (!evt || !evt.active) return;
+
+      const presence = iliadboxClient && typeof iliadboxClient.getPresenceState === 'function'
+        ? iliadboxClient.getPresenceState()
+        : null;
+      const isAway = this.mode === 'away' || (presence && presence.lastUpdated && presence.anyHome === false);
+
+      if (isAway) {
+        const msg = `🚨 [Sentinella Hue SSE] Movimento rilevato in Corridoio (${evt.sensorName || 'Sensore corridoio'}) con casa in modalità Fuori Casa!`;
+        eventLogger.log('security', msg, {
+          device: evt.sensorName || 'Sensore corridoio',
+          room: 'Corridoio',
+          source: 'Sentinella SSE'
+        });
+        if (eventBus) {
+          eventBus.publish('sensor:motion', {
+            ...evt,
+            away: true,
+            source: 'security-sentinel'
+          });
+        }
+      }
+    });
   }
 }
 

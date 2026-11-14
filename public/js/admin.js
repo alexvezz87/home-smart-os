@@ -675,6 +675,51 @@ class AdminManager {
           </div>
         </div>
 
+        <!-- Sensore Corridoio Hue (SSE Real-Time) -->
+        ${(() => {
+          const sPin = (data.spatial?.pins || []).find(p => p.category === 'sensor' || p.pin === 8) || {};
+          const sensVal = Number(sPin.sensitivity ?? 2);
+          const enabledVal = sPin.enabled !== false;
+          const nightTrailVal = sPin.nightTrailEnabled !== false;
+          return `
+            <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
+              <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
+                <div class="flex items-center gap-2">
+                  <i class="fa-solid fa-rss ${sPin.motion ? 'text-emerald-400 animate-pulse' : 'text-cyan-400'}"></i>
+                  <h4 class="text-xs font-bold text-white uppercase tracking-wider">Sensore Corridoio Hue (Pin #8 · SSE Push)</h4>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${sPin.sseConnected ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'}">
+                    ${sPin.sseConnected ? 'SSE Live < 50ms' : 'Polling / Standby'}
+                  </span>
+                </div>
+                <div class="flex items-center gap-3 text-[11px] font-mono">
+                  <span class="${sPin.motion ? 'text-emerald-400 font-bold' : 'text-slate-400'}">${sPin.motion ? 'Movimento ATTIVO' : 'Nessun movimento'}</span>
+                  <span class="text-amber-300">${sPin.lux !== null && sPin.lux !== undefined ? sPin.lux + ' lux' : 'N/D lux'}</span>
+                  <span class="text-cyan-300">${sPin.temperature ?? '--'}°C</span>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs items-center">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input id="hue-sensor-enabled" type="checkbox" ${enabledVal ? 'checked' : ''} class="rounded bg-slate-950 border-slate-700 text-emerald-500" />
+                  <span class="text-slate-200">Sensore movimento attivo</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input id="hue-night-trail-enabled" type="checkbox" ${nightTrailVal ? 'checked' : ''} class="rounded bg-slate-950 border-slate-700 text-amber-500" />
+                  <span class="text-slate-200">Scia Notturna Antiriflesso (23:00-06:30)</span>
+                </label>
+                <div class="flex items-center gap-2">
+                  <span class="text-slate-400 shrink-0">Sensibilità (0-4):</span>
+                  <input id="hue-sensor-sensitivity" type="range" min="0" max="4" step="1" value="${sensVal}"
+                         oninput="document.getElementById('hue-sens-val').textContent=this.value"
+                         class="w-full accent-cyan-500" />
+                  <span id="hue-sens-val" class="font-mono font-bold text-white w-4">${sensVal}</span>
+                  <button onclick="window.saveHueSensorConfig()" class="px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-[11px] shrink-0">Salva</button>
+                </div>
+              </div>
+            </div>
+          `;
+        })()}
+
       </div>
     `;
   }
@@ -2564,5 +2609,27 @@ window.testAiTts = async function() {
     await window.adminManager?.loadBackbonePanels();
   } catch (err) {
     if (box) box.innerHTML = `<span class="text-rose-400">${window.adminManager?.escapeHtml(err.message)}</span>`;
+  }
+};
+
+window.saveHueSensorConfig = async function() {
+  const enabled = Boolean(document.getElementById('hue-sensor-enabled')?.checked);
+  const nightTrailEnabled = Boolean(document.getElementById('hue-night-trail-enabled')?.checked);
+  const sensitivity = Number(document.getElementById('hue-sensor-sensitivity')?.value ?? 2);
+
+  try {
+    const res = await fetch('/api/hue/sensor/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled, sensitivity, nightTrailEnabled })
+    }).then((r) => r.json());
+    if (res.success) {
+      if (typeof showToast === 'function') showToast('✅ Configurazione Sensore Corridoio salvata', 'success');
+      if (typeof loadDashboard === 'function') loadDashboard();
+    } else {
+      throw new Error(res.error || 'Errore salvataggio');
+    }
+  } catch (err) {
+    if (typeof showToast === 'function') showToast('Errore Sensore Hue: ' + err.message, 'error');
   }
 };

@@ -8,6 +8,7 @@ const { AIGateway } = require('../src/ai-gateway');
 const { IliadboxClient } = require('../src/iliadbox-client');
 const logger = require('../src/logger');
 const serviceStatus = require('../src/service-status');
+const { HueLocalManager } = require('../src/hue-local');
 
 test('EventBus: pubblicazione eventi tipizzati, wildcard e limite ring-buffer <= 100', () => {
   const bus = new HomeEventBus(100);
@@ -251,4 +252,36 @@ test('ServiceStatus: mapping operational, auth_expired, degraded e summary globa
   assert.equal(summary.globalStatus, 'auth_expired');
   assert.ok(summary.counts.auth_expired >= 1);
   assert.ok(summary.headline.includes('sloggati'));
+});
+
+test('HueLocal SSE: parsing eventi motion, light_level e temperature verso eventBus', () => {
+  eventBus.clearHistory();
+  const hue = new HueLocalManager();
+  const motionEvents = [];
+  hue.on('motion', (e) => motionEvents.push(e));
+
+  hue.handleSseEvents([
+    {
+      type: 'update',
+      data: [
+        { type: 'light_level', id_v1: '/sensors/9', light: { light_level_report: { light_level: 5000 } } },
+        { type: 'temperature', id_v1: '/sensors/10', temperature: { temperature_report: { temperature: 21.34 } } },
+        { type: 'motion', id_v1: '/sensors/8', motion: { motion_report: { motion: true, changed: '2026-11-14T22:30:00Z' } } }
+      ]
+    }
+  ]);
+
+  assert.equal(motionEvents.length, 1);
+  assert.equal(motionEvents[0].active, true);
+  assert.equal(hue.motionSensor.motion, true);
+  assert.equal(hue.motionSensor.temperature, 21.3);
+  assert.equal(hue.motionSensor.dark, true);
+
+  const busMotion = eventBus.getRecentEvents(5, 'sensor:motion');
+  const busTemp = eventBus.getRecentEvents(5, 'sensor:temperature');
+  const busLux = eventBus.getRecentEvents(5, 'sensor:lux');
+  assert.equal(busMotion.length, 1);
+  assert.equal(busTemp.length, 1);
+  assert.equal(busLux.length, 1);
+  assert.equal(busTemp[0].data.temperature, 21.3);
 });
