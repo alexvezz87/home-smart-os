@@ -12,6 +12,7 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
   - Cambio modalità (`clock` programma orario vs `manual`).
   - Lettura e modifica dei programmi settimanali (`/programs/list`, `/programs/{id}`).
   - Estrazione storico orario e giornaliero dei consumi di gas divisi tra **Riscaldamento (`gCh`)** e **Acqua Calda Sanitaria (`gHw`)** tramite `/energy/historyHourly` e `/energy/history`.
+  - **Ottimizzatore Termico Adattivo (`src/climate-optimizer.js`)**: Regolazione dinamica in itinere delle 9 zone con dati meteo Open-Meteo (gratuiti senza API key), presenza LAN Iliadbox (`eventBus`), temperatura centrale corridoio Hue (`#40`), Guardrail deterministici (`15.0°C–23.5°C`) e *Thermal Forecaster* Gemini (`06:00` / `13:00`). Endpoint: `/api/climate/optimizer/status`, `/api/climate/optimizer/toggle`, `/api/climate/optimizer/evaluate-now`.
 
 ---
 

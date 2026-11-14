@@ -199,6 +199,9 @@ class AdminManager {
     `;
 
     // Post-rendering hooks specifici per scheda
+    if (this.activeTab === 'climate') {
+      this.loadClimateOptimizerPanel();
+    }
     if (this.activeTab === 'floorplan' && window.dragEditor) {
       window.dragEditor.renderUnplacedTray();
     }
@@ -585,6 +588,11 @@ class AdminManager {
           <div class="text-[11px] text-slate-500 font-mono">
             Consumi Gas Registrati: <strong class="text-emerald-400">${ev.bosch?.energyHistory?.totals?.totalGasM3 || 0} m³</strong> (~${ev.bosch?.energyHistory?.totals?.estimatedGasCostEur || 0} €)
           </div>
+        </div>
+
+        <!-- Ottimizzatore Termico Adattivo (In Itinere) -->
+        <div id="admin-climate-optimizer-panel" class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
+          <div class="text-xs text-slate-400"><i class="fa-solid fa-circle-notch fa-spin mr-1.5 text-amber-400"></i> Caricamento Ottimizzatore Termico Adattivo...</div>
         </div>
 
       </div>
@@ -2631,5 +2639,116 @@ window.saveHueSensorConfig = async function() {
     }
   } catch (err) {
     if (typeof showToast === 'function') showToast('Errore Sensore Hue: ' + err.message, 'error');
+  }
+};
+
+// ============================================================================
+// Ottimizzatore Termico Adattivo (Issue #33)
+// ============================================================================
+AdminManager.prototype.loadClimateOptimizerPanel = async function() {
+  const el = document.getElementById('admin-climate-optimizer-panel');
+  if (!el) return;
+  try {
+    const res = await fetch('/api/climate/optimizer/status').then((r) => r.json());
+    if (res.success && res.data) {
+      this.climateOptStatus = res.data;
+      this.renderClimateOptimizerPanel();
+    }
+  } catch (_) {}
+};
+
+AdminManager.prototype.renderClimateOptimizerPanel = function() {
+  const el = document.getElementById('admin-climate-optimizer-panel');
+  if (!el || !this.climateOptStatus) return;
+
+  const cfg = this.climateOptStatus.config || {};
+  const met = this.climateOptStatus.metrics || {};
+
+  el.innerHTML = `
+    <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
+      <div class="flex items-center gap-2">
+        <i class="fa-solid fa-temperature-arrow-down text-amber-400"></i>
+        <h4 class="text-xs font-bold text-white uppercase tracking-wider">Ottimizzatore Termico Adattivo (In Itinere)</h4>
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${cfg.enabled ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'}">
+          ${cfg.enabled ? 'Attivo (12m)' : 'Disattivato'}
+        </span>
+      </div>
+      <div class="flex items-center gap-2">
+        <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+          <input type="checkbox" ${cfg.enabled ? 'checked' : ''} onchange="window.toggleClimateOptimizer({ enabled: this.checked })" class="rounded bg-slate-950 border-slate-700 text-emerald-500" />
+          <span class="text-slate-200 font-semibold">Abilitato</span>
+        </label>
+        <button onclick="window.evaluateClimateOptimizerNow()" class="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-600 hover:bg-amber-500 text-white transition-all">
+          <i class="fa-solid fa-bolt mr-1"></i> Valuta e Ottimizza Ora
+        </button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+      <label class="flex items-center gap-2 p-2 rounded-lg bg-slate-950/60 border border-slate-800 cursor-pointer">
+        <input type="checkbox" ${cfg.enableSolarTrim ? 'checked' : ''} onchange="window.toggleClimateOptimizer({ enableSolarTrim: this.checked })" />
+        <span>☀️ Solar Trim</span>
+      </label>
+      <label class="flex items-center gap-2 p-2 rounded-lg bg-slate-950/60 border border-slate-800 cursor-pointer">
+        <input type="checkbox" ${cfg.enablePresenceTrim ? 'checked' : ''} onchange="window.toggleClimateOptimizer({ enablePresenceTrim: this.checked })" />
+        <span>🍃 Eco Assente (Iliadbox)</span>
+      </label>
+      <label class="flex items-center gap-2 p-2 rounded-lg bg-slate-950/60 border border-slate-800 cursor-pointer">
+        <input type="checkbox" ${cfg.enableNightShift ? 'checked' : ''} onchange="window.toggleClimateOptimizer({ enableNightShift: this.checked })" />
+        <span>🌙 Zona Notte (22:30-06:30)</span>
+      </label>
+      <label class="flex items-center gap-2 p-2 rounded-lg bg-slate-950/60 border border-slate-800 cursor-pointer">
+        <input type="checkbox" ${cfg.enableWindowProtect ? 'checked' : ''} onchange="window.toggleClimateOptimizer({ enableWindowProtect: this.checked })" />
+        <span>🪟 Finestra Aperta</span>
+      </label>
+    </div>
+
+    <div class="flex items-center justify-between flex-wrap gap-3 text-xs pt-1">
+      <div class="font-mono text-slate-300">
+        Risparmio stimato mese: <strong class="text-emerald-400">${met.savedGasM3 ?? 0} m³</strong> (~<strong class="text-emerald-400">${met.savedEuro ?? 0} €</strong>)
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-slate-400 text-[11px]">Tariffa (€/m³):</span>
+        <input id="opt-gas-price" type="number" step="0.05" min="0.1" max="5" value="${cfg.gasPricePerSmc ?? 1.10}"
+               class="w-16 px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-white font-mono text-[11px]" />
+        <button onclick="window.toggleClimateOptimizer({ gasPricePerSmc: Number(document.getElementById('opt-gas-price').value || 1.10) })"
+                class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-bold border border-slate-700">OK</button>
+      </div>
+    </div>
+    ${met.lastForecastMotivation ? `<div class="text-[11px] text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 rounded-lg p-2">🤖 ${this.escapeHtml(met.lastForecastMotivation)}</div>` : ''}
+  `;
+};
+
+window.toggleClimateOptimizer = async function(patch) {
+  try {
+    const res = await fetch('/api/climate/optimizer/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch)
+    }).then((r) => r.json());
+    if (res.success && window.adminManager) {
+      window.adminManager.climateOptStatus = res.data;
+      window.adminManager.renderClimateOptimizerPanel();
+      if (typeof showToast === 'function') showToast('✅ Impostazioni ottimizzatore aggiornate', 'success');
+    }
+  } catch (err) {
+    if (typeof showToast === 'function') showToast('Errore: ' + err.message, 'error');
+  }
+};
+
+window.evaluateClimateOptimizerNow = async function() {
+  try {
+    const res = await fetch('/api/climate/optimizer/evaluate-now', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    }).then((r) => r.json());
+    if (res.success && window.adminManager) {
+      window.adminManager.climateOptStatus = res.data.status;
+      window.adminManager.renderClimateOptimizerPanel();
+      if (typeof showToast === 'function') showToast(`✅ Valutate ${res.data.evaluation?.evaluatedZones || 0} zone termiche`, 'success');
+    }
+  } catch (err) {
+    if (typeof showToast === 'function') showToast('Errore valutazione: ' + err.message, 'error');
   }
 };

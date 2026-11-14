@@ -10,6 +10,15 @@ class DeviceSheetManager {
     this.activePlayer = null;
   }
 
+  escapeHtml(str) {
+    return String(str ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   /**
    * Apre il drawer contestuale con i dati del pin selezionato
    */
@@ -653,6 +662,12 @@ class DeviceSheetManager {
       : '0 0 42px rgba(14, 165, 233, 0.35), inset 0 0 28px rgba(255, 255, 255, 0.14)';
 
     return `
+      ${p.optReason ? `
+        <div class="mb-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200 flex items-start gap-2">
+          <i class="fa-solid fa-wand-magic-sparkles text-amber-400 mt-0.5 shrink-0"></i>
+          <span>${this.escapeHtml(p.optReason)}</span>
+        </div>
+      ` : ''}
       <!-- Dial Circolare Stile Bosch EasyControl con Swipe Verticale -->
       <div class="py-2 flex flex-col items-center space-y-4">
         <div id="valve-dial-${p.pin}"

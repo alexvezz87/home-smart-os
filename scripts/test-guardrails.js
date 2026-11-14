@@ -9,6 +9,7 @@ const { IliadboxClient } = require('../src/iliadbox-client');
 const logger = require('../src/logger');
 const serviceStatus = require('../src/service-status');
 const { HueLocalManager } = require('../src/hue-local');
+const { ClimateOptimizer } = require('../src/climate-optimizer');
 
 test('EventBus: pubblicazione eventi tipizzati, wildcard e limite ring-buffer <= 100', () => {
   const bus = new HomeEventBus(100);
@@ -284,4 +285,86 @@ test('HueLocal SSE: parsing eventi motion, light_level e temperature verso event
   assert.equal(busTemp.length, 1);
   assert.equal(busLux.length, 1);
   assert.equal(busTemp[0].data.temperature, 21.3);
+});
+
+test('ClimateOptimizer: rampa graduale, finestra aperta, eco assente, solar trim e guardrail', () => {
+  const opt = new ClimateOptimizer();
+
+  // 1. Rampa graduale caldaia a condensazione (+0.5°C per ciclo)
+  assert.equal(opt.applyGentleRamp(17.0, 21.0), 17.5);
+  assert.equal(opt.applyGentleRamp(20.5, 18.0), 18.0);
+
+  // 2. Finestra aperta (calo > 0.8°C in < 5 minuti)
+  const t0 = 1_700_000_000_000;
+  let win = opt.detectWindowOpen('zn1', 21.0, 20.5, t0);
+  assert.equal(win.paused, false);
+  win = opt.detectWindowOpen('zn1', 20.0, 20.5, t0 + 120_000); // -1.0°C in 2 minuti
+  assert.equal(win.paused, true);
+  assert.equal(win.target, 15.0);
+
+  // 3. Eco Assente (allAway: true)
+  const ecoProp = opt.evaluateZoneProposal(
+    { id: 'zn3', name: 'Cucina', tempActual: 20.5, tempSetpoint: 20.5 },
+    { nowMs: t0, allAway: true, weather: { sunny: false } }
+  );
+  assert.equal(ecoProp.badge, 'eco_away');
+  assert.equal(ecoProp.targetSetpoint, 17.5);
+
+  // 4. Solar Trim su Salone alle 12:00 Europe/Rome (2026-11-14T11:00:00Z = 12:00 CET)
+  const noonMs = Date.parse('2026-11-14T11:00:00Z');
+  const solarProp = opt.evaluateZoneProposal(
+    { id: 'zn10', name: 'Salone', tempActual: 20.5, tempSetpoint: 20.5 },
+    { nowMs: noonMs, allAway: false, weather: { sunny: true, outdoorTemp: 14 } }
+  );
+  assert.equal(solarProp.badge, 'solar_trim');
+  assert.equal(solarProp.targetSetpoint, 19.5);
+
+  // 5. Override manuale utente protegge la zona per 30 minuti
+  opt.recordManualOverride('zn10', 30 * 60 * 1000, noonMs);
+  assert.equal(opt.isManualOverrideActive('zn10', noonMs + 60_000), true);
+  assert.equal(opt.isManualOverrideActive('zn10', noonMs + 31 * 60_000), false);
+});
+
+test('ClimateOptimizer: idempotenza multi-ciclo solar_trim e ripristino fine finestra aperta', async () => {
+  let boschSetpoint = 20.5;
+  let calls = [];
+  const fakeHub = {
+    getUnifiedStatus: () => ({
+      bosch: {
+        connected: true,
+        zones: [{ id: 'zn10', name: 'Salone', tempActual: 20.5, tempSetpoint: boschSetpoint }]
+      }
+    }),
+    setBoschZoneSetpoint: async (zoneId, temp) => {
+      calls.push({ zoneId, temp });
+      boschSetpoint = temp;
+    }
+  };
+  const opt = new ClimateOptimizer({ evClimateHub: fakeHub });
+  opt.fetchWeatherForecast = async () => ({ sunny: true, outdoorTemp: 14, cloudCover: 10, weatherCode: 0 });
+  opt.persistState = async () => {};
+
+  const noonMs = Date.parse('2026-11-14T11:00:00Z'); // 12:00 Europe/Rome
+  await opt.evaluateNow({ reason: 'scheduled', nowMs: noonMs });
+  assert.equal(boschSetpoint, 19.5);
+  assert.equal(calls.length, 1);
+
+  // Ciclo successivo (+12 min): Bosch ora legge 19.5, NON deve sottrarre altri -1.0°C!
+  await opt.evaluateNow({ reason: 'scheduled', nowMs: noonMs + 12 * 60 * 1000 });
+  assert.equal(boschSetpoint, 19.5);
+  assert.equal(calls.length, 1);
+
+  // Simula finestra aperta -> pausa 15.0°C -> ripristino dopo 15m al setpoint base 20.5
+  const optWin = new ClimateOptimizer();
+  const w0 = Date.parse('2026-11-14T16:00:00Z'); // 17:00 Europe/Rome (fuori finestra solare/notte)
+  optWin.evaluateZoneProposal({ id: 'zn1', name: 'Salone', tempActual: 21.0, tempSetpoint: 20.5 }, { nowMs: w0, weather: { sunny: false } });
+  const paused = optWin.evaluateZoneProposal({ id: 'zn1', name: 'Salone', tempActual: 19.8, tempSetpoint: 20.5 }, { nowMs: w0 + 60_000, weather: { sunny: false } });
+  assert.equal(paused.badge, 'window_pause');
+  assert.equal(paused.targetSetpoint, 15.0);
+  optWin.baselineByZone.set('zn1', { originalSetpoint: 20.5, lastAppliedTarget: 15.0 });
+
+  const restored = optWin.evaluateZoneProposal({ id: 'zn1', name: 'Salone', tempActual: 20.0, tempSetpoint: 15.0 }, { nowMs: w0 + 17 * 60_000, weather: { sunny: false } });
+  assert.equal(restored.badge, null);
+  assert.equal(restored.targetSetpoint, 20.5);
+  assert.equal(restored.changed, true);
 });
