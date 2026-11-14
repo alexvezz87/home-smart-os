@@ -96,6 +96,47 @@ function evaluateServicesSnapshot(modules = {}) {
     actionArea: 'admin'
   });
 
+  // Telegram Bot & Web Push
+  const tgStatusObj = safeCall(() => modules.telegramBot?.getStatus(), null);
+  let tgStatus = 'degraded';
+  let tgDetail = 'Bot Telegram non configurato (token assente)';
+  if (tgStatusObj && tgStatusObj.configured) {
+    if (tgStatusObj.lastError) {
+      tgStatus = 'degraded';
+      tgDetail = `Errore polling: ${tgStatusObj.lastError}`;
+    } else if (tgStatusObj.polling) {
+      tgStatus = 'operational';
+      tgDetail = `@${tgStatusObj.botUsername || 'bot'} attivo (${tgStatusObj.allowedUsersCount || 0} chat autorizzate)`;
+    } else {
+      tgStatus = 'degraded';
+      tgDetail = 'Bot configurato ma polling fermo';
+    }
+  }
+  services.push({
+    id: 'telegram_bot',
+    category: 'core',
+    name: 'Telegram Bot Hub',
+    status: tgStatus,
+    detail: tgDetail,
+    actionArea: 'security'
+  });
+
+  const wpStatusObj = safeCall(() => modules.webPushManager?.getStatus(), null);
+  let wpStatus = 'degraded';
+  let wpDetail = 'Chiavi VAPID non inizializzate';
+  if (wpStatusObj && wpStatusObj.vapidReady) {
+    wpStatus = 'operational';
+    wpDetail = `VAPID pronto (${wpStatusObj.subscriptionsCount || 0} dispositivi PWA iscritti)`;
+  }
+  services.push({
+    id: 'web_push',
+    category: 'core',
+    name: 'Notifiche Web Push (PWA)',
+    status: wpStatus,
+    detail: wpDetail,
+    actionArea: 'security'
+  });
+
   // 3. Casa & Rete LAN
   const iliad = modules.iliadboxClient;
   const iliadState = safeCall(() => iliad?.getPresenceState(), null);

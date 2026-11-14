@@ -43,6 +43,9 @@ let lgThinq = null;
 let dysonPurifier = null;
 let volvoTripsSync = null;
 let wallboxSync = null;
+let webPushManager = null;
+let telegramBot = null;
+let notifier = null;
 let dolomitiBillsSync = null;
 let eventBus = null;
 let iliadboxClient = null;
@@ -1310,6 +1313,156 @@ app.post('/api/vision/config', async (req, res) => {
   }
 });
 
+// 1g-ter. Hub Notifiche, Telegram Bot, Web Push PWA & Sentinella Pet
+app.get('/api/push/vapid-public-key', (req, res) => {
+  try {
+    const publicKey = webPushManager.getPublicKey();
+    if (!publicKey) return res.status(503).json({ success: false, error: 'VAPID non inizializzato' });
+    res.json({ success: true, publicKey });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/push/subscribe', async (req, res) => {
+  try {
+    const { subscription, userAgent } = req.body || {};
+    const result = await webPushManager.addSubscription(subscription, {
+      userAgent: userAgent || req.headers['user-agent'] || 'Browser'
+    });
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/push/unsubscribe', async (req, res) => {
+  try {
+    const { endpoint } = req.body || {};
+    const result = await webPushManager.removeSubscription(endpoint);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/notifications/config', (req, res) => {
+  try {
+    res.json({
+      success: true,
+      notifier: notifier.getConfig(),
+      history: notifier.getHistory(25),
+      telegram: telegramBot.getStatus(),
+      webPush: webPushManager.getStatus(),
+      sentinel: securitySystem.getSentinelConfig(),
+      petRefs: securitySystem.getPetReferences()
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/notifications/config', async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.categories || typeof body.defaultCooldownMs === 'number') {
+      await notifier.updateConfig({
+        categories: body.categories,
+        defaultCooldownMs: body.defaultCooldownMs
+      });
+    }
+    if (body.telegramToken) {
+      await telegramBot.setToken(body.telegramToken);
+    }
+    if (body.addAllowedChatId) {
+      await telegramBot.addAllowedUser(body.addAllowedChatId);
+    }
+    if (body.removeAllowedChatId) {
+      await telegramBot.removeAllowedUser(body.removeAllowedChatId);
+    }
+    if (body.sentinel && typeof body.sentinel === 'object') {
+      await securitySystem.updateSentinelConfig(body.sentinel);
+    }
+    res.json({
+      success: true,
+      notifier: notifier.getConfig(),
+      telegram: telegramBot.getStatus(),
+      sentinel: securitySystem.getSentinelConfig()
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/notifications/test', async (req, res) => {
+  try {
+    const { level = 'info', channel = 'both' } = req.body || {};
+    let result = null;
+    if (channel === 'telegram') {
+      result = await telegramBot.sendMessage('🔔 <b>Test Home Smart OS</b>\nIl canale Telegram Bot è operativo.');
+    } else if (channel === 'webpush') {
+      result = await webPushManager.sendNotification({
+        title: '🔔 Test Home Smart OS',
+        body: 'Le notifiche Web Push PWA sono operative su questo dispositivo.',
+        url: '/#security'
+      });
+    } else {
+      result = await notifier.send({
+        level: level === 'critical' ? 'critical' : 'info',
+        category: 'system',
+        title: 'Test Hub Notifiche',
+        message: `Test invio completato alle ${new Date().toLocaleTimeString('it-IT')}.`,
+        force: true,
+        targetUrl: '/#security'
+      });
+    }
+    res.json({ success: true, result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/telegram/pairing-link', (req, res) => {
+  try {
+    const link = telegramBot.createPairingLink();
+    res.json({ success: true, ...link });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/security/pet-refs', (req, res) => {
+  res.json({ success: true, items: securitySystem.getPetReferences() });
+});
+
+app.post('/api/security/pet-refs', async (req, res) => {
+  try {
+    const { petName, base64Data, mimeType, notes } = req.body || {};
+    const entry = await securitySystem.savePetReference({ petName, base64Data, mimeType, notes });
+    res.json({ success: true, entry });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.delete('/api/security/pet-refs/:id', async (req, res) => {
+  try {
+    await securitySystem.deletePetReference(req.params.id);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/security/sentinel/patrol', async (req, res) => {
+  try {
+    const result = await securitySystem.runSentinelPatrol({ reason: 'manual_test', force: true });
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // 1g-bis. Spina Dorsale EventBus, Presenza Iliadbox & AI Gateway
 app.get('/api/events/stream', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -1644,6 +1797,9 @@ async function bootstrap() {
   volvoTripsSync = require('./src/volvo-trips-sync');
   wallboxSync = require('./src/wallbox-sync');
   dolomitiBillsSync = require('./src/dolomiti-bills-sync');
+  webPushManager = require('./src/web-push-manager');
+  telegramBot = require('./src/telegram-bot');
+  notifier = require('./src/notifier');
 
   // Bridge EventBus -> Logger & EventLogger per tracciamento eventi chiave
   const BRIDGED_EVENTS = new Set([
@@ -1681,11 +1837,17 @@ async function bootstrap() {
     pantumPrinter,
     volvoTripsSync,
     wallboxSync,
-    dolomitiBillsSync
+    dolomitiBillsSync,
+    telegramBot,
+    webPushManager
   }).catch((err) => console.warn('⚠️ [ServiceStatus] Init background:', err.message));
   merossEnergy.init();
   hueLocal.init();
   securitySystem.initHueSentinel(hueLocal, iliadboxClient);
+  webPushManager.init().catch((err) => console.warn('⚠️ [WebPush] Init background:', err.message));
+  telegramBot.init({ go2rtc: require('./src/go2rtc-manager'), notifier }).catch((err) => console.warn('⚠️ [Telegram] Init background:', err.message));
+  notifier.init({ telegramBot, webPushManager }).catch((err) => console.warn('⚠️ [Notifier] Init background:', err.message));
+  securitySystem.initSentinel({ notifier, iliadboxClient }).catch((err) => console.warn('⚠️ [Sentinel] Init background:', err.message));
   pantumPrinter.init().catch((err) => console.warn('⚠️ [Pantum] Init background:', err.message));
   lgThinq.init().catch((err) => console.warn('⚠️ [LG ThinQ] Init background:', err.message));
   dysonPurifier.init().catch((err) => console.warn('⚠️ [Dyson HP11] Init background:', err.message));

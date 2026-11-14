@@ -187,6 +187,10 @@ class Go2RtcManager {
     this.start(cameras);
   }
 
+  getCameras() {
+    return Object.values(this._lastCameras || {});
+  }
+
   async captureSnapshotBuffer(cameraId, cameraName = '') {
     const streamKey = this.getStreamKey(cameraId, cameraName);
     const url = `http://127.0.0.1:${this.apiPort}/api/frame.jpeg?src=${encodeURIComponent(streamKey)}`;
