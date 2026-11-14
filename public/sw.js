@@ -26,8 +26,8 @@ self.addEventListener('push', (event) => {
 
   const options = {
     body: data.body,
-    icon: data.icon || '/img/icon-192.png',
-    badge: data.badge || '/img/icon-192.png',
+    ...(data.icon ? { icon: data.icon } : {}),
+    ...(data.badge ? { badge: data.badge } : {}),
     tag: data.tag,
     requireInteraction: Boolean(data.requireInteraction),
     data: {

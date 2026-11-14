@@ -1573,7 +1573,7 @@ class AdminManager {
             <div class="flex items-center justify-between">
               <span class="font-bold text-slate-200"><i class="fa-brands fa-telegram text-sky-400 mr-1.5"></i>Telegram Bot</span>
               <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${tg.polling ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}">
-                ${tg.polling ? `@${tg.botUsername || 'bot'} Attivo` : (tg.configured ? 'Configurato (Polling fermo)' : 'Non configurato')}
+                ${tg.polling ? `@${this.escapeHtml(tg.botUsername || 'bot')} Attivo` : (tg.configured ? 'Configurato (Polling fermo)' : 'Non configurato')}
               </span>
             </div>
             <div class="flex gap-2">
@@ -1638,8 +1638,8 @@ class AdminManager {
               ? '<span class="text-[11px] text-slate-500">Nessuna foto di riferimento caricata per Lucifero &amp; Camilla.</span>'
               : petRefs.map((r) => `
                   <span class="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-[11px] text-slate-200">
-                    🐾 <strong>${r.petName}</strong>
-                    <button onclick="window.adminManager.deletePetRef('${r.id}')" class="text-rose-400 hover:text-rose-300" title="Rimuovi"><i class="fa-solid fa-xmark"></i></button>
+                    🐾 <strong>${this.escapeHtml(r.petName)}</strong>
+                    <button onclick="window.adminManager.deletePetRef('${this.escapeHtml(r.id)}')" class="text-rose-400 hover:text-rose-300" title="Rimuovi"><i class="fa-solid fa-xmark"></i></button>
                   </span>
                 `).join('')
             }
@@ -1647,7 +1647,7 @@ class AdminManager {
         </div>
       `;
     } catch (err) {
-      container.innerHTML = `<span class="text-rose-400">Errore caricamento Hub Notifiche: ${err.message}</span>`;
+      container.innerHTML = `<span class="text-rose-400">Errore caricamento Hub Notifiche: ${this.escapeHtml(err.message)}</span>`;
     }
   }
 
@@ -1678,7 +1678,9 @@ class AdminManager {
       const box = document.getElementById('admin-tg-pairing-box');
       if (box) {
         box.classList.remove('hidden');
-        box.innerHTML = `Apri su Telegram: <a href="${data.url}" target="_blank" class="underline font-bold">${data.url}</a><br/>Oppure invia al bot: <code>${data.command}</code>`;
+        const safeUrl = this.escapeHtml(data.url || '');
+        const safeCmd = this.escapeHtml(data.command || '');
+        box.innerHTML = `Apri su Telegram: <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="underline font-bold">${safeUrl}</a><br/>Oppure invia al bot: <code>${safeCmd}</code>`;
       }
     } catch (err) {
       window.showToast?.(err.message, 'error');

@@ -497,7 +497,7 @@ test('Notifier (#35): routing severità, deduplicazione cooldown e mute categori
   assert.equal(r4.reason, 'category_disabled_or_muted');
 });
 
-test('WebPushManager (#35): generazione chiavi VAPID e gestione sottoscrizioni', () => {
+test('WebPushManager (#35): generazione chiavi VAPID e gestione sottoscrizioni', async () => {
   const { WebPushManager, generateNativeVapidKeys } = require('../src/web-push-manager');
   const keys = generateNativeVapidKeys();
   assert.ok(keys.publicKey && keys.publicKey.length > 40);
@@ -510,4 +510,53 @@ test('WebPushManager (#35): generazione chiavi VAPID e gestione sottoscrizioni',
   assert.equal(st.vapidReady, true);
   assert.equal(st.configured, true);
   assert.equal(st.publicKey, keys.publicKey);
+
+  // Salvataggio e rimozione sottoscrizione con meta.userAgent
+  const addRes = await mgr.addSubscription(
+    { endpoint: 'https://push.example/sub1', keys: { p256dh: 'a', auth: 'b' } },
+    { userAgent: 'Chrome Mobile' }
+  );
+  assert.equal(addRes.count, 1);
+  assert.equal(mgr.subscriptions[0].userAgent, 'Chrome Mobile');
+
+  const rmRes = await mgr.removeSubscription('https://push.example/sub1');
+  assert.equal(rmRes.count, 0);
+});
+
+test('TelegramBotManager & go2rtc (#35): escaping HTML, comando /auto Volvo EX30 e getCameras()', async () => {
+  const { TelegramBotManager } = require('../src/telegram-bot');
+  const go2rtc = require('../src/go2rtc-manager');
+
+  const bot = new TelegramBotManager();
+  assert.equal(bot._escapeHtml('<temp & "x">'), '&lt;temp &amp; "x"&gt;');
+
+  const sentPayloads = [];
+  bot.token = 'fake-token';
+  bot.allowedUsers = new Set(['12345']);
+  bot.sendMessage = async (text, opts = {}) => {
+    sentPayloads.push({ text, opts });
+    return { sent: 1 };
+  };
+
+  let forwardedText = null;
+  bot._forwardToAssistant = async (_chatId, text) => {
+    forwardedText = text;
+    return { handled: true };
+  };
+  await bot._handleSlashCommand('12345', '/auto');
+  assert.ok(forwardedText && forwardedText.includes('Volvo EX30'));
+  assert.ok(!forwardedText.includes('Kia EV3'));
+
+  // go2rtc.getCameras() restituisce array dalle telecamere registrate
+  const prevLast = go2rtc._lastCameras;
+  try {
+    go2rtc._lastCameras = { cam1: { id: 'cam1', name: 'Salone' } };
+    const cams = go2rtc.getCameras();
+    assert.ok(Array.isArray(cams));
+    assert.equal(cams.length, 1);
+    assert.equal(cams[0].name, 'Salone');
+  } finally {
+    go2rtc._lastCameras = prevLast;
+  }
+  assert.equal(sentPayloads.length, 0);
 });

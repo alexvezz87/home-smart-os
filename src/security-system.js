@@ -1493,7 +1493,7 @@ class SecuritySystem {
     if (!fs.existsSync(PET_REF_DIR)) {
       fs.mkdirSync(PET_REF_DIR, { recursive: true });
     }
-    const cleanB64 = String(base64Data).replace(/^data:image\/\w+;base64,/, '');
+    const cleanB64 = String(base64Data).replace(/^data:image\/[^;]+;base64,/, '');
     const id = `${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '')}-${Date.now()}`;
     const ext = mimeType.includes('png') ? 'png' : 'jpg';
     const filePath = path.join(PET_REF_DIR, `${id}.${ext}`);
@@ -1560,8 +1560,10 @@ class SecuritySystem {
       }
     }
 
-    const cams = go2rtc.getCameras ? go2rtc.getCameras() : (this.cameras || []);
-    if (!cams || cams.length === 0) {
+    const go2rtcCams = typeof go2rtc.getCameras === 'function' ? go2rtc.getCameras() : [];
+    const rawCams = Array.isArray(go2rtcCams) && go2rtcCams.length > 0 ? go2rtcCams : this.cameras;
+    const cams = Array.isArray(rawCams) ? rawCams : Object.values(rawCams || {});
+    if (cams.length === 0) {
       return { skipped: true, reason: 'no_cameras' };
     }
 

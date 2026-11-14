@@ -33,6 +33,13 @@ class TelegramBotManager {
     return Boolean(process.env.ENCRYPTION_KEY);
   }
 
+  _escapeHtml(text) {
+    return String(text ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
   async init(deps = {}) {
     this.deps = deps;
     await this.reloadConfig();
@@ -89,10 +96,15 @@ class TelegramBotManager {
   async setToken(newToken) {
     const cleaned = String(newToken || '').trim();
     if (!cleaned) throw new Error('Token Telegram non valido');
+    const prevToken = this.token;
+    const prevBotUsername = this.botUsername;
     this.token = cleaned;
     this.stopPolling();
     const ok = await this.verifyBot();
     if (!ok) {
+      this.token = prevToken;
+      this.botUsername = prevBotUsername;
+      if (prevToken) this.startPolling();
       throw new Error(this.lastError || 'Verifica getMe Telegram fallita');
     }
     await this._persistConfig({ token: cleaned, botUsername: this.botUsername });
@@ -215,15 +227,18 @@ class TelegramBotManager {
 
     if (targets.length === 0) return { sent: 0, reason: 'no_allowed_users' };
 
+    const parseMode = options.parseMode === undefined ? 'HTML' : options.parseMode;
     let sent = 0;
     for (const chatId of targets) {
       try {
         const payload = {
           chat_id: chatId,
           text: String(text || '').slice(0, 4096),
-          parse_mode: options.parseMode || 'HTML',
           disable_notification: Boolean(options.silent)
         };
+        if (parseMode) {
+          payload.parse_mode = parseMode;
+        }
         if (options.replyMarkup) {
           payload.reply_markup = options.replyMarkup;
         }
@@ -395,11 +410,11 @@ class TelegramBotManager {
       }
 
       eventBus.publish('telegram:command', { chatId, text: cleanText, voice: true });
-      await this.sendMessage(`🎙️ <i>"${cleanText}"</i>`, { chatId, silent: true });
+      await this.sendMessage(`🎙️ <i>"${this._escapeHtml(cleanText)}"</i>`, { chatId, silent: true });
       return this._forwardToAssistant(chatId, cleanText);
     } catch (err) {
       logger.warn('Errore elaborazione vocale Telegram', { error: err.message }, 'telegram');
-      await this.sendMessage(`❌ Errore elaborazione vocale: ${err.message}`, { chatId });
+      await this.sendMessage(`❌ Errore elaborazione vocale: ${this._escapeHtml(err.message)}`, { chatId });
       return { handled: true, error: err.message };
     }
   }
@@ -431,7 +446,7 @@ class TelegramBotManager {
     const commandMap = {
       '/stato': 'Dammi uno stato sintetico completo della casa, presenza, clima e sicurezza',
       '/clima': 'Qual è lo stato attuale di temperatura e valvole termostatiche?',
-      '/auto': 'Qual è lo stato attuale della Kia EV3 e della wallbox?',
+      '/auto': 'Qual è lo stato attuale della Volvo EX30 e della wallbox?',
       '/spegni_tutto': 'Spegni tutte le luci di casa'
     };
 
@@ -450,17 +465,18 @@ class TelegramBotManager {
         await this.sendMessage('⚠️ Modulo telecamere non disponibile.', { chatId });
         return { handled: true };
       }
-      const cams = go2rtc.getCameras ? go2rtc.getCameras() : [];
+      const rawCams = typeof go2rtc.getCameras === 'function' ? go2rtc.getCameras() : [];
+      const cams = Array.isArray(rawCams) ? rawCams : Object.values(rawCams || {});
       const cam = cams.find((c) => `${c.id} ${c.name}`.toLowerCase().includes(hint)) || cams[0];
       if (!cam) {
-        await this.sendMessage(`⚠️ Nessuna telecamera trovata per "${hint}".`, { chatId });
+        await this.sendMessage(`⚠️ Nessuna telecamera trovata per "${this._escapeHtml(hint)}".`, { chatId });
         return { handled: true };
       }
       const buf = await go2rtc.captureSnapshotBuffer(cam.id, cam.name);
-      await this.sendPhoto(buf, `📷 <b>${cam.name}</b> — ${new Date().toLocaleTimeString('it-IT')}`, { chatId });
+      await this.sendPhoto(buf, `📷 <b>${this._escapeHtml(cam.name)}</b> — ${new Date().toLocaleTimeString('it-IT')}`, { chatId });
       return { handled: true };
     } catch (err) {
-      await this.sendMessage(`❌ Errore snapshot "${hint}": ${err.message}`, { chatId });
+      await this.sendMessage(`❌ Errore snapshot "${this._escapeHtml(hint)}": ${this._escapeHtml(err.message)}`, { chatId });
       return { handled: true, error: err.message };
     }
   }
@@ -470,11 +486,11 @@ class TelegramBotManager {
       const { processAssistantCommand } = require('./assistant');
       const result = await processAssistantCommand(text);
       const reply = (result && result.reply) ? result.reply : 'Comando elaborato.';
-      await this.sendMessage(reply, { chatId, parseMode: 'HTML' });
+      await this.sendMessage(reply, { chatId, parseMode: null });
       return { handled: true, reply };
     } catch (err) {
       logger.warn('Errore inoltro comando Telegram ad assistant', { error: err.message }, 'telegram');
-      await this.sendMessage(`❌ Errore esecuzione: ${err.message}`, { chatId });
+      await this.sendMessage(`❌ Errore esecuzione: ${this._escapeHtml(err.message)}`, { chatId });
       return { handled: true, error: err.message };
     }
   }
@@ -496,7 +512,7 @@ class TelegramBotManager {
         this.deps.notifier.muteCategory(category, 60 * 60 * 1000);
       }
       await this.answerCallbackQuery(cb.id, `Alert "${category}" silenziati per 1h`);
-      await this.sendMessage(`🔕 Notifiche <b>${category}</b> silenziate per 60 minuti.`, { chatId, silent: true });
+      await this.sendMessage(`🔕 Notifiche <b>${this._escapeHtml(category)}</b> silenziate per 60 minuti.`, { chatId, silent: true });
       return { handled: true };
     }
 

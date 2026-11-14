@@ -1327,8 +1327,10 @@ app.get('/api/push/vapid-public-key', (req, res) => {
 app.post('/api/push/subscribe', async (req, res) => {
   try {
     const { subscription, userAgent } = req.body || {};
-    const result = await webPushManager.addSubscription(subscription, userAgent || req.headers['user-agent'] || '');
-    res.json(result);
+    const result = await webPushManager.addSubscription(subscription, {
+      userAgent: userAgent || req.headers['user-agent'] || 'Browser'
+    });
+    res.json({ success: true, ...result });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
   }
@@ -1338,7 +1340,7 @@ app.post('/api/push/unsubscribe', async (req, res) => {
   try {
     const { endpoint } = req.body || {};
     const result = await webPushManager.removeSubscription(endpoint);
-    res.json(result);
+    res.json({ success: true, ...result });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
   }
