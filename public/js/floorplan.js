@@ -141,6 +141,46 @@ const ARCHITECTURAL_ROOMS = [
 ];
 
 class FloorplanEngine {
+  initRealtimeSse() {
+    if (this._sseSource || typeof EventSource === 'undefined') return;
+    try {
+      const es = new EventSource('/api/events/stream');
+      this._sseSource = es;
+
+      const updateSensorPin = (patch) => {
+        const pins = window.homeData?.spatial?.pins;
+        if (!Array.isArray(pins)) return;
+        const sensorPin = pins.find((x) => x.category === 'sensor' || x.pin === 8);
+        if (!sensorPin) return;
+        Object.assign(sensorPin, patch);
+        this.render();
+      };
+
+      es.addEventListener('sensor:motion', (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          updateSensorPin({ motion: Boolean(msg.data?.active) });
+        } catch (_) {}
+      });
+      es.addEventListener('sensor:temperature', (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.data?.temperature !== undefined) {
+            updateSensorPin({ temperature: msg.data.temperature });
+          }
+        } catch (_) {}
+      });
+      es.addEventListener('sensor:lux', (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.data?.lux !== undefined) {
+            updateSensorPin({ lux: msg.data.lux, dark: msg.data.dark });
+          }
+        } catch (_) {}
+      });
+    } catch (_) {}
+  }
+
   constructor() {
     this.selectedPin = 21;
     this.selectedRoom = null; // null = "Tutta la Casa" (nessuna stanza isolata)
@@ -158,6 +198,7 @@ class FloorplanEngine {
     // Philips Hue LAN Scenes & Dynamic Effects
     this.hueDynamicMode = false;
     this.loadHueScenes();
+    this.initRealtimeSse();
 
     // Pan & Zoom manuale di precisione (con pinch-to-zoom touchpad e pan protetto)
     this.panX = 0;
@@ -923,10 +964,18 @@ class FloorplanEngine {
         subBadge = 'TV';
       } else if (p.category === 'sensor') {
         iconGlyph = '&#xf09e;'; // fa-rss
-        iconColor = '#10b981';
-        fill = '#064e3b';
-        stroke = isSelected ? '#22d3ee' : '#34d399';
-        if (p.temperature) subBadge = `${p.temperature}°`;
+        if (p.motion) {
+          iconColor = '#34d399';
+          fill = '#065f46';
+          stroke = isSelected ? '#22d3ee' : '#10b981';
+          glowHtml = `<circle cx="${p.x}" cy="${p.y}" r="22" fill="none" stroke="#10b981" stroke-width="2" class="animate-ping" opacity="0.65" />`;
+          subBadge = 'MOV';
+        } else {
+          iconColor = '#10b981';
+          fill = '#064e3b';
+          stroke = isSelected ? '#22d3ee' : '#34d399';
+          if (p.temperature) subBadge = `${p.temperature}°`;
+        }
       } else if (p.category === 'climate') {
         if (p.isDyson) {
           iconGlyph = '&#xf863;'; // fa-fan

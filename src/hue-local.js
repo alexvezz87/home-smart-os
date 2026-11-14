@@ -1,9 +1,15 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const { EventEmitter } = require('events');
 const axios = require('axios');
 const eventLogger = require('./event-logger');
 const db = require('./db');
+
+let eventBus = null;
+try {
+  eventBus = require('./event-bus');
+} catch (_) {}
 
 const HUE_CONFIG_FILE = path.join(__dirname, '..', 'hue-config.json');
 
@@ -80,8 +86,10 @@ function getSceneFallbackColors(name) {
   return ['#ff9933', '#ffcc66'];
 }
 
-class HueLocalManager {
+class HueLocalManager extends EventEmitter {
   constructor() {
+    super();
+    this.setMaxListeners(30);
     this.bridgeIp = process.env.HUE_BRIDGE_IP || '192.168.1.18';
     this.apiKey = process.env.HUE_API_KEY || null;
     this.clientKey = null;
@@ -100,6 +108,30 @@ class HueLocalManager {
     this.pairingInterval = null;
     this.pollInterval = null;
     this.lastSyncAt = null;
+    this.lastSensorSyncAt = 0;
+
+    this.sseConnected = false;
+    this.sseReconnectAttempt = 0;
+    this.sseReconnectTimer = null;
+    this.sseRequest = null;
+
+    this.motionSensor = {
+      motionId: null,
+      lightLevelId: null,
+      temperatureId: null,
+      name: 'Sensore corridoio',
+      enabled: true,
+      sensitivity: 2,
+      motion: false,
+      motionChanged: null,
+      lightLevel: null,
+      lux: null,
+      dark: null,
+      daylight: null,
+      temperature: null,
+      temperatureChanged: null,
+      lastEventAt: null
+    };
 
     this.loadConfig();
     this.initV2Client();
@@ -185,6 +217,7 @@ class HueLocalManager {
       if (ok) {
         this.isPaired = true;
         this.startPolling();
+        this.startSseStream();
         return;
       } else {
         this.isPaired = false;
@@ -242,6 +275,7 @@ class HueLocalManager {
 
           await this.syncAll();
           this.startPolling();
+          this.startSseStream();
           return { paired: true, bridgeIp: this.bridgeIp };
         }
       }
@@ -322,6 +356,10 @@ class HueLocalManager {
         await this.syncScenes().catch(err => {
           console.warn('[Hue Local] Sincronizzazione scene v2 parziale:', err.message);
         });
+        if (Date.now() - this.lastSensorSyncAt > 30000) {
+          this.lastSensorSyncAt = Date.now();
+          await this.syncSensorsV2().catch(() => {});
+        }
       }
 
       this.lastSyncAt = Date.now();
@@ -931,18 +969,273 @@ class HueLocalManager {
     };
   }
 
+  static hueLightLevelToLux(lightLevel) {
+    if (lightLevel === null || lightLevel === undefined) return null;
+    const raw = Number(lightLevel);
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    return Math.round(Math.pow(10, (raw - 1) / 10000) * 10) / 10;
+  }
+
+  async syncSensorsV2() {
+    if (!this.v2Client) return false;
+    try {
+      const [motionRes, lightRes, tempRes, v1SensorsRes] = await Promise.all([
+        this.v2Client.get('/resource/motion').catch(() => ({ data: { data: [] } })),
+        this.v2Client.get('/resource/light_level').catch(() => ({ data: { data: [] } })),
+        this.v2Client.get('/resource/temperature').catch(() => ({ data: { data: [] } })),
+        axios.get(`http://${this.bridgeIp}/api/${this.apiKey}/sensors`, { timeout: 2500 }).catch(() => ({ data: {} }))
+      ]);
+
+      const motions = motionRes.data?.data || [];
+      const lights = lightRes.data?.data || [];
+      const temps = tempRes.data?.data || [];
+      const v1Sensors = v1SensorsRes.data || {};
+
+      const m = motions.find((x) => x.id_v1 === '/sensors/8') || motions[0];
+      if (m) {
+        this.motionSensor.motionId = m.id;
+        this.motionSensor.enabled = m.enabled !== false;
+        this.motionSensor.sensitivity = m.sensitivity?.sensitivity ?? this.motionSensor.sensitivity;
+        this.motionSensor.motion = Boolean(m.motion?.motion_report?.motion ?? m.motion?.motion);
+        this.motionSensor.motionChanged = m.motion?.motion_report?.changed || null;
+      }
+
+      const l = lights.find((x) => x.id_v1 === '/sensors/9') || lights[0];
+      if (l) {
+        this.motionSensor.lightLevelId = l.id;
+        const rawLevel = l.light?.light_level_report?.light_level ?? l.light?.light_level;
+        if (rawLevel !== undefined) {
+          this.motionSensor.lightLevel = rawLevel;
+          this.motionSensor.lux = HueLocalManager.hueLightLevelToLux(rawLevel);
+        }
+      }
+
+      const t = temps.find((x) => x.id_v1 === '/sensors/10') || temps[0];
+      if (t) {
+        this.motionSensor.temperatureId = t.id;
+        const tempVal = t.temperature?.temperature_report?.temperature ?? t.temperature?.temperature;
+        if (tempVal !== undefined) {
+          this.motionSensor.temperature = Math.round(Number(tempVal) * 10) / 10;
+          this.motionSensor.temperatureChanged = t.temperature?.temperature_report?.changed || null;
+        }
+      }
+
+      // Integra flag dark/daylight da v1 /sensors/9 se disponibili
+      if (v1Sensors['9']?.state) {
+        if (v1Sensors['9'].state.dark !== undefined) this.motionSensor.dark = Boolean(v1Sensors['9'].state.dark);
+        if (v1Sensors['9'].state.daylight !== undefined) this.motionSensor.daylight = Boolean(v1Sensors['9'].state.daylight);
+      } else if (this.motionSensor.lux !== null) {
+        this.motionSensor.dark = this.motionSensor.lux < 15;
+      }
+
+      return true;
+    } catch (err) {
+      console.warn('[Hue Local] Errore sync sensori v2:', err.message);
+      return false;
+    }
+  }
+
+  startSseStream() {
+    if (!this.bridgeIp || !this.apiKey) return;
+    if (this.sseRequest) {
+      try { this.sseRequest.destroy(); } catch (_) {}
+      this.sseRequest = null;
+    }
+    if (this.sseReconnectTimer) {
+      clearTimeout(this.sseReconnectTimer);
+      this.sseReconnectTimer = null;
+    }
+
+    const agent = new https.Agent({ rejectUnauthorized: false });
+    const req = https.request({
+      hostname: this.bridgeIp,
+      port: 443,
+      path: '/eventstream/clip/v2',
+      method: 'GET',
+      agent,
+      headers: {
+        'hue-application-key': this.apiKey,
+        'Accept': 'text/event-stream'
+      }
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        console.warn(`⚠️ [Hue SSE] Connessione rifiutata con HTTP ${res.statusCode}`);
+        this.sseConnected = false;
+        res.resume();
+        this.scheduleSseReconnect();
+        return;
+      }
+
+      this.sseConnected = true;
+      this.sseReconnectAttempt = 0;
+      console.log(`⚡ [Hue SSE] Stream push CLIP v2 connesso a ${this.bridgeIp}/eventstream/clip/v2`);
+
+      let buffer = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => {
+        buffer += chunk;
+        const frames = buffer.split(/\r?\n\r?\n/);
+        buffer = frames.pop() || '';
+        for (const frame of frames) {
+          const dataLines = frame
+            .split(/\r?\n/)
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.slice(5).trim());
+          if (dataLines.length === 0) continue;
+          try {
+            const events = JSON.parse(dataLines.join('\n'));
+            if (Array.isArray(events)) {
+              this.handleSseEvents(events);
+            }
+          } catch (_) {}
+        }
+      });
+
+      res.on('end', () => {
+        this.sseConnected = false;
+        console.warn('⚠️ [Hue SSE] Stream terminato dal Bridge. Riconnessione programmata...');
+        this.scheduleSseReconnect();
+      });
+    });
+
+    req.on('error', (err) => {
+      this.sseConnected = false;
+      console.warn(`⚠️ [Hue SSE] Errore stream (${err.message}). Riconnessione programmata...`);
+      this.scheduleSseReconnect();
+    });
+
+    req.end();
+    this.sseRequest = req;
+  }
+
+  scheduleSseReconnect() {
+    if (this.sseReconnectTimer) return;
+    const delayMs = Math.min(60000, 2000 * Math.pow(2, this.sseReconnectAttempt));
+    this.sseReconnectAttempt = Math.min(this.sseReconnectAttempt + 1, 5);
+    this.sseReconnectTimer = setTimeout(() => {
+      this.sseReconnectTimer = null;
+      this.startSseStream();
+    }, delayMs);
+    if (typeof this.sseReconnectTimer.unref === 'function') {
+      this.sseReconnectTimer.unref();
+    }
+  }
+
+  /**
+   * Elabora un array di eventi CLIP v2 ricevuti via SSE (/eventstream/clip/v2).
+   * Puro per i test unitari offline.
+   */
+  handleSseEvents(events = []) {
+    const nowIso = new Date().toISOString();
+    for (const evt of events) {
+      if (!evt || !Array.isArray(evt.data)) continue;
+      for (const item of evt.data) {
+        if (!item || !item.type) continue;
+
+        if (item.type === 'motion' && (!this.motionSensor.motionId || item.id === this.motionSensor.motionId || item.id_v1 === '/sensors/8')) {
+          const active = Boolean(item.motion?.motion_report?.motion ?? item.motion?.motion);
+          const changed = item.motion?.motion_report?.changed || nowIso;
+          this.motionSensor.motion = active;
+          this.motionSensor.motionChanged = changed;
+          this.motionSensor.lastEventAt = nowIso;
+
+          const payload = {
+            active,
+            changed,
+            sensorName: this.motionSensor.name,
+            dark: this.motionSensor.dark,
+            lux: this.motionSensor.lux
+          };
+          this.emit('motion', payload);
+          this.emit('sensor_update', { type: 'motion', ...this.motionSensor });
+          if (eventBus) {
+            eventBus.publish('sensor:motion', { ...payload, source: 'hue-sse' });
+          }
+        } else if (item.type === 'light_level' && (!this.motionSensor.lightLevelId || item.id === this.motionSensor.lightLevelId || item.id_v1 === '/sensors/9')) {
+          const rawLevel = item.light?.light_level_report?.light_level ?? item.light?.light_level;
+          if (rawLevel !== undefined) {
+            const lux = HueLocalManager.hueLightLevelToLux(rawLevel);
+            this.motionSensor.lightLevel = rawLevel;
+            this.motionSensor.lux = lux;
+            this.motionSensor.dark = lux !== null ? lux < 15 : this.motionSensor.dark;
+            this.motionSensor.lastEventAt = nowIso;
+            this.emit('sensor_update', { type: 'light_level', ...this.motionSensor });
+            if (eventBus) {
+              eventBus.publish('sensor:lux', {
+                lightLevel: rawLevel,
+                lux,
+                dark: this.motionSensor.dark,
+                source: 'hue-sse'
+              });
+            }
+          }
+        } else if (item.type === 'temperature' && (!this.motionSensor.temperatureId || item.id === this.motionSensor.temperatureId || item.id_v1 === '/sensors/10')) {
+          const tempVal = item.temperature?.temperature_report?.temperature ?? item.temperature?.temperature;
+          if (tempVal !== undefined) {
+            const rounded = Math.round(Number(tempVal) * 10) / 10;
+            this.motionSensor.temperature = rounded;
+            this.motionSensor.temperatureChanged = item.temperature?.temperature_report?.changed || nowIso;
+            this.motionSensor.lastEventAt = nowIso;
+            this.emit('sensor_update', { type: 'temperature', ...this.motionSensor });
+            if (eventBus) {
+              eventBus.publish('sensor:temperature', {
+                room: 'Corridoio',
+                temperature: rounded,
+                sensorName: this.motionSensor.name,
+                source: 'hue-sse'
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  async setMotionSensorConfig({ enabled, sensitivity } = {}) {
+    if (!this.v2Client) {
+      throw new Error('Bridge Hue v2 non configurato');
+    }
+    if (!this.motionSensor.motionId) {
+      await this.syncSensorsV2();
+    }
+    if (!this.motionSensor.motionId) {
+      throw new Error('Sensore di movimento Hue non trovato');
+    }
+
+    const body = {};
+    if (enabled !== undefined) {
+      body.enabled = Boolean(enabled);
+    }
+    if (sensitivity !== undefined) {
+      const clamped = Math.max(0, Math.min(4, Math.round(Number(sensitivity))));
+      body.sensitivity = { sensitivity: clamped };
+    }
+
+    await this.v2Client.put(`/resource/motion/${this.motionSensor.motionId}`, body);
+    if (body.enabled !== undefined) this.motionSensor.enabled = body.enabled;
+    if (body.sensitivity) this.motionSensor.sensitivity = body.sensitivity.sensitivity;
+
+    eventLogger.log('hue_sensor', `Configurazione Sensore Corridoio aggiornata (enabled=${this.motionSensor.enabled}, sensitivity=${this.motionSensor.sensitivity})`);
+    return { success: true, sensor: { ...this.motionSensor } };
+  }
+
   getStatus() {
     return {
       bridgeIp: this.bridgeIp,
       isPaired: this.isPaired,
+      connected: this.isPaired,
       v2Ready: Boolean(this.v2Client),
+      sseConnected: this.sseConnected,
       lightsCount: Object.keys(this.lightsById).length,
       groupsCount: Object.keys(this.groupsByName).length,
       scenesCount: this.scenes.length,
       roomsList: Object.keys(this.scenesByGroup),
+      motionSensor: { ...this.motionSensor },
       lastSyncAt: this.lastSyncAt
     };
   }
 }
 
-module.exports = new HueLocalManager();
+const hueLocal = new HueLocalManager();
+hueLocal.HueLocalManager = HueLocalManager;
+module.exports = hueLocal;

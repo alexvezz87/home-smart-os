@@ -257,6 +257,37 @@ app.get('/api/hue/status', (req, res) => {
   res.json({ success: true, data: hueLocal.getStatus() });
 });
 
+app.get('/api/hue/sensor', (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      sseConnected: hueLocal.sseConnected,
+      sensor: hueLocal.motionSensor,
+      nightTrail: spatialEngine.getNightTrailConfig()
+    }
+  });
+});
+
+app.post('/api/hue/sensor/config', async (req, res) => {
+  try {
+    const { enabled, sensitivity, nightTrailEnabled } = req.body || {};
+    let sensorResult = null;
+    if (enabled !== undefined || sensitivity !== undefined) {
+      sensorResult = await hueLocal.setMotionSensorConfig({ enabled, sensitivity });
+    }
+    const nightTrail = spatialEngine.setNightTrailConfig({ enabled: nightTrailEnabled });
+    res.json({
+      success: true,
+      data: {
+        sensor: sensorResult ? sensorResult.sensor : hueLocal.motionSensor,
+        nightTrail
+      }
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
 app.post('/api/hue/pair', async (req, res) => {
   try {
     const r = await hueLocal.tryPairOnce();
@@ -1243,6 +1274,38 @@ app.post('/api/vision/config', async (req, res) => {
 });
 
 // 1g-bis. Spina Dorsale EventBus, Presenza Iliadbox & AI Gateway
+app.get('/api/events/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  const PUSH_EVENTS = new Set([
+    'sensor:motion',
+    'sensor:temperature',
+    'sensor:lux',
+    'presence:changed',
+    'ai:guardrail_blocked'
+  ]);
+
+  const onEvent = (evt) => {
+    if (!evt || !PUSH_EVENTS.has(evt.event)) return;
+    res.write(`event: ${evt.event}\ndata: ${JSON.stringify(evt)}\n\n`);
+  };
+
+  if (eventBus) eventBus.on('*', onEvent);
+  res.write(`event: connected\ndata: ${JSON.stringify({ ok: true, sseConnected: Boolean(hueLocal?.sseConnected) })}\n\n`);
+
+  const heartbeat = setInterval(() => {
+    res.write(': ping\n\n');
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    if (eventBus) eventBus.off('*', onEvent);
+  });
+});
+
 app.get('/api/events/recent', (req, res) => {
   const limit = Number(req.query.limit || 50);
   const eventFilter = req.query.event ? String(req.query.event) : null;
@@ -1584,6 +1647,7 @@ async function bootstrap() {
   }).catch((err) => console.warn('⚠️ [ServiceStatus] Init background:', err.message));
   merossEnergy.init();
   hueLocal.init();
+  securitySystem.initHueSentinel(hueLocal, iliadboxClient);
   pantumPrinter.init().catch((err) => console.warn('⚠️ [Pantum] Init background:', err.message));
   lgThinq.init().catch((err) => console.warn('⚠️ [LG ThinQ] Init background:', err.message));
   dysonPurifier.init().catch((err) => console.warn('⚠️ [Dyson HP11] Init background:', err.message));
