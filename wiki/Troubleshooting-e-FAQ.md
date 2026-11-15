@@ -56,3 +56,13 @@
 3. **Tablet Android datati (es. Asus Nexus 7) lenti o con pagina bianca**:
    - `public/js/legacy-kiosk.js` applica automaticamente i polyfill ES2019+ e la classe `legacy-kiosk` su Chrome `< 88` / Android `< 9`. È possibile forzarla manualmente aprendo `?kiosk=legacy` oppure impostando `localStorage.setItem('kiosk_legacy', '1')`.
 
+---
+
+## 🧪 Sviluppo Locale WAMP, Clone DB & Conflitti Telegram (`#71`)
+
+1. **Errore Telegram `409 Conflict` durante i test in locale (`staging`)**:
+   - In locale attiva `SANDBOX_MODE=dry_run` oppure spunta **"Disattiva Polling Telegram Locale (Anti-409)"** nella card *"🧪 Ambiente Duale Staging / WAMP Locale (`db_home_os_dev`) & Sandbox (#71)"* in Amministrazione.
+2. **Allineamento rapido WAMP `db_home_os_dev` con i dati di produzione**:
+   - Avvia WAMP MySQL (`127.0.0.1:3306`) e lancia `npm run db:clone-wamp` (oppure premi **"🔄 Clona Ora da TiDB Cloud a WAMP"** in Amministrazione).
+
+
