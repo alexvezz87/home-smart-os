@@ -184,6 +184,14 @@ Riorganizzata con un'architettura **modulare responsive**: su desktop/tablet ori
 - **Iniezione Dinamica AI & Assistente (`src/ai-orchestrator.js`, `src/assistant.js`)**: `_buildSystemPrompt` inietta dinamicamente il catalogo vivo Hue; `executeAction` supporta `activateHueScene`, `setHueLightEffect` e `setHueColorOrBrightness`; `src/assistant.js` risolve localmente frasi emotive e regolazioni colore/Kelvin/luminosità.
 - **Telegram & Google Fulfillment (`src/telegram-bot.js`, `server.js`)**: fix unwrap `transcript.text` in `_handleVoiceMessage`, comandi `/scene` (con tastiera inline `hue_scene:` / `hue_effect:`) e `/scena <argomenti>`; nuovi endpoint `GET /api/hue/voice-catalog`, `POST /api/hue/color` e `POST /api/google/fulfillment` (`action.devices.SYNC` e `ActivateScene`).
 
+---
+
+## 🔊 12. Integrazione Bidirezionale Google Home & Google Nest (`#14`)
+- **Webhook Fulfillment & OAuth2 (`src/google-fulfillment.js`)**: Account Linking OAuth2 interno (`handleOAuthAuthorize`, `handleOAuthToken`, `verifyWebhookToken` con persistenza cifrata TiDB `google-home-oauth`) e gestione intent Google Smart Home (`SYNC`, `QUERY`, `EXECUTE`, `DISCONNECT`) per esporre le 9 zone Bosch CT200 (`THERMOSTAT`), Bosch DHW Boost (`WATERHEATER`), Volvo EX30 (`AC_UNIT` + `EnergyStorage`), Wallbox ABB (`CHARGER` + `EnergyStorage`), Telecamere Tapo/Baby Monitor (`CAMERA` + `CameraStream`) e Scene Philips Hue (`SCENE`) con guardrail `aiGateway.validateHardwareAction`.
+- **Nest Caster, Jingle Pre-Roll & Follow-Me (`src/nest-caster.js`)**: generazione automatica asset audio (`chime.wav`, `chime.mp3`, `soft_bell.wav`, `modern_reel.wav` in `public/sounds/`) e upload custom base64; routing intelligente **Follow-Me** su movimenti recenti Sensore Corridoio Hue (`#40`) e telecamere (ultimi 15 min) con protezione sonno Cameretta Francesco; helper SSML `<speak><audio .../><break time="380ms"/>...</speak>` e diffusione via `securitySystem.announceToNest`.
+- **Pannello Amministrazione (`public/js/admin.js`, `server.js`)**: card *"🔊 Google Nest & Smart Home Fulfillment (#14)"* per configurazione IP statici Nest, jingle pre-roll, Follow-Me e test vocale immediato (`GET/POST /api/nest/config`, `POST /api/nest/speak`).
+
+
 
 
 

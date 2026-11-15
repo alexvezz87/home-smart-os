@@ -32,6 +32,8 @@ process.on('unhandledRejection', (reason) => {
 let mcp = null;
 let processAssistantCommand = null;
 let aiOrchestrator = null;
+let googleFulfillment = null;
+let nestCaster = null;
 let eventLogger = null;
 let merossEnergy = null;
 let securitySystem = null;
@@ -236,6 +238,34 @@ app.post('/api/ev-climate/bosch/oauth-callback', async (req, res) => {
   }
 });
 
+// OAuth2 Account Linking & Smart Home Fulfillment Webhook per Google Home / Nest (#14)
+app.get('/api/google/oauth/authorize', (req, res) => {
+  const gf = googleFulfillment || require('./src/google-fulfillment');
+  return gf.handleOAuthAuthorize(req, res);
+});
+
+app.post('/api/google/oauth/token', async (req, res) => {
+  try {
+    const gf = googleFulfillment || require('./src/google-fulfillment');
+    return await gf.handleOAuthToken(req, res);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/google/fulfillment', async (req, res) => {
+  try {
+    const gf = googleFulfillment || require('./src/google-fulfillment');
+    if (!gf.verifyWebhookToken(req)) {
+      return res.status(401).json({ error: 'Unauthorized Google Smart Home Webhook' });
+    }
+    const result = await gf.handleFulfillment(req.body || {});
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 // Protezione obbligatoria per tutte le altre API (/api/*)
 app.use(auth.middleware());
 
@@ -391,52 +421,6 @@ app.post('/api/hue/color', async (req, res) => {
     res.json({ success: true, data: result });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
-  }
-});
-
-// Google Home Smart Home Fulfillment (SYNC & ActivateScene per Scene Hue)
-app.post('/api/google/fulfillment', async (req, res) => {
-  try {
-    const { requestId, inputs = [] } = req.body || {};
-    const firstInput = inputs[0] || {};
-    const intent = firstInput.intent;
-
-    if (intent === 'action.devices.SYNC') {
-      return res.json({
-        requestId,
-        payload: {
-          agentUserId: 'home-smart-os-user',
-          devices: hueLocal.getGoogleHomeSceneDevices()
-        }
-      });
-    }
-
-    if (intent === 'action.devices.EXECUTE') {
-      const commands = firstInput.payload?.commands || [];
-      const commandResults = [];
-      for (const cmd of commands) {
-        const devices = cmd.devices || [];
-        const execution = cmd.execution || [];
-        const activateExec = execution.find((e) => e.command === 'action.devices.commands.ActivateScene');
-        if (activateExec) {
-          const ids = [];
-          for (const dev of devices) {
-            const rawId = String(dev.id || '');
-            const sceneId = rawId.startsWith('hue_scene_') ? rawId.slice('hue_scene_'.length) : rawId;
-            try {
-              await hueLocal.activateScene(sceneId);
-              ids.push(rawId);
-            } catch (_) {}
-          }
-          commandResults.push({ ids, status: ids.length ? 'SUCCESS' : 'ERROR', states: { online: true } });
-        }
-      }
-      return res.json({ requestId, payload: { commands: commandResults } });
-    }
-
-    res.json({ requestId, payload: {} });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
 });
 
@@ -1822,6 +1806,37 @@ app.post('/api/system/nest-announce', async (req, res) => {
   }
 });
 
+// Configurazione & Test Nest Caster (Jingle Pre-Roll & Follow-Me) (#14)
+app.get('/api/nest/config', (req, res) => {
+  try {
+    res.json({ success: true, data: nestCaster.getConfig() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/nest/config', async (req, res) => {
+  try {
+    const updated = await nestCaster.updateConfig(req.body || {});
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/nest/speak', async (req, res) => {
+  try {
+    const { text, roomName, followMe, playChime, lang } = req.body || {};
+    const result = await nestCaster.speak(text, { roomName, followMe, playChime, lang });
+    if (result && result.blocked) {
+      return res.status(429).json({ success: false, ...result });
+    }
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 app.get('/api/admin/logs', async (req, res) => {
   try {
     const level = String(req.query.level || 'all');
@@ -2051,6 +2066,8 @@ async function bootstrap() {
   mcp = require('./src/google-home-mcp');
   ({ processAssistantCommand } = require('./src/assistant'));
   aiOrchestrator = require('./src/ai-orchestrator');
+  googleFulfillment = require('./src/google-fulfillment');
+  nestCaster = require('./src/nest-caster');
   eventLogger = require('./src/event-logger');
   merossEnergy = require('./src/meross-energy');
   securitySystem = require('./src/security-system');

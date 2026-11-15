@@ -1615,6 +1615,25 @@ class AdminManager {
           </div>
         </div>
 
+        <!-- 5. GOOGLE NEST & SMART HOME FULFILLMENT (#14) -->
+        <div class="p-4 rounded-xl bg-slate-900/80 border border-indigo-500/30 space-y-4">
+          <div class="flex items-center justify-between flex-wrap gap-3">
+            <div class="flex items-center gap-2.5">
+              <i class="fa-solid fa-volume-high text-indigo-400 text-lg"></i>
+              <div>
+                <h4 class="text-sm font-bold text-white">🔊 Google Nest &amp; Smart Home Fulfillment (#14)</h4>
+                <p class="text-[11px] text-slate-400">Webhook Google Home, IP statici speaker Nest, Jingle Pre-Roll e Follow-Me</p>
+              </div>
+            </div>
+            <button onclick="window.adminManager.testNestSpeak()" class="px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 text-xs font-semibold transition-all">
+              <i class="fa-solid fa-play mr-1"></i>🔊 Testa Jingle + Voce Gemini
+            </button>
+          </div>
+          <div id="admin-nest-fulfillment-container" class="text-xs text-slate-400">
+            Caricamento configurazione Google Nest...
+          </div>
+        </div>
+
       </div>
     `;
   }
@@ -1712,8 +1731,137 @@ class AdminManager {
           </div>
         </div>
       `;
+      this.loadNestFulfillmentPanel();
     } catch (err) {
       container.innerHTML = `<span class="text-rose-400">Errore caricamento Hub Notifiche: ${this.escapeHtml(err.message)}</span>`;
+    }
+  }
+
+  async loadNestFulfillmentPanel() {
+    const container = document.getElementById('admin-nest-fulfillment-container');
+    if (!container) return;
+    try {
+      const res = await fetch('/api/nest/config');
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'Errore caricamento Nest');
+      const cfg = json.data || {};
+      const ips = cfg.nestIps || {};
+      const chimes = cfg.availableChimes || ['chime.wav', 'soft_bell.wav', 'modern_reel.wav'];
+
+      container.innerHTML = `
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2.5">
+            <div class="text-[11px] font-bold text-slate-200">Endpoint Webhook Fulfillment</div>
+            <code class="block px-2.5 py-1.5 rounded bg-slate-900 border border-slate-800 text-[11px] text-indigo-300">${this.escapeHtml(window.location.origin + (cfg.webhookUrl || '/api/google/fulfillment'))}</code>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+              <label class="block">
+                <span class="text-[10px] text-slate-400">Salone</span>
+                <input id="admin-nest-ip-salone" type="text" value="${this.escapeHtml(ips['Salone'] || '')}" placeholder="192.168.1.50" class="w-full mt-0.5 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-xs text-white" />
+              </label>
+              <label class="block">
+                <span class="text-[10px] text-slate-400">Camera da letto</span>
+                <input id="admin-nest-ip-camera" type="text" value="${this.escapeHtml(ips['Camera da letto'] || '')}" placeholder="192.168.1.66" class="w-full mt-0.5 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-xs text-white" />
+              </label>
+              <label class="block">
+                <span class="text-[10px] text-slate-400">Cucina</span>
+                <input id="admin-nest-ip-cucina" type="text" value="${this.escapeHtml(ips['Cucina'] || '')}" placeholder="192.168.1.51" class="w-full mt-0.5 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-xs text-white" />
+              </label>
+            </div>
+          </div>
+
+          <div class="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2.5">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <label class="block">
+                <span class="text-[10px] text-slate-400">Jingle Pre-Roll</span>
+                <select id="admin-nest-chime" class="w-full mt-0.5 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-xs text-white">
+                  ${chimes.map((c) => {
+                    const base = c.replace(/\.(wav|mp3)$/i, '');
+                    const sel = cfg.chimePreset === base || cfg.chimePreset === c ? 'selected' : '';
+                    return `<option value="${this.escapeHtml(base)}" ${sel}>${this.escapeHtml(c)}</option>`;
+                  }).join('')}
+                </select>
+              </label>
+              <label class="block">
+                <span class="text-[10px] text-slate-400">Carica Jingle Custom (.wav/.mp3)</span>
+                <input id="admin-nest-chime-file" type="file" accept=".wav,.mp3,audio/*" class="w-full mt-1 text-[10px] text-slate-300" />
+              </label>
+            </div>
+            <div class="flex flex-wrap items-center gap-4 pt-1">
+              <label class="inline-flex items-center gap-1.5 text-xs text-slate-200 cursor-pointer">
+                <input id="admin-nest-followme" type="checkbox" ${cfg.followMeEnabled !== false ? 'checked' : ''} class="rounded border-slate-600 bg-slate-900" />
+                <span>Follow-Me attivo</span>
+              </label>
+              <label class="inline-flex items-center gap-1.5 text-xs text-slate-200 cursor-pointer">
+                <input id="admin-nest-babysleep" type="checkbox" ${cfg.respectBabySleep !== false ? 'checked' : ''} class="rounded border-slate-600 bg-slate-900" />
+                <span>Protezione Sonno Cameretta</span>
+              </label>
+              <button onclick="window.adminManager.saveNestFulfillmentConfig()" class="ml-auto px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold">
+                Salva Nest
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    } catch (err) {
+      container.innerHTML = `<span class="text-rose-400">Errore Nest: ${this.escapeHtml(err.message)}</span>`;
+    }
+  }
+
+  async saveNestFulfillmentConfig() {
+    const nestIps = {};
+    const sIp = document.getElementById('admin-nest-ip-salone')?.value.trim();
+    const caIp = document.getElementById('admin-nest-ip-camera')?.value.trim();
+    const cuIp = document.getElementById('admin-nest-ip-cucina')?.value.trim();
+    if (sIp) nestIps['Salone'] = sIp;
+    if (caIp) nestIps['Camera da letto'] = caIp;
+    if (cuIp) nestIps['Cucina'] = cuIp;
+
+    const payload = {
+      nestIps,
+      chimePreset: document.getElementById('admin-nest-chime')?.value || 'chime',
+      followMeEnabled: Boolean(document.getElementById('admin-nest-followme')?.checked),
+      respectBabySleep: Boolean(document.getElementById('admin-nest-babysleep')?.checked)
+    };
+
+    const fileInput = document.getElementById('admin-nest-chime-file');
+    const file = fileInput?.files?.[0];
+    if (file) {
+      payload.customChimeName = file.name;
+      payload.customChimeBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    try {
+      const res = await fetch('/api/nest/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'Errore salvataggio');
+      window.showToast?.('Configurazione Google Nest salvata', 'success');
+      this.loadNestFulfillmentPanel();
+    } catch (err) {
+      window.showToast?.('Errore: ' + err.message, 'error');
+    }
+  }
+
+  async testNestSpeak() {
+    try {
+      const res = await fetch('/api/nest/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'Sistema Home Smart OS pronto. Jingle e sintesi vocale operativi.' })
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || json.reason || 'Errore test vocale');
+      window.showToast?.(`Annuncio inviato a ${json.data?.targetRoom || 'Nest'}`, 'success');
+    } catch (err) {
+      window.showToast?.('Errore test vocale: ' + err.message, 'error');
     }
   }
 

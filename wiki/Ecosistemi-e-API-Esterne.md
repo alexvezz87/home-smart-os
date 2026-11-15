@@ -113,3 +113,7 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 
 ### Controllo Vocale Scene & Luci Philips Hue (`#39`)
 - **Endpoint**: `GET /api/hue/voice-catalog` (stanze, scene, luci, effetti live), `POST /api/hue/color` (colore `colorName`/`hex`, temperatura `kelvin` e `brightness`) e `POST /api/google/fulfillment` (Google Home Smart Home `SYNC` per `action.devices.types.SCENE` e `EXECUTE` `ActivateScene`).
+
+### Google Smart Home Actions & Nest Caster (`#14`)
+- **OAuth2 & Webhook**: `GET /api/google/oauth/authorize`, `POST /api/google/oauth/token` (Account Linking TiDB `google-home-oauth`) e `POST /api/google/fulfillment` (`SYNC`, `QUERY`, `EXECUTE`, `DISCONNECT` per Bosch, Volvo EX30, Wallbox ABB, Telecamere e Scene Hue).
+- **Nest Caster**: `GET/POST /api/nest/config` (IP statici, preset jingle, Follow-Me, protezione sonno) e `POST /api/nest/speak` (Pre-Roll + TTS).
