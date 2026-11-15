@@ -99,8 +99,17 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ============================================================================
-// Endpoint Pubblici di Autenticazione (/api/auth/*)
+// Endpoint Pubblici di Autenticazione (/api/auth/*) & Healthcheck Docker
 // ============================================================================
+
+app.get(['/api/status/health', '/healthz'], (req, res) => {
+  res.json({
+    ok: true,
+    service: 'home-smart-os',
+    uptimeSec: Math.round(process.uptime()),
+    timestamp: new Date().toISOString()
+  });
+});
 
 // Stato autenticazione sessione corrente
 app.get(['/api/auth/status', '/api/auth/me'], (req, res) => {
