@@ -160,7 +160,11 @@ class NestCaster {
     const candidates = [];
 
     // 1. Sensore Corridoio Hue (#40)
-    const hueLast = this.hueLocal?.motionSensor?.lastMotionAt || this.hueLocal?.motionSensor?.lastUpdated;
+    const hueLast =
+      this.hueLocal?.motionSensor?.motionChanged ||
+      this.hueLocal?.motionSensor?.lastEventAt ||
+      this.hueLocal?.motionSensor?.lastMotionAt ||
+      this.hueLocal?.motionSensor?.lastUpdated;
     if (hueLast) {
       const ts = new Date(hueLast).getTime();
       if (Number.isFinite(ts) && now - ts <= maxAgeMs) {
@@ -196,7 +200,7 @@ class NestCaster {
       throw new Error('Testo da pronunciare mancante');
     }
 
-    const guard = this.aiGateway.validateHardwareAction({ action: 'tts:announce', roomName });
+    const guard = this.aiGateway.validateHardwareAction({ action: 'tts:announce', roomName, text: cleanText });
     if (guard && guard.allowed === false) {
       return { success: false, blocked: true, reason: guard.reason || 'Annuncio TTS bloccato dal guardrail.' };
     }
@@ -225,7 +229,15 @@ class NestCaster {
     }
 
     const ssml = this.googleFulfillment.buildSsmlResponse(cleanText, { chimeUrl });
-    await this.securitySystem.announceToNest(cleanText, { roomName: targetRoom, lang });
+    const castRes = await this.securitySystem.announceToNest(cleanText, {
+      roomName: targetRoom,
+      lang,
+      skipGuardrail: true,
+      chimeUrl
+    });
+    if (castRes && castRes.blocked) {
+      return { success: false, blocked: true, reason: castRes.reason };
+    }
 
     return {
       success: true,

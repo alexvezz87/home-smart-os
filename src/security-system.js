@@ -376,16 +376,18 @@ class SecuritySystem {
     return this.nestHubIp;
   }
 
-  async announceToNest(text, { roomName = null, lang = 'it' } = {}) {
+  async announceToNest(text, { roomName = null, lang = 'it', skipGuardrail = false, chimeUrl = null } = {}) {
     const cleanText = String(text || '').trim().slice(0, 200);
     if (!cleanText) {
       throw new Error('Testo annuncio vuoto');
     }
-    const guard = typeof aiGateway.checkGuardrail === 'function'
-      ? aiGateway.checkGuardrail('tts:announce', { roomName })
-      : aiGateway.validateHardwareAction({ action: 'tts:announce', roomName });
-    if (guard && guard.allowed === false) {
-      return { success: false, blocked: true, reason: guard.reason || 'Annuncio TTS bloccato dal guardrail.' };
+    if (!skipGuardrail) {
+      const guard = typeof aiGateway.checkGuardrail === 'function'
+        ? aiGateway.checkGuardrail('tts:announce', { roomName, text: cleanText })
+        : aiGateway.validateHardwareAction({ action: 'tts:announce', roomName, text: cleanText });
+      if (guard && guard.allowed === false) {
+        return { success: false, blocked: true, reason: guard.reason || 'Annuncio TTS bloccato dal guardrail.' };
+      }
     }
 
     const targetIp = this.resolveNestIp(roomName);
@@ -397,7 +399,7 @@ class SecuritySystem {
       const timeout = setTimeout(() => {
         try { client.close(); } catch (_) {}
         reject(new Error(`Timeout connessione Cast verso ${targetIp}:8009`));
-      }, 8000);
+      }, 10000);
 
       client.on('error', (err) => {
         clearTimeout(timeout);
@@ -412,21 +414,32 @@ class SecuritySystem {
             try { client.close(); } catch (_) {}
             return reject(launchErr);
           }
-          player.load({ contentId: ttsUrl, contentType: 'audio/mp3', streamType: 'BUFFERED' }, { autoplay: true }, (loadErr) => {
-            clearTimeout(timeout);
-            if (loadErr) {
-              try { client.close(); } catch (_) {}
-              return reject(loadErr);
-            }
-            setTimeout(() => { try { client.close(); } catch (_) {} }, 1500);
-            resolve();
-          });
+          const loadTts = () => {
+            player.load({ contentId: ttsUrl, contentType: 'audio/mp3', streamType: 'BUFFERED' }, { autoplay: true }, (loadErr) => {
+              clearTimeout(timeout);
+              if (loadErr) {
+                try { client.close(); } catch (_) {}
+                return reject(loadErr);
+              }
+              setTimeout(() => { try { client.close(); } catch (_) {} }, 1500);
+              resolve();
+            });
+          };
+
+          if (chimeUrl) {
+            const chimeMime = String(chimeUrl).toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/mp3';
+            player.load({ contentId: chimeUrl, contentType: chimeMime, streamType: 'BUFFERED' }, { autoplay: true }, () => {
+              setTimeout(loadTts, 750);
+            });
+          } else {
+            loadTts();
+          }
         });
       });
     });
 
-    eventLogger.log('tts_announce', `Annuncio vocale su Nest (${targetIp}): "${cleanText}"`, { roomName, targetIp });
-    return { success: true, targetIp, roomName, text: cleanText };
+    eventLogger.log('tts_announce', `Annuncio vocale su Nest (${targetIp}): "${cleanText}"`, { roomName, targetIp, chimeUrl });
+    return { success: true, targetIp, roomName, text: cleanText, chimeUrl };
   }
 
   getLocalHostIp() {
