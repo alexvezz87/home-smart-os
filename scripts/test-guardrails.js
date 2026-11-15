@@ -797,6 +797,24 @@ test('GeminiVisionEngine (#34): RollingFrameBuffer, analyzeTemporalSequence e ca
     assert.deepEqual(res.structured.petsDetected, ['Camilla']);
     assert.equal(publishedEvents.length, 1);
     assert.equal(publishedEvents[0].data.cameraId, 'baby');
+
+    // 3. Verifica che sensor:motion su eventBus attivi captureRollingFrame per le telecamere non in privacy
+    const prevCaptureRolling = securitySystem.captureRollingFrame;
+    const firstCam = Object.values(securitySystem.cameras || {})[0];
+    const prevPrivacy = firstCam ? firstCam.privacyMode : false;
+    const capturedCamIds = [];
+    try {
+      if (firstCam) firstCam.privacyMode = false;
+      securitySystem.captureRollingFrame = async (camId) => {
+        capturedCamIds.push(camId);
+        return null;
+      };
+      eventBus.publish('sensor:motion', { motion: true, source: 'hue-sse' });
+      assert.ok(capturedCamIds.length >= 1);
+    } finally {
+      if (firstCam) firstCam.privacyMode = prevPrivacy;
+      securitySystem.captureRollingFrame = prevCaptureRolling;
+    }
   } finally {
     eventBus.removeListener('camera:temporal_analysis', onTemporalAnalysis);
     aiGateway.getApiKey = prevGetKey;

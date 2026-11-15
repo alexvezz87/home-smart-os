@@ -35,10 +35,15 @@ async function processAssistantCommand(input) {
     return { success: true, action: 'cast_camera', reply: result.message };
   }
 
-  // 0a-bis. Analisi visiva della scena con Gemini Vision ("Cosa succede in camera", "Guarda in salone", "Francesco dorme?", "Analizza la stanza")
+  // 0a-bis. Analisi visiva della scena con Gemini Vision ("Cosa succede in camera", "Guarda in salone", "Francesco dorme?", "Cosa sta facendo Francesco?", "Qualcuno si è mosso in salone?")
   const isVisionQuery = (
     text.includes('cosa sta succedendo') ||
     text.includes('cosa succede') ||
+    text.includes('cosa sta facendo') ||
+    text.includes('sta facendo francesco') ||
+    text.includes('si è mosso') ||
+    text.includes('si sta muovendo') ||
+    text.includes('analisi temporale') ||
     text.includes('guarda in') ||
     text.includes('analizza') ||
     text.includes('situazione in') ||

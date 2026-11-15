@@ -143,6 +143,7 @@ class SecuritySystem {
 
     this.loadConfig();
     this.loadExistingSnapshots();
+    this._bindRollingMotionListener();
 
     // Avvia go2rtc per WebRTC / MSE e Snapshot HD (saltato in ambiente test offline)
     const isTestRun = process.env.NODE_ENV === 'test' || process.argv.some((a) => a.includes('test-guardrails'));
@@ -1425,7 +1426,8 @@ class SecuritySystem {
 
     if (eventBus && !this._sentinelBusBound) {
       this._sentinelBusBound = true;
-      eventBus.on('presence:changed', (payload = {}) => {
+      eventBus.on('presence:changed', (evt = {}) => {
+        const payload = evt && evt.data ? evt.data : evt;
         if (payload.person === 'Casa') {
           if (payload.status === 'away') {
             this.startSentinelPatrol();
@@ -1434,7 +1436,8 @@ class SecuritySystem {
           }
         }
       });
-      eventBus.on('sensor:motion', (payload = {}) => {
+      eventBus.on('sensor:motion', (evt = {}) => {
+        const payload = evt && evt.data ? evt.data : evt;
         if (payload && payload.away === true && this._sentinelConfig.enabled) {
           this.runSentinelPatrol({ reason: 'motion_sse' }).catch(() => {});
         }
@@ -1610,11 +1613,14 @@ class SecuritySystem {
           { inlineData: { mimeType: 'image/jpeg', data: buf.toString('base64') } }
         ];
 
-        const analysis = await aiGateway.generateJSON({
+        const analysisResult = await aiGateway.generateJSON({
           role: 'fast',
           taskName: 'sentinel_vision',
           parts
         });
+        const analysis = (analysisResult && analysisResult.data && typeof analysisResult.data === 'object')
+          ? analysisResult.data
+          : analysisResult;
 
         results.push({ camera: cam.name, ...analysis });
 
@@ -1663,8 +1669,9 @@ class SecuritySystem {
     if (!eventBus || this._rollingMotionBound) return;
     this._rollingMotionBound = true;
     eventBus.on('sensor:motion', (evt = {}) => {
-      if (!evt || (!evt.active && !evt.motion)) return;
-      const cams = Array.isArray(this.cameras) ? this.cameras : [];
+      const payload = evt && evt.data ? evt.data : evt;
+      if (!payload || (!payload.active && !payload.motion)) return;
+      const cams = Array.isArray(this.cameras) ? this.cameras : Object.values(this.cameras || {});
       for (const cam of cams) {
         if (cam && !cam.privacyMode) {
           this.captureRollingFrame(cam.id).catch(() => {});
