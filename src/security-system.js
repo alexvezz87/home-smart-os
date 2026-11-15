@@ -54,10 +54,14 @@ class SecuritySystem {
       startedAt: null
     };
     this.nestHubIp = process.env.NEST_HUB_IP || '192.168.1.66';
-    this.nestIps = this._parseNestIpsEnv(process.env.NEST_IPS);
-    if (!this.nestIps['Camera da letto']) {
-      this.nestIps['Camera da letto'] = this.nestHubIp;
-    }
+    this.nestIps = {
+      Salone: '192.168.1.155',
+      'Camera da letto': this.nestHubIp,
+      Cucina: '192.168.1.104',
+      Cameretta: '192.168.1.40',
+      'Nest letto': '192.168.1.95',
+      ...this._parseNestIpsEnv(process.env.NEST_IPS)
+    };
 
     this.cameras = {
       'device@7a20d851-543b-4ae8-845c-edca07903c30': {
