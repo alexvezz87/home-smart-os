@@ -42,3 +42,17 @@
 ## 7. Osservabilità: Log Rotanti (`logs/`), Timestamp & Pagina "Stato Servizi"
 - **Timestamp Terminale & File Giornalieri**: Ogni riga di log console è prefissata con `[DD/MM/YYYY HH:mm:ss.SSS]` (fuso `Europe/Rome`) e salvata in `logs/home-os-YYYY-MM-DD.log` (tutti i livelli) e `logs/errors-YYYY-MM-DD.log` (`warn`/`error`/crash), con retention automatica di `14` giorni (`LOG_RETENTION_DAYS`) e redazione automatica di token/password/API key (`sanitizeForLog`). La cartella `logs/` è esclusa da Git.
 - **Diagnostica Rapida (`Stato Servizi`)**: La sezione **Stato Servizi** (`#area-status` nella sidebar sinistra, alimentata da `GET /api/system/status`) mostra lo stato di tutte le integrazioni (`Operativo`, `Degradato`, `Sloggato / Ricollega`, `Offline`), le 36 tacche storiche di uptime e la timeline degli incidenti recenti. I servizi in stato `auth_expired` mostrano un alert prioritario con collegamento diretto all'area **Amministrazione**.
+
+---
+
+## 🌐 Deploy VPS Always Free, WireGuard Iliadbox & Tablet Legacy (`#5`)
+
+1. **Guida rapida VPS + WireGuard Iliadbox (`2f824puh.ibxos.it`)**:
+   - In **Iliadbox OS -> VPN Server -> WireGuard**, attiva il server, crea un peer per la VPS e scarica il file `.conf` (impostando `AllowedIPs = 192.168.1.0/24` se vuoi instradare solo la LAN domestica).
+   - Imposta in DHCP statico sulla Iliadbox gli IP fissi di **Hue Bridge**, **Telecamere Tapo**, **Baby Monitor**, **Pantum** e **Google Nest** (es. `192.168.1.66` per Camera da letto), e configura il record `A` su **Netsons** per `home.alexsoluzioniweb.it` verso l'IP pubblico della VPS.
+   - Sulla VPS, copia `.env` (con `WG_LOCAL_IP` = IP dell'interfaccia `wg0` sulla VPS e `NEST_IPS`), quindi avvia `docker compose up -d`.
+2. **Annunci TTS o Cast su Google Nest non raggiungibili via VPN**:
+   - mDNS non attraversa i tunnel Layer-3 WireGuard: verifica la mappa IP statici con `GET /api/system/nest-ips` (o aggiornala con `POST /api/system/nest-ips`), assicurati che la porta TCP `8009` del Nest sia raggiungibile dalla VPS e testa con `POST /api/system/nest-announce`.
+3. **Tablet Android datati (es. Asus Nexus 7) lenti o con pagina bianca**:
+   - `public/js/legacy-kiosk.js` applica automaticamente i polyfill ES2019+ e la classe `legacy-kiosk` su Chrome `< 88` / Android `< 9`. È possibile forzarla manualmente aprendo `?kiosk=legacy` oppure impostando `localStorage.setItem('kiosk_legacy', '1')`.
+

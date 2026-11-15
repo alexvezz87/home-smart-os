@@ -1779,6 +1779,40 @@ app.get('/api/system/status', async (req, res) => {
   }
 });
 
+// 1g-quater. Configurazione IP Statici Google Nest (WireGuard Unicast) & Annunci TTS
+app.get('/api/system/nest-ips', (req, res) => {
+  try {
+    res.json({ success: true, data: securitySystem.getNestIps() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/system/nest-ips', async (req, res) => {
+  try {
+    const updated = await securitySystem.updateNestIps(req.body || {});
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/system/nest-announce', async (req, res) => {
+  try {
+    const { text, roomName, lang } = req.body || {};
+    if (!text) {
+      return res.status(400).json({ success: false, error: 'text obbligatorio' });
+    }
+    const result = await securitySystem.announceToNest(text, { roomName, lang });
+    if (result && result.blocked) {
+      return res.status(429).json({ success: false, ...result });
+    }
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 app.get('/api/admin/logs', async (req, res) => {
   try {
     const level = String(req.query.level || 'all');

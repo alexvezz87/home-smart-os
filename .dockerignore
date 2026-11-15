@@ -1,0 +1,16 @@
+.git
+.github
+node_modules
+.env*
+*-config.json
+*-token.json
+*-cache.json
+*.key
+*.crt
+bin/go2rtc.exe
+bin/go2rtc.yaml
+public/snapshots/*
+data/*
+logs/*
+tasks/*
+wiki/*

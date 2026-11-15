@@ -152,3 +152,23 @@ A partire dalla Feature #3, **Home Smart OS** include un layer di autenticazione
 - **Protezione WebSocket RTSP**: La connessione live per lo streaming delle telecamere Tapo (`/api/stream/:cameraId`) valida l'autenticazione prima di avviare il proxy video, terminando i socket non autorizzati con codice WS 1008.
 - **Anti-Brute Force**: Il modulo traccia i tentativi PIN errati per IP; dopo 5 errori consecutivi scatta il blocco temporaneo dell'indirizzo IP per 5 minuti (`HTTP 429 Too Many Requests`).
 - **Header di Sicurezza Web (`helmet`)**: Configurazione automatica degli header HTTP protettivi anti-XSS e clickjacking.
+
+---
+
+## 5. Architettura Deploy 24/7 VPS Always Free, Docker & WireGuard Iliadbox (`#5`)
+
+Per l'esecuzione continua a costo zero (€ 0,00/mese), il sistema supporta il deploy containerizzato su VPS Linux (`linux/amd64` Oracle/GCP `e2-micro` o `linux/arm64` Ampere) collegata alla LAN domestica tramite **WireGuard VPN Server della Iliadbox**:
+
+1. **Containerizzazione (`Dockerfile`, `docker-compose.yml`, `.dockerignore`)**:
+   - Immagine multi-arch su `node:20-bookworm-slim` con `ffmpeg` (`/usr/bin/ffmpeg`) e binario ufficiale `go2rtc` Linux (`/usr/local/bin/go2rtc`, selezionato automaticamente da `Go2RtcManager.getBinaryPath()`).
+   - Immagine pubblicata su `ghcr.io/alexvezz87/home-smart-os:latest` tramite GitHub Actions (`.github/workflows/docker-publish.yml`).
+2. **Reverse Proxy HTTPS (`Caddyfile`)**:
+   - Terminazione TLS automatica Let's Encrypt su `home.alexsoluzioniweb.it` (DNS Netsons `A` -> IP pubblico VPS).
+   - Direttiva `flush_interval -1` dedicata a `/api/events*` per streaming SSE in tempo reale senza buffering.
+3. **Tunnel WireGuard & Unicast Google Nest (`src/security-system.js`)**:
+   - Il server WireGuard della Iliadbox (`2f824puh.ibxos.it`)instrada il traffico verso la sottorete domestica `192.168.1.0/24` (Hue Bridge, Telecamere Tapo/ONVIF, Stampante Pantum, Google Nest).
+   - `WG_LOCAL_IP` / `HOST_LAN_IP` in `getLocalHostIp()` garantiscono che i flussi `castToNestHub` usino l'IP tunnel raggiungibile dal Nest Hub.
+   - La mappa `nestIps` (configurabile via `NEST_IPS`, `GET/POST /api/system/nest-ips` e TiDB `nest-ips-config`) abilita `announceToNest(text, { roomName, lang })` via `castv2-client` unicast TCP `:8009` senza dipendere da mDNS.
+4. **Compatibilità Tablet Kiosk Legacy (`public/js/legacy-kiosk.js`)**:
+   - Polyfill ES2019+ (`Object.fromEntries`, `Array.prototype.at`, `String.prototype.replaceAll`, `ResizeObserver`) e classe `legacy-kiosk` per disattivare `backdrop-filter` e animazioni pesanti su Chrome `< 88` / Android `< 9` (es. Asus Nexus 7).
+

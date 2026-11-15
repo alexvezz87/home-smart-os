@@ -1058,3 +1058,83 @@ test('Hue Voice Control (#39): catalogo dinamico, matching emotivo scene, colori
     aiGateway.generateText = prevGenText;
   }
 });
+
+test('Docker, Go2Rtc Multi-OS & WireGuard Nest Unicast (#5)', async () => {
+  const fs = require('fs');
+  const path = require('path');
+  const go2rtc = require('../src/go2rtc-manager');
+  const securitySystem = require('../src/security-system');
+  const db = require('../src/db');
+  const aiGateway = require('../src/ai-gateway');
+
+  // 1. go2rtc.getBinaryPath() con GO2RTC_BIN
+  const prevGo2rtcBin = process.env.GO2RTC_BIN;
+  try {
+    process.env.GO2RTC_BIN = '/usr/local/bin/go2rtc';
+    assert.equal(go2rtc.getBinaryPath(), '/usr/local/bin/go2rtc');
+    delete process.env.GO2RTC_BIN;
+    const defaultBin = go2rtc.getBinaryPath();
+    assert.ok(defaultBin.includes('go2rtc'));
+  } finally {
+    if (prevGo2rtcBin === undefined) delete process.env.GO2RTC_BIN;
+    else process.env.GO2RTC_BIN = prevGo2rtcBin;
+  }
+
+  // 2. securitySystem.getLocalHostIp() con WG_LOCAL_IP / HOST_LAN_IP
+  const prevWg = process.env.WG_LOCAL_IP;
+  const prevHostLan = process.env.HOST_LAN_IP;
+  try {
+    process.env.WG_LOCAL_IP = '10.8.0.2';
+    assert.equal(securitySystem.getLocalHostIp(), '10.8.0.2');
+    delete process.env.WG_LOCAL_IP;
+    process.env.HOST_LAN_IP = '192.168.1.146';
+    assert.equal(securitySystem.getLocalHostIp(), '192.168.1.146');
+  } finally {
+    if (prevWg === undefined) delete process.env.WG_LOCAL_IP;
+    else process.env.WG_LOCAL_IP = prevWg;
+    if (prevHostLan === undefined) delete process.env.HOST_LAN_IP;
+    else process.env.HOST_LAN_IP = prevHostLan;
+  }
+
+  // 3. Mappa IP Nest su WireGuard (parse, resolve, update + validazione IPv4)
+  const parsed = securitySystem._parseNestIpsEnv('Salone=192.168.1.50,Camera da letto=192.168.1.66');
+  assert.equal(parsed.Salone, '192.168.1.50');
+  assert.equal(parsed['Camera da letto'], '192.168.1.66');
+
+  const prevNestIps = securitySystem.getNestIps();
+  const prevDbSet = db.set;
+  try {
+    db.set = async () => true;
+    const updated = await securitySystem.updateNestIps({ Salone: '192.168.1.55' });
+    assert.equal(updated.Salone, '192.168.1.55');
+    assert.equal(securitySystem.resolveNestIp('salone'), '192.168.1.55');
+    await assert.rejects(() => securitySystem.updateNestIps({ Salone: '999.999.1.1' }), /IPv4 non valido/);
+  } finally {
+    db.set = prevDbSet;
+    securitySystem.nestIps = prevNestIps;
+  }
+
+  // 4. Guardrail tts:announce su announceToNest
+  const prevValidate = aiGateway.validateHardwareAction;
+  try {
+    aiGateway.validateHardwareAction = () => ({ allowed: false, reason: 'Cooldown TTS attivo' });
+    const blockedRes = await securitySystem.announceToNest('Ciao casa', { roomName: 'Salone' });
+    assert.equal(blockedRes.success, false);
+    assert.equal(blockedRes.blocked, true);
+  } finally {
+    aiGateway.validateHardwareAction = prevValidate;
+  }
+
+  // 5. Esistenza artefatti Docker, Caddy, CI e Legacy Kiosk
+  const root = path.join(__dirname, '..');
+  for (const rel of [
+    'Dockerfile',
+    '.dockerignore',
+    'docker-compose.yml',
+    'Caddyfile',
+    '.github/workflows/docker-publish.yml',
+    'public/js/legacy-kiosk.js'
+  ]) {
+    assert.ok(fs.existsSync(path.join(root, rel)), `Manca il file ${rel}`);
+  }
+});
