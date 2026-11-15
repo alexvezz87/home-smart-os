@@ -21,6 +21,58 @@ class DatabaseManager {
     this.pool = null;
     this.isInitialized = false;
     this.memoryCache = new Map();
+    this.forcedMode = null;
+    this.activeMode = null;
+    this.activeHost = null;
+    this.activePort = null;
+    this.activeDatabase = null;
+  }
+
+  _resolveDbConfig(overrideMode = null) {
+    const rawMode = String(
+      overrideMode ||
+      this.forcedMode ||
+      process.env.DB_MODE ||
+      (process.env.NODE_ENV === 'production' ? 'cloud' : 'local')
+    ).toLowerCase();
+    const isLocalHost = rawMode === 'local' ||
+      (rawMode !== 'cloud' && (process.env.DB_HOST === '127.0.0.1' || process.env.DB_HOST === 'localhost'));
+    const mode = isLocalHost ? 'local' : 'cloud';
+
+    if (mode === 'local') {
+      return {
+        mode: 'local',
+        host: process.env.LOCAL_DB_HOST || '127.0.0.1',
+        port: Number(process.env.LOCAL_DB_PORT || 3306),
+        user: process.env.LOCAL_DB_USER || 'root',
+        password: process.env.LOCAL_DB_PASSWORD || '',
+        database: process.env.LOCAL_DB_NAME || 'db_home_os_dev',
+        ssl: undefined
+      };
+    }
+
+    return {
+      mode: 'cloud',
+      host: process.env.DB_HOST,
+      port: Number(process.env.DB_PORT || 4000),
+      user: process.env.DB_USERNAME,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_DATABASE || 'db_home_os',
+      ssl: {
+        rejectUnauthorized: true,
+        minVersion: 'TLSv1.2'
+      }
+    };
+  }
+
+  getConnectionInfo() {
+    return {
+      activeMode: this.activeMode || this._resolveDbConfig().mode,
+      host: this.activeHost,
+      port: this.activePort,
+      database: this.activeDatabase,
+      isInitialized: this.isInitialized
+    };
   }
 
   /**
@@ -87,53 +139,100 @@ class DatabaseManager {
   /**
    * Inizializza il pool MySQL/TiDB, crea le tabelle ed esegue il seed/idratazione
    */
-  async initDb() {
-    const host = process.env.DB_HOST;
-    const port = Number(process.env.DB_PORT || 4000);
-    const user = process.env.DB_USERNAME;
-    const password = process.env.DB_PASSWORD;
-    const database = process.env.DB_DATABASE || 'db_home_os';
+  async initDb(overrideMode = null) {
+    let cfg = this._resolveDbConfig(overrideMode);
 
-    if (!host || !user) {
+    if (cfg.mode === 'cloud' && (!cfg.host || !cfg.user)) {
       console.warn('[TiDB DB] Credenziali DB_HOST o DB_USERNAME non configurate in .env. Modalità fallback locale attiva.');
       return false;
     }
 
-    try {
-      this.pool = mysql.createPool({
-        host,
-        port,
-        user,
-        password,
-        database,
-        ssl: {
-          rejectUnauthorized: true,
-          minVersion: 'TLSv1.2'
-        },
+    const tryConnect = async (c) => {
+      if (c.mode === 'local') {
+        const bootstrapConn = await mysql.createConnection({
+          host: c.host,
+          port: c.port,
+          user: c.user,
+          password: c.password
+        });
+        await bootstrapConn.query(
+          `CREATE DATABASE IF NOT EXISTS \`${c.database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+        );
+        await bootstrapConn.end();
+      }
+
+      const poolOpts = {
+        host: c.host,
+        port: c.port,
+        user: c.user,
+        password: c.password,
+        database: c.database,
         waitForConnections: true,
         connectionLimit: 10,
         queueLimit: 0,
         enableKeepAlive: true,
         keepAliveInitialDelay: 10000
-      });
+      };
+      if (c.ssl) poolOpts.ssl = c.ssl;
 
-      // Test di connessione
-      const conn = await this.pool.getConnection();
-      console.log(`[TiDB DB] Connessione riuscita a TiDB Cloud (${database} su ${host}:${port})`);
+      const pool = mysql.createPool(poolOpts);
+      const conn = await pool.getConnection();
       conn.release();
+      return pool;
+    };
 
-      // Crea le tabelle se non esistono
+    try {
+      this.pool = await tryConnect(cfg);
+      this.activeMode = cfg.mode;
+      this.activeHost = cfg.host;
+      this.activePort = cfg.port;
+      this.activeDatabase = cfg.database;
+      console.log(`[DB ${cfg.mode.toUpperCase()}] Connessione riuscita (${cfg.database} su ${cfg.host}:${cfg.port})`);
+    } catch (err) {
+      if (cfg.mode === 'local' && !this.forcedMode && process.env.DB_HOST && process.env.DB_USERNAME) {
+        console.warn(`[DB LOCAL] WAMP non raggiungibile (${err.message}). Fallback ordinato verso TiDB Cloud...`);
+        cfg = this._resolveDbConfig('cloud');
+        try {
+          this.pool = await tryConnect(cfg);
+          this.activeMode = cfg.mode;
+          this.activeHost = cfg.host;
+          this.activePort = cfg.port;
+          this.activeDatabase = cfg.database;
+          console.log(`[DB CLOUD] Fallback riuscito (${cfg.database} su ${cfg.host}:${cfg.port})`);
+        } catch (cloudErr) {
+          console.error('[DB] Errore fallback TiDB Cloud:', cloudErr.message);
+          return false;
+        }
+      } else {
+        console.error(`[DB ${cfg.mode.toUpperCase()}] Errore inizializzazione database:`, err.message);
+        return false;
+      }
+    }
+
+    try {
       await this.createTables();
-
-      // Esegui sincronizzazione bidirezionale / seed
       await this.syncAndSeed();
-
       this.isInitialized = true;
       return true;
     } catch (err) {
-      console.error('[TiDB DB] Errore inizializzazione database TiDB Cloud:', err.message);
+      console.error('[DB] Errore setup tabelle/seed:', err.message);
       return false;
     }
+  }
+
+  async switchMode(mode) {
+    const targetMode = mode === 'cloud' ? 'cloud' : 'local';
+    if (this.pool) {
+      try { await this.pool.end(); } catch (_) {}
+      this.pool = null;
+    }
+    this.isInitialized = false;
+    this.forcedMode = targetMode;
+    const ok = await this.initDb(targetMode);
+    if (!ok) {
+      throw new Error(`Impossibile connettersi al database in modalità "${targetMode}"`);
+    }
+    return this.getConnectionInfo();
   }
 
   /**
@@ -538,6 +637,137 @@ class DatabaseManager {
     } catch (err) {
       console.warn('[TiDB DB] Errore pruneThermalSamples:', err.message);
       return 0;
+    }
+  }
+
+  /**
+   * Clona tutte le 4 tabelle da TiDB Cloud a WAMP MySQL Locale (db_home_os_dev)
+   */
+  async cloneFromCloudToLocal() {
+    const cloudCfg = this._resolveDbConfig('cloud');
+    const localCfg = this._resolveDbConfig('local');
+
+    if (!cloudCfg.host || !cloudCfg.user) {
+      throw new Error('Credenziali TiDB Cloud (DB_HOST / DB_USERNAME) mancanti in .env');
+    }
+
+    const cloudConn = await mysql.createConnection({
+      host: cloudCfg.host,
+      port: cloudCfg.port,
+      user: cloudCfg.user,
+      password: cloudCfg.password,
+      database: cloudCfg.database,
+      ssl: cloudCfg.ssl
+    });
+
+    const localBootstrap = await mysql.createConnection({
+      host: localCfg.host,
+      port: localCfg.port,
+      user: localCfg.user,
+      password: localCfg.password
+    });
+    await localBootstrap.query(
+      `CREATE DATABASE IF NOT EXISTS \`${localCfg.database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+    );
+    await localBootstrap.end();
+
+    const localConn = await mysql.createConnection({
+      host: localCfg.host,
+      port: localCfg.port,
+      user: localCfg.user,
+      password: localCfg.password,
+      database: localCfg.database
+    });
+
+    try {
+      const ddl = [
+        `CREATE TABLE IF NOT EXISTS kv_store (
+          store_key VARCHAR(120) NOT NULL PRIMARY KEY,
+          payload LONGTEXT NOT NULL,
+          is_encrypted TINYINT(1) DEFAULT 0,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+        `CREATE TABLE IF NOT EXISTS energy_history_store (
+          history_key VARCHAR(120) NOT NULL PRIMARY KEY,
+          payload LONGTEXT NOT NULL,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+        `CREATE TABLE IF NOT EXISTS activity_logs (
+          id BIGINT AUTO_INCREMENT PRIMARY KEY,
+          action VARCHAR(64) NOT NULL,
+          message TEXT,
+          meta JSON,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+        `CREATE TABLE IF NOT EXISTS room_temp_history (
+          id BIGINT AUTO_INCREMENT PRIMARY KEY,
+          ts BIGINT NOT NULL,
+          sample_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          payload LONGTEXT NOT NULL,
+          INDEX idx_room_temp_ts (ts)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`
+      ];
+      for (const q of ddl) await localConn.query(q);
+
+      const copied = {
+        kv_store: 0,
+        energy_history_store: 0,
+        activity_logs: 0,
+        room_temp_history: 0
+      };
+
+      const [kvRows] = await cloudConn.query('SELECT store_key, payload, is_encrypted, updated_at FROM kv_store');
+      for (const r of kvRows) {
+        await localConn.query(
+          'INSERT INTO kv_store (store_key, payload, is_encrypted, updated_at) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE payload = VALUES(payload), is_encrypted = VALUES(is_encrypted), updated_at = VALUES(updated_at)',
+          [r.store_key, r.payload, r.is_encrypted, r.updated_at]
+        );
+        copied.kv_store++;
+      }
+
+      const [ehRows] = await cloudConn.query('SELECT history_key, payload, updated_at FROM energy_history_store');
+      for (const r of ehRows) {
+        await localConn.query(
+          'INSERT INTO energy_history_store (history_key, payload, updated_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE payload = VALUES(payload), updated_at = VALUES(updated_at)',
+          [r.history_key, r.payload, r.updated_at]
+        );
+        copied.energy_history_store++;
+      }
+
+      const [logRows] = await cloudConn.query('SELECT id, action, message, meta, created_at FROM activity_logs');
+      if (logRows.length > 0) {
+        await localConn.query('TRUNCATE TABLE activity_logs');
+        for (const r of logRows) {
+          const metaStr = r.meta && typeof r.meta !== 'string' ? JSON.stringify(r.meta) : r.meta;
+          await localConn.query(
+            'INSERT INTO activity_logs (id, action, message, meta, created_at) VALUES (?, ?, ?, ?, ?)',
+            [r.id, r.action, r.message, metaStr, r.created_at]
+          );
+          copied.activity_logs++;
+        }
+      }
+
+      const [rtRows] = await cloudConn.query('SELECT id, ts, sample_time, payload FROM room_temp_history');
+      if (rtRows.length > 0) {
+        await localConn.query('TRUNCATE TABLE room_temp_history');
+        for (const r of rtRows) {
+          await localConn.query(
+            'INSERT INTO room_temp_history (id, ts, sample_time, payload) VALUES (?, ?, ?, ?)',
+            [r.id, r.ts, r.sample_time, r.payload]
+          );
+          copied.room_temp_history++;
+        }
+      }
+
+      return {
+        success: true,
+        targetDatabase: localCfg.database,
+        copied,
+        timestamp: new Date().toISOString()
+      };
+    } finally {
+      try { await cloudConn.end(); } catch (_) {}
+      try { await localConn.end(); } catch (_) {}
     }
   }
 }

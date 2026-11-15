@@ -172,3 +172,19 @@ Per l'esecuzione continua a costo zero (€ 0,00/mese), il sistema supporta il d
 4. **Compatibilità Tablet Kiosk Legacy (`public/js/legacy-kiosk.js`)**:
    - Polyfill ES2019+ (`Object.fromEntries`, `Array.prototype.at`, `String.prototype.replaceAll`, `ResizeObserver`) e classe `legacy-kiosk` per disattivare `backdrop-filter` e animazioni pesanti su Chrome `< 88` / Android `< 9` (es. Asus Nexus 7).
 
+---
+
+## 6. Ambiente Duale Staging/Main, WAMP Locale & Sandbox Anti-Conflitto (`#71`)
+
+Per isolare completamente lo sviluppo locale (`staging`) dalla produzione H24 sulla VPS (`main`), il sistema implementa un'architettura duale:
+
+1. **Database Duale (`src/db.js`)**:
+   - Modalità `'local'`: WAMP MySQL `127.0.0.1:3306` / `db_home_os_dev` senza SSL (auto-creazione database al primo avvio, fallback ordinato verso TiDB Cloud se WAMP è spento).
+   - Modalità `'cloud'`: TiDB Cloud `db_home_os` su porta `4000` con TLSv1.2.
+   - Switch a caldo con `switchMode('local' | 'cloud')` e clonazione integrale delle 4 tabelle (`kv_store`, `energy_history_store`, `activity_logs`, `room_temp_history`) tramite `cloneFromCloudToLocal()` o `npm run db:clone-wamp` (`scripts/sync-db-to-wamp.js`).
+2. **Sandbox & Anti-Conflitto (`src/sandbox-manager.js`)**:
+   - Modalità `'live'`, `'dry_run'` (aggiorna solo lo stato in memoria senza chiamare XMPP/PointT/Volvo/Wallbox/Hue/Nest) e `'simulator'`.
+   - Arresto automatico del polling Telegram (`telegramBot.stopPolling()`) in locale per prevenire `409 Conflict` con la VPS di produzione.
+   - Simulatore eventi (`simulateEvent`) per testare su `eventBus` movimento corridoio, finestra aperta, arrivo pacchi e pressione caldaia bassa.
+
+

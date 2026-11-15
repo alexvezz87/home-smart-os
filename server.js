@@ -34,6 +34,7 @@ let processAssistantCommand = null;
 let aiOrchestrator = null;
 let googleFulfillment = null;
 let nestCaster = null;
+let sandboxManager = null;
 let eventLogger = null;
 let merossEnergy = null;
 let securitySystem = null;
@@ -1837,6 +1838,65 @@ app.post('/api/nest/speak', async (req, res) => {
   }
 });
 
+// 1g-quinquies. Ambiente Duale WAMP / TiDB Cloud & Sandbox Anti-Conflitto (#71)
+app.get('/api/admin/environment', (req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: {
+        db: db.getConnectionInfo(),
+        sandbox: sandboxManager ? sandboxManager.getStatus() : null
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/admin/environment', async (req, res) => {
+  try {
+    const { dbMode, mode, disableTelegramPolling, disableBackgroundLoops } = req.body || {};
+    if (dbMode && (dbMode === 'local' || dbMode === 'cloud')) {
+      await db.switchMode(dbMode);
+    }
+    if (sandboxManager) {
+      await sandboxManager.updateConfig({
+        ...(mode ? { mode } : {}),
+        ...(disableTelegramPolling !== undefined ? { disableTelegramPolling } : {}),
+        ...(disableBackgroundLoops !== undefined ? { disableBackgroundLoops } : {})
+      });
+    }
+    res.json({
+      success: true,
+      data: {
+        db: db.getConnectionInfo(),
+        sandbox: sandboxManager ? sandboxManager.getStatus() : null
+      }
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/admin/db/clone-wamp', async (req, res) => {
+  try {
+    const result = await db.cloneFromCloudToLocal();
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/admin/sandbox/simulate-event', async (req, res) => {
+  try {
+    const { type, payload } = req.body || {};
+    const result = await sandboxManager.simulateEvent(type, payload || {});
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
 app.get('/api/admin/logs', async (req, res) => {
   try {
     const level = String(req.query.level || 'all');
@@ -2068,6 +2128,7 @@ async function bootstrap() {
   aiOrchestrator = require('./src/ai-orchestrator');
   googleFulfillment = require('./src/google-fulfillment');
   nestCaster = require('./src/nest-caster');
+  sandboxManager = require('./src/sandbox-manager');
   eventLogger = require('./src/event-logger');
   merossEnergy = require('./src/meross-energy');
   securitySystem = require('./src/security-system');
@@ -2133,6 +2194,7 @@ async function bootstrap() {
   securitySystem.initHueSentinel(hueLocal, iliadboxClient);
   webPushManager.init().catch((err) => console.warn('⚠️ [WebPush] Init background:', err.message));
   telegramBot.init({ go2rtc: require('./src/go2rtc-manager'), notifier }).catch((err) => console.warn('⚠️ [Telegram] Init background:', err.message));
+  sandboxManager.init({ evClimateHub, hueLocal, merossEnergy, securitySystem, telegramBot }).catch((err) => console.warn('⚠️ [Sandbox] Init background:', err.message));
   notifier.init({ telegramBot, webPushManager }).catch((err) => console.warn('⚠️ [Notifier] Init background:', err.message));
   securitySystem.initSentinel({ notifier, iliadboxClient }).catch((err) => console.warn('⚠️ [Sentinel] Init background:', err.message));
   gmailHub.init().catch((err) => console.warn('⚠️ [GmailHub] Init background:', err.message));

@@ -2048,6 +2048,15 @@ class AdminManager {
           </div>
         </div>
 
+        <!-- Ambiente Duale WAMP & Sandbox (#71) -->
+        <div id="admin-dual-env-card" class="p-4 rounded-xl bg-slate-900/80 border border-amber-500/30 space-y-3">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <h4 class="text-sm font-bold text-white">🧪 Ambiente Duale Staging / WAMP Locale (<code>db_home_os_dev</code>) &amp; Sandbox (#71)</h4>
+            <span id="admin-env-db-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300">Verifica DB...</span>
+          </div>
+          <div id="admin-dual-env-body" class="text-xs text-slate-400">Caricamento stato ambiente duale...</div>
+        </div>
+
         <!-- Parametri TiDB -->
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-1">
@@ -2790,6 +2799,7 @@ AdminManager.prototype.loadBackbonePanels = async function() {
     this.renderIliadboxPanel();
     this.renderAiGatewayPanel();
     this.loadGmailHubPanel();
+    this.loadEnvironmentPanel();
   } catch (err) {
     console.warn('Errore caricamento pannelli spina dorsale:', err.message);
   }
@@ -3330,5 +3340,133 @@ window.evaluateClimateOptimizerNow = async function() {
     }
   } catch (err) {
     if (typeof showToast === 'function') showToast('Errore valutazione: ' + err.message, 'error');
+  }
+};
+
+AdminManager.prototype.loadEnvironmentPanel = async function() {
+  const body = document.getElementById('admin-dual-env-body');
+  const badge = document.getElementById('admin-env-db-badge');
+  if (!body) return;
+  try {
+    const res = await fetch('/api/admin/environment');
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Errore');
+    const { db = {}, sandbox = {} } = json.data || {};
+    const isLocal = db.activeMode === 'local';
+
+    if (badge) {
+      badge.className = `px-2.5 py-0.5 rounded-full text-[10px] font-bold ${isLocal ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-sky-500/15 text-sky-300 border border-sky-500/30'}`;
+      badge.textContent = isLocal
+        ? `🟢 WAMP Locale ${db.host || '127.0.0.1'}:${db.port || 3306} / ${db.database || 'db_home_os_dev'}`
+        : `☁️ TiDB Cloud / ${db.database || 'db_home_os'}`;
+    }
+
+    body.innerHTML = `
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="p-3 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2.5">
+          <div class="text-[11px] font-bold text-slate-200">Selettore Database</div>
+          <div class="flex flex-wrap gap-2">
+            <button onclick="window.adminManager.switchDbMode('local')" class="px-3 py-1.5 rounded-lg text-xs font-semibold border ${isLocal ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'}">
+              WAMP Locale
+            </button>
+            <button onclick="window.adminManager.switchDbMode('cloud')" class="px-3 py-1.5 rounded-lg text-xs font-semibold border ${!isLocal ? 'bg-sky-600 text-white border-sky-500' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'}">
+              TiDB Cloud
+            </button>
+            <button onclick="window.adminManager.cloneDbToWamp()" class="px-3 py-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 text-xs font-semibold">
+              🔄 Clona Ora da TiDB Cloud a WAMP
+            </button>
+          </div>
+        </div>
+
+        <div class="p-3 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2.5">
+          <div class="text-[11px] font-bold text-slate-200">Modalità Operativa &amp; Anti-Conflitto</div>
+          <div class="flex flex-wrap gap-1.5">
+            ${[
+              { id: 'live', label: '🟢 Live Hardware' },
+              { id: 'dry_run', label: '🛡️ Dry-Run Anti-Conflitto' },
+              { id: 'simulator', label: '🧪 Simulatore Domotico' }
+            ].map((m) => `
+              <button onclick="window.adminManager.updateSandboxConfig({ mode: '${m.id}' })" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${sandbox.mode === m.id ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'}">
+                ${m.label}
+              </button>
+            `).join('')}
+          </div>
+          <label class="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer pt-1">
+            <input type="checkbox" ${sandbox.disableTelegramPolling ? 'checked' : ''} onchange="window.adminManager.updateSandboxConfig({ disableTelegramPolling: this.checked })" class="rounded border-slate-600 bg-slate-900" />
+            <span>Disattiva Polling Telegram Locale (Anti-409)</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="p-3 rounded-xl bg-slate-950/70 border border-slate-800 flex flex-wrap items-center gap-2">
+        <span class="text-[11px] font-bold text-slate-300 mr-1">Simula Evento:</span>
+        <button onclick="window.adminManager.simulateSandboxEvent('motion_corridor')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px]">Movimento Corridoio</button>
+        <button onclick="window.adminManager.simulateSandboxEvent('window_open', { room: 'Cucina' })" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px]">Finestra Aperta Cucina</button>
+        <button onclick="window.adminManager.simulateSandboxEvent('package_arrived')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px]">Arrivo Corriere</button>
+        <button onclick="window.adminManager.simulateSandboxEvent('boiler_low_pressure')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px]">Pressione Caldaia Bassa</button>
+      </div>
+    `;
+  } catch (err) {
+    body.innerHTML = `<span class="text-rose-400">Errore ambiente duale: ${this.escapeHtml(err.message)}</span>`;
+  }
+};
+
+AdminManager.prototype.switchDbMode = async function(dbMode) {
+  try {
+    const res = await fetch('/api/admin/environment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dbMode })
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Errore switch DB');
+    window.showToast?.(`Database impostato su ${dbMode === 'local' ? 'WAMP Locale' : 'TiDB Cloud'}`, 'success');
+    this.loadEnvironmentPanel();
+  } catch (err) {
+    window.showToast?.('Errore: ' + err.message, 'error');
+  }
+};
+
+AdminManager.prototype.cloneDbToWamp = async function() {
+  try {
+    window.showToast?.('Clonazione da TiDB Cloud a WAMP in corso...', 'info');
+    const res = await fetch('/api/admin/db/clone-wamp', { method: 'POST' });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Errore clonazione');
+    const c = json.data?.copied || {};
+    window.showToast?.(`Clonati: kv=${c.kv_store || 0}, logs=${c.activity_logs || 0}, temp=${c.room_temp_history || 0}`, 'success');
+  } catch (err) {
+    window.showToast?.('Errore clone WAMP: ' + err.message, 'error');
+  }
+};
+
+AdminManager.prototype.updateSandboxConfig = async function(patch) {
+  try {
+    const res = await fetch('/api/admin/environment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch)
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Errore sandbox');
+    window.showToast?.('Configurazione Sandbox aggiornata', 'success');
+    this.loadEnvironmentPanel();
+  } catch (err) {
+    window.showToast?.('Errore: ' + err.message, 'error');
+  }
+};
+
+AdminManager.prototype.simulateSandboxEvent = async function(type, payload = {}) {
+  try {
+    const res = await fetch('/api/admin/sandbox/simulate-event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, payload })
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Errore simulazione');
+    window.showToast?.(`Evento simulato: ${type}`, 'success');
+  } catch (err) {
+    window.showToast?.('Errore simulazione: ' + err.message, 'error');
   }
 };

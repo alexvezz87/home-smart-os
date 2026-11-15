@@ -1268,3 +1268,90 @@ test('Google Home Fulfillment & Nest Caster Follow-Me (#14)', async () => {
     fs.rmSync(tmpSounds, { recursive: true, force: true });
   }
 });
+
+test('Dual DB WAMP & Sandbox Anti-Conflict (#71)', async () => {
+  const db = require('../src/db');
+  const { SandboxManager } = require('../src/sandbox-manager');
+  const eventBus = require('../src/event-bus');
+
+  // 1. Risoluzione Dual DB local vs cloud
+  const localCfg = db._resolveDbConfig('local');
+  assert.equal(localCfg.mode, 'local');
+  assert.equal(localCfg.host, '127.0.0.1');
+  assert.equal(localCfg.port, 3306);
+  assert.equal(localCfg.database, 'db_home_os_dev');
+  assert.equal(localCfg.ssl, undefined);
+
+  const cloudCfg = db._resolveDbConfig('cloud');
+  assert.equal(cloudCfg.mode, 'cloud');
+  assert.equal(cloudCfg.ssl?.minVersion, 'TLSv1.2');
+  assert.ok(db.getConnectionInfo().activeMode);
+
+  // 2. SandboxManager dry_run anti-conflitto + stopPolling Telegram
+  let hwCalled = 0;
+  let tgStopped = 0;
+  const fakeHub = {
+    boschState: {
+      systemPressureBar: 1.5,
+      zones: [{ id: 'zn2', name: 'Cucina', tempActual: 20.4, tempSetpoint: 20.0, valvePosition: 20 }]
+    },
+    volvoState: { climatizationActive: false },
+    wallboxState: { status: 'Available', currentLimitA: 16 },
+    setBoschZoneSetpoint: async () => { hwCalled++; return { real: true }; },
+    controlVolvo: async () => { hwCalled++; return { real: true }; }
+  };
+  const fakeHue = {
+    activateSceneByName: async () => { hwCalled++; return { real: true }; }
+  };
+  const fakeTg = {
+    stopPolling: () => { tgStopped++; },
+    startPolling: () => {}
+  };
+  const fakeDb = { get: async () => null, set: async () => true };
+
+  const prevSandboxEnv = process.env.SANDBOX_MODE;
+  try {
+    process.env.SANDBOX_MODE = 'dry_run';
+    const sb = new SandboxManager({ db: fakeDb, eventBus });
+    await sb.init({ evClimateHub: fakeHub, hueLocal: fakeHue, telegramBot: fakeTg });
+    assert.equal(tgStopped, 1);
+
+    const boschSim = await fakeHub.setBoschZoneSetpoint('Cucina', 21.0);
+    assert.equal(boschSim.simulated, true);
+    assert.equal(fakeHub.boschState.zones[0].tempSetpoint, 21.0);
+
+    const hueSim = await fakeHue.activateSceneByName('Savana', 'Salone', false);
+    assert.equal(hueSim.simulated, true);
+    assert.equal(hwCalled, 0);
+
+    // 3. Simulazione eventi domotici su eventBus
+    const seenEvents = [];
+    const onMotion = (e) => seenEvents.push(['motion', e?.data || e]);
+    const onMail = (e) => seenEvents.push(['mail', e?.data || e]);
+    eventBus.on('sensor:motion', onMotion);
+    eventBus.on('mail:delivery_update', onMail);
+    try {
+      await sb.simulateEvent('motion_corridor', { away: true });
+      await sb.simulateEvent('window_open', { room: 'Cucina' });
+      await sb.simulateEvent('package_arrived');
+      await sb.simulateEvent('boiler_low_pressure');
+
+      assert.ok(seenEvents.some(([k, p]) => k === 'motion' && p.away === true && p.simulated === true));
+      assert.ok(seenEvents.some(([k, p]) => k === 'mail' && p.simulated === true));
+      assert.equal(fakeHub.boschState.zones[0].tempActual, 19.8);
+      assert.equal(fakeHub.boschState.systemPressureBar, 0.8);
+    } finally {
+      eventBus.removeListener('sensor:motion', onMotion);
+      eventBus.removeListener('mail:delivery_update', onMail);
+    }
+
+    // 4. Switch a live ripristina chiamate reali
+    await sb.updateConfig({ mode: 'live', disableTelegramPolling: false });
+    const realRes = await fakeHub.setBoschZoneSetpoint('Cucina', 20.5);
+    assert.equal(realRes.real, true);
+    assert.equal(hwCalled, 1);
+  } finally {
+    if (prevSandboxEnv === undefined) delete process.env.SANDBOX_MODE;
+    else process.env.SANDBOX_MODE = prevSandboxEnv;
+  }
+});

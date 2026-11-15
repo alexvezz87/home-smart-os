@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test scripts/test-guardrails.js"
+    "test": "node --test scripts/test-guardrails.js",
+    "db:clone-wamp": "node scripts/sync-db-to-wamp.js"
   },
   "keywords": [],
   "author": "",
