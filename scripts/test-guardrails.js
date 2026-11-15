@@ -1138,3 +1138,133 @@ test('Docker, Go2Rtc Multi-OS & WireGuard Nest Unicast (#5)', async () => {
     assert.ok(fs.existsSync(path.join(root, rel)), `Manca il file ${rel}`);
   }
 });
+
+test('Google Home Fulfillment & Nest Caster Follow-Me (#14)', async () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const { GoogleFulfillmentManager } = require('../src/google-fulfillment');
+  const { NestCaster } = require('../src/nest-caster');
+  const aiGateway = require('../src/ai-gateway');
+
+  const execCalls = [];
+  const fakeHub = {
+    getUnifiedStatus: () => ({
+      bosch: {
+        connected: true,
+        zones: [{ id: 'zn1', name: 'Salone', tempActual: 20.1, tempSetpoint: 20.0 }]
+      },
+      volvo: { connected: true, batteryLevel: 76, climatizationActive: false, isCharging: false },
+      wallbox: { connected: true, status: 'Available' }
+    }),
+    setRoomTemperature: async (zid, temp) => { execCalls.push(['bosch:temp', zid, temp]); },
+    controlVolvo: async (act) => { execCalls.push(['volvo', act]); },
+    controlWallbox: async (act) => { execCalls.push(['wallbox', act]); },
+    controlBosch: async (act) => { execCalls.push(['bosch:ctrl', act]); }
+  };
+  const fakeSec = {
+    cameras: {
+      cam_salone: { id: 'cam_salone', name: 'Salone', room: 'Salone', streamKey: 'salone', online: true, lastMotion: new Date().toISOString() },
+      cam_baby: { id: 'cam_baby', name: 'Baby Monitor', room: 'Cameretta Francesco', streamKey: 'baby', online: true, lastMotion: new Date(Date.now() + 1000).toISOString() }
+    },
+    getLocalHostIp: () => '10.8.0.2',
+    resolveNestIp: (room) => (String(room).toLowerCase().includes('salone') ? '192.168.1.50' : '192.168.1.66'),
+    getNestIps: () => ({ Salone: '192.168.1.50', 'Camera da letto': '192.168.1.66' }),
+    announceToNest: async (text, opts) => {
+      execCalls.push(['nest:announce', text, opts]);
+      return { success: true };
+    }
+  };
+  const fakeHue = {
+    motionSensor: { lastMotionAt: new Date(Date.now() - 2 * 60 * 1000).toISOString() },
+    getGoogleHomeSceneDevices: () => [{ id: 'hue_scene_s1', type: 'action.devices.types.SCENE', traits: ['action.devices.traits.Scene'], name: { name: 'Savana Salone' } }],
+    activateScene: async (id) => { execCalls.push(['hue:scene', id]); }
+  };
+  const fakeDb = { get: async () => null, set: async () => true };
+
+  const gf = new GoogleFulfillmentManager({
+    db: fakeDb,
+    aiGateway,
+    evClimateHub: fakeHub,
+    securitySystem: fakeSec,
+    hueLocal: fakeHue
+  });
+
+  // 1. OAuth2 Account Linking
+  let redirectUrl = '';
+  gf.handleOAuthAuthorize(
+    { query: { redirect_uri: 'https://oauth-redirect.googleusercontent.com/r/x', state: 'st1' } },
+    { redirect: (u) => { redirectUrl = u; } }
+  );
+  const code = new URL(redirectUrl).searchParams.get('code');
+  assert.ok(code);
+  let tokenPayload = null;
+  await gf.handleOAuthToken(
+    { body: { grant_type: 'authorization_code', code } },
+    { status: () => ({ json: (d) => { tokenPayload = d; } }), json: (d) => { tokenPayload = d; } }
+  );
+  assert.ok(tokenPayload?.access_token);
+  assert.equal(gf.verifyWebhookToken({ headers: { authorization: `Bearer ${tokenPayload.access_token}` } }), true);
+
+  // 2. SYNC, QUERY, EXECUTE & SSML
+  const syncRes = await gf.handleFulfillment({ requestId: 'r1', inputs: [{ intent: 'action.devices.SYNC' }] });
+  assert.ok(syncRes.payload.devices.some((d) => d.id === 'bosch_zone_zn1'));
+  assert.ok(syncRes.payload.devices.some((d) => d.id === 'volvo_ex30'));
+  assert.ok(syncRes.payload.devices.some((d) => d.id === 'wallbox_abb'));
+  assert.ok(syncRes.payload.devices.some((d) => d.id === 'cam_cam_salone'));
+  assert.ok(syncRes.payload.devices.some((d) => d.id === 'hue_scene_s1'));
+
+  const queryRes = await gf.handleFulfillment({
+    requestId: 'r2',
+    inputs: [{ intent: 'action.devices.QUERY', payload: { devices: [{ id: 'volvo_ex30' }, { id: 'bosch_zone_zn1' }] } }]
+  });
+  assert.equal(queryRes.payload.devices.volvo_ex30.capacityRemaining[0].rawValue, 76);
+
+  const execRes = await gf.handleFulfillment({
+    requestId: 'r3',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [
+          { devices: [{ id: 'bosch_zone_zn1' }], execution: [{ command: 'action.devices.commands.ThermostatTemperatureSetpoint', params: { thermostatTemperatureSetpoint: 23 } }] },
+          { devices: [{ id: 'cam_cam_salone' }], execution: [{ command: 'action.devices.commands.GetCameraStream', params: {} }] },
+          { devices: [{ id: 'hue_scene_s1' }], execution: [{ command: 'action.devices.commands.ActivateScene', params: {} }] }
+        ]
+      }
+    }]
+  });
+  assert.equal(execRes.payload.commands[0].states.thermostatTemperatureSetpoint, 20.5);
+  assert.ok(execRes.payload.commands[1].states.cameraStreamAccessUrl.includes('10.8.0.2:1984'));
+  assert.ok(execCalls.some((c) => c[0] === 'hue:scene' && c[1] === 's1'));
+
+  const ssml = gf.buildSsmlResponse('Ciao <Alex>', { chimeUrl: 'http://10.8.0.2:3000/sounds/chime.wav' });
+  assert.ok(ssml.includes('<break time="380ms"/>Ciao &lt;Alex&gt;</speak>'));
+
+  // 3. NestCaster: chimes, Follow-Me (esclude Cameretta Francesco) & speak
+  const tmpSounds = fs.mkdtempSync(path.join(os.tmpdir(), 'nest-sounds-'));
+  try {
+    const caster = new NestCaster({
+      db: fakeDb,
+      aiGateway,
+      securitySystem: fakeSec,
+      hueLocal: fakeHue,
+      googleFulfillment: gf,
+      soundsDir: tmpSounds
+    });
+    caster.ensureDefaultChimes();
+    assert.ok(fs.existsSync(path.join(tmpSounds, 'chime.wav')));
+    assert.ok(fs.existsSync(path.join(tmpSounds, 'chime.mp3')));
+
+    const target = caster.resolveFollowMeTarget({ respectBabySleep: true });
+    assert.equal(target.targetRoom, 'Salone');
+    assert.equal(target.targetIp, '192.168.1.50');
+
+    const speakRes = await caster.speak('Buonasera casa', { followMe: true, playChime: true });
+    assert.equal(speakRes.success, true);
+    assert.equal(speakRes.targetRoom, 'Salone');
+    assert.ok(speakRes.chimeUrl.endsWith('/sounds/chime.wav'));
+    assert.ok(execCalls.some((c) => c[0] === 'nest:announce' && c[1] === 'Buonasera casa'));
+  } finally {
+    fs.rmSync(tmpSounds, { recursive: true, force: true });
+  }
+});
