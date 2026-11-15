@@ -101,3 +101,9 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 - **OAuth2 Condiviso**: riuso credenziali Google (`GOOGLE_AUTH_CLIENT_ID`, `GOOGLE_AUTH_CLIENT_SECRET`, `/api/auth/google/callback`) con `state` dedicato `gmail_sync:alex` e `gmail_sync:cinzia`, scope di sola lettura `gmail.readonly` + `userinfo.email`.
 - **Query Privacy & No-Persistence**: filtraggio lato Gmail API (`GMAIL_PRIVACY_QUERY`) su mittenti/oggetti di spedizioni e utenze extra-Dolomiti; i corpi email vengono elaborati solo in RAM tramite `aiGateway` (`mail_parsing` / `mail_pdf_parsing`) e mai salvati su DB.
 - **Endpoint**: `GET /api/mail/oauth/start`, `POST /api/mail/oauth/disconnect`, `GET /api/mail/status`, `GET /api/mail/deliveries`, `GET /api/mail/bills`, `POST /api/mail/bills/:id/status`, `POST /api/mail/sync`.
+
+---
+
+## 🎬 Gemini Temporal Vision Multi-Frame (`src/gemini-vision.js`, `src/go2rtc-manager.js`)
+- **Gateway AI (`src/ai-gateway.js`)**: chiamate strutturate `generateJSON({ role: 'fast', taskName: 'temporal_vision:<camId>' })` con sequenza multi-frame (`T=0.0s..+4.8s`) e guardrail hardware `camera:vision` per i trigger automatici ONVIF/SSE.
+- **Endpoint**: `POST /api/camera/:id/analyze` (con `{ temporal: true, frameCount, intervalMs }`), `POST /api/camera/:id/analyze-sequence` e alias `POST /api/camera/:id/analyze-temporal`.

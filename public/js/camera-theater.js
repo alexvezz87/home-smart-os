@@ -297,9 +297,14 @@ class CameraTheaterManager {
           <!-- BARRA AZIONI RAPIDE 1-CLICK -->
           <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
             
-            <button onclick="window.cameraTheater.analyzeSceneWithAI()" class="py-2.5 px-3 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-sky-600 hover:from-purple-500 hover:to-sky-500 text-white border border-purple-400/40 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-purple-600/25" title="Analizza la scena corrente con Google Gemini Multimodal Vision">
+            <button onclick="window.cameraTheater.analyzeSceneWithAI(false)" class="py-2.5 px-3 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-sky-600 hover:from-purple-500 hover:to-sky-500 text-white border border-purple-400/40 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-purple-600/25" title="Analizza la scena corrente (Fotogramma Singolo)">
               <i class="fa-solid fa-wand-magic-sparkles text-amber-300 text-sm animate-pulse"></i>
-              <span>Analisi AI</span>
+              <span>📸 Fotogramma Singolo</span>
+            </button>
+
+            <button onclick="window.cameraTheater.analyzeSceneWithAI(true)" class="py-2.5 px-3 rounded-xl bg-gradient-to-r from-fuchsia-600 via-purple-600 to-indigo-600 hover:from-fuchsia-500 hover:to-indigo-500 text-white border border-fuchsia-400/40 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-fuchsia-600/25" title="Cattura burst 4 frame e analizza movimento/evoluzione temporale">
+              <i class="fa-solid fa-film text-amber-300 text-sm"></i>
+              <span>🎬 Sequenza Dinamica (Burst 4 Frame)</span>
             </button>
 
             <button onclick="window.cameraTheater.captureSnapshot()" class="py-2.5 px-3 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm" title="Scatta e salva una foto HD">
@@ -344,6 +349,8 @@ class CameraTheaterManager {
               </button>
             </div>
             <div id="theater-ai-text" class="text-xs text-slate-200 leading-relaxed pl-8"></div>
+            <div id="theater-ai-badges" class="hidden flex flex-wrap gap-1.5 pl-8"></div>
+            <div id="theater-ai-frames" class="hidden flex gap-2 overflow-x-auto pl-8 pb-1"></div>
             <div id="theater-ai-meta" class="text-[10px] text-slate-500 pl-8 font-mono"></div>
           </div>
 
@@ -943,31 +950,55 @@ class CameraTheaterManager {
   /**
    * Analisi visiva semantica della scena corrente con Gemini Vision
    */
-  async analyzeSceneWithAI() {
+  _escapeHtml(str) {
+    return String(str ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  async analyzeSceneWithAI(temporal = false) {
     const cam = this.currentCamData;
     if (!cam) return;
 
     const box = document.getElementById('theater-ai-box');
     const textEl = document.getElementById('theater-ai-text');
     const metaEl = document.getElementById('theater-ai-meta');
+    const badgesEl = document.getElementById('theater-ai-badges');
+    const framesEl = document.getElementById('theater-ai-frames');
 
     if (box) box.classList.remove('hidden');
+    if (badgesEl) { badgesEl.classList.add('hidden'); badgesEl.innerHTML = ''; }
+    if (framesEl) { framesEl.classList.add('hidden'); framesEl.innerHTML = ''; }
     if (textEl) {
       textEl.innerHTML = `
         <div class="flex items-center gap-2 text-indigo-300 py-1">
           <i class="fa-solid fa-circle-notch fa-spin text-purple-400"></i>
-          <span>Acquisizione fotogramma HD e comprensione semantica con Gemini Vision in corso...</span>
+          <span>${temporal
+            ? 'Campionamento sequenza temporale (4 frame) e ragionamento dinamico Gemini 3.8...'
+            : 'Acquisizione fotogramma HD e comprensione semantica con Gemini Vision in corso...'}</span>
         </div>
       `;
     }
     if (metaEl) metaEl.textContent = '';
 
     try {
-      if (typeof showToast === 'function') showToast('🧠 Analisi visiva con Gemini Vision in corso...', 'info');
+      if (typeof showToast === 'function') {
+        showToast(temporal ? '🎬 Analisi sequenza temporale in corso...' : '🧠 Analisi visiva con Gemini Vision in corso...', 'info');
+      }
       const res = await fetch(`/api/camera/${encodeURIComponent(cam.id)}/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: 'Descrivi la scena attuale in modo chiaro, naturale e rassicurante.' })
+        body: JSON.stringify({
+          prompt: temporal
+            ? 'Analizza movimento, traiettoria e stato reale nella sequenza temporale.'
+            : 'Descrivi la scena attuale in modo chiaro, naturale e rassicurante.',
+          temporal: Boolean(temporal),
+          frameCount: 4,
+          intervalMs: 1200
+        })
       });
       const json = await res.json();
 
@@ -976,7 +1007,7 @@ class CameraTheaterManager {
           textEl.innerHTML = `
             <div class="text-rose-400 flex items-start gap-2">
               <i class="fa-solid fa-circle-exclamation mt-0.5 shrink-0"></i>
-              <span>${json.message || json.error || 'Errore durante l\'analisi visiva'}</span>
+              <span>${this._escapeHtml(json.message || json.error || 'Errore durante l\'analisi visiva')}</span>
             </div>
           `;
         }
@@ -987,8 +1018,44 @@ class CameraTheaterManager {
       if (textEl) {
         textEl.textContent = json.analysis;
       }
+
+      if (badgesEl && json.structured) {
+        const st = json.structured;
+        const pills = [];
+        if (st.trajectory) pills.push(`<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/20 text-sky-300 border border-sky-500/30">Traiettoria: ${this._escapeHtml(st.trajectory)}</span>`);
+        if (st.posture) pills.push(`<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">Postura: ${this._escapeHtml(st.posture)}</span>`);
+        if (st.francescoState && st.francescoState !== 'not_present') {
+          pills.push(`<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Francesco: ${this._escapeHtml(st.francescoState)}</span>`);
+        }
+        if (Array.isArray(st.petsDetected) && st.petsDetected.length > 0) {
+          pills.push(`<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">🐾 ${this._escapeHtml(st.petsDetected.join(', '))}</span>`);
+        }
+        if (st.anomaly) {
+          pills.push(`<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/25 text-rose-300 border border-rose-500/40">⚠️ Anomalia</span>`);
+        }
+        if (pills.length > 0) {
+          badgesEl.innerHTML = pills.join('');
+          badgesEl.classList.remove('hidden');
+        }
+      }
+
+      if (framesEl && Array.isArray(json.frames) && json.frames.length > 0) {
+        framesEl.innerHTML = json.frames.map((f, idx) => {
+          const offset = Number(f.timestampOffsetSec || 0).toFixed(1);
+          const sign = Number(offset) === 0 ? '' : '+';
+          const safeSrc = typeof f.base64 === 'string' && f.base64.startsWith('data:image/') ? f.base64 : '';
+          return `
+            <div class="shrink-0 rounded-lg overflow-hidden border border-slate-700 bg-slate-950 w-24">
+              ${safeSrc ? `<img src="${safeSrc}" alt="Frame ${idx + 1}" class="w-24 h-14 object-cover" />` : ''}
+              <div class="text-[9px] text-center text-slate-300 font-mono py-0.5">[T=${sign}${this._escapeHtml(offset)}s]</div>
+            </div>
+          `;
+        }).join('');
+        framesEl.classList.remove('hidden');
+      }
+
       if (metaEl) {
-        metaEl.textContent = `Generato da ${json.model || 'Gemini 1.5 Flash'} alle ${new Date(json.timestamp).toLocaleTimeString('it-IT')}`;
+        metaEl.textContent = `Generato da ${json.model || 'gemini-3.8-flash'}${json.frameCount ? ` (${json.frameCount} frame)` : ''} alle ${new Date(json.timestamp).toLocaleTimeString('it-IT')}`;
       }
       if (typeof showToast === 'function') showToast('✨ Analisi completata con successo!', 'success');
 

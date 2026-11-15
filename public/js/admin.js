@@ -19,6 +19,20 @@ class AdminManager {
     this.driveStatus = null;
     this.wallboxDriveStatus = null;
     this.driveLoading = false;
+    this._isMobileView = typeof window !== 'undefined' ? window.innerWidth < 768 : false;
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', () => {
+        const nowMobile = window.innerWidth < 768;
+        if (nowMobile !== this._isMobileView) {
+          this._isMobileView = nowMobile;
+          const area = document.getElementById('area-admin');
+          if (area && !area.classList.contains('hidden')) {
+            this.renderView();
+          }
+        }
+      });
+    }
   }
 
   escapeHtml(str) {
@@ -38,12 +52,40 @@ class AdminManager {
   }
 
   /**
-   * Seleziona una scheda di servizio e salva la preferenza
+   * Seleziona una scheda di servizio e salva la preferenza.
+   * Su mobile (accordion) consente anche di chiudere la scheda aperta ri-toccandola.
    */
   selectTab(tabId) {
-    this.activeTab = tabId;
-    localStorage.setItem('admin_active_tab', tabId);
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    if (isMobile && this.activeTab === tabId) {
+      this.activeTab = null;
+    } else {
+      this.activeTab = tabId;
+      localStorage.setItem('admin_active_tab', tabId);
+    }
     this.renderView();
+  }
+
+  _getBadgeClass(s, isActive) {
+    if (isActive) return 'bg-indigo-500/30 text-indigo-200 border border-indigo-400/40';
+    if (s.badgeType === 'success') return 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
+    if (s.badgeType === 'warning') return 'bg-amber-500/15 text-amber-400 border border-amber-500/30';
+    if (s.badgeType === 'info') return 'bg-sky-500/15 text-sky-400 border border-sky-500/30';
+    if (s.badgeType === 'rose') return 'bg-rose-500/15 text-rose-400 border border-rose-500/30';
+    return 'bg-slate-800 text-slate-400 border border-slate-700/60';
+  }
+
+  _renderActiveServiceContent(tabId, data, ev, tidbConnected) {
+    switch (tabId) {
+      case 'climate': return this.renderClimatePane(data, ev);
+      case 'lights': return this.renderLightsPane(data);
+      case 'plugs': return this.renderPlugsPane(data);
+      case 'ev': return this.renderEvPane(data, ev);
+      case 'security': return this.renderSecurityPane(data);
+      case 'floorplan': return this.renderFloorplanPane(data);
+      case 'system': return this.renderSystemPane(data, tidbConnected);
+      default: return this.renderClimatePane(data, ev);
+    }
   }
 
   async renderView() {
@@ -114,6 +156,11 @@ class AdminManager {
       }
     ];
 
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    if (!isMobile && !this.activeTab) {
+      this.activeTab = localStorage.getItem('admin_active_tab') || 'climate';
+    }
+
     container.innerHTML = `
       <div class="space-y-5">
 
@@ -142,58 +189,77 @@ class AdminManager {
           </div>
         </div>
 
-        <!-- 2. Barra di Navigazione a Schede dei Servizi -->
-        <div class="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none border-b border-slate-800/80">
+        ${isMobile ? `
+        <!-- 2A. Vista Mobile / Verticale: Fisarmonica (Accordion) -->
+        <div class="space-y-2.5" aria-label="Servizi Amministrazione Accordion">
           ${services.map(s => {
-            const isActive = s.id === this.activeTab;
-            const activeClass = isActive
-              ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-600/30 border-indigo-400 font-bold scale-[1.02]'
-              : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 border-slate-800 font-medium';
-
-            const badgeBg = isActive
-              ? 'bg-white/20 text-white'
-              : (s.badgeType === 'success' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
-                 s.badgeType === 'warning' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' :
-                 s.badgeType === 'info' ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30' : 'bg-slate-800 text-slate-400');
-
+            const isOpen = s.id === this.activeTab;
+            const badgeBg = this._getBadgeClass(s, isOpen);
             return `
-              <button onclick="window.adminManager.selectTab('${s.id}')"
-                      class="px-3.5 py-2.5 rounded-xl text-xs border transition-all flex items-center gap-2.5 shrink-0 active:scale-95 cursor-pointer ${activeClass}">
-                <div class="w-6 h-6 rounded-lg ${isActive ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-300'} flex items-center justify-center text-xs">
-                  <i class="fa-solid ${s.icon}"></i>
-                </div>
-                <span>${s.name}</span>
-                <span class="text-[9.5px] px-1.5 py-0.5 rounded-full font-mono ${badgeBg}">
-                  ${s.badge}
-                </span>
-              </button>
+              <div class="glass-card rounded-2xl border ${isOpen ? 'border-indigo-500/50 shadow-lg shadow-indigo-500/10' : 'border-slate-800'} overflow-hidden transition-all">
+                <button onclick="window.adminManager.selectTab('${s.id}')"
+                        aria-expanded="${isOpen}"
+                        class="w-full px-4 py-3 flex items-center justify-between gap-3 text-left cursor-pointer ${isOpen ? 'bg-indigo-600/15 text-white' : 'text-slate-200 hover:bg-slate-800/40'} transition-colors">
+                  <div class="flex items-center gap-3 min-w-0">
+                    <div class="w-8 h-8 rounded-xl ${isOpen ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-500/30' : 'bg-slate-800/90 text-slate-300'} flex items-center justify-center text-xs shrink-0">
+                      <i class="fa-solid ${s.icon}"></i>
+                    </div>
+                    <span class="text-xs font-semibold truncate">${s.name}</span>
+                  </div>
+                  <div class="flex items-center gap-2 shrink-0">
+                    <span class="text-[9.5px] px-2 py-0.5 rounded-full font-mono ${badgeBg}">
+                      ${s.badge}
+                    </span>
+                    <i class="fa-solid fa-chevron-down text-[11px] text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-300' : ''}"></i>
+                  </div>
+                </button>
+                ${isOpen ? `
+                  <div id="admin-service-pane" class="border-t border-slate-800/80 p-3 space-y-5 min-w-0 overflow-x-hidden">
+                    ${this._renderActiveServiceContent(s.id, data, ev, tidbConnected)}
+                  </div>
+                ` : ''}
+              </div>
             `;
           }).join('')}
         </div>
+        ` : `
+        <!-- 2B. Vista Desktop / Orizzontale: Sidebar Verticale a Sinistra + Scheda Dettaglio a Destra -->
+        <div class="flex flex-row gap-5 items-start">
 
-        <!-- 3. Contenuto Dinamico del Servizio Selezionato -->
-        <div id="admin-service-pane" class="space-y-6">
-          ${(() => {
-            switch (this.activeTab) {
-              case 'climate':
-                return this.renderClimatePane(data, ev);
-              case 'lights':
-                return this.renderLightsPane(data);
-              case 'plugs':
-                return this.renderPlugsPane(data);
-              case 'ev':
-                return this.renderEvPane(data, ev);
-              case 'security':
-                return this.renderSecurityPane(data);
-              case 'floorplan':
-                return this.renderFloorplanPane(data);
-              case 'system':
-                return this.renderSystemPane(data, tidbConnected);
-              default:
-                return this.renderClimatePane(data, ev);
-            }
-          })()}
+          <aside class="w-64 lg:w-72 shrink-0 sticky top-20">
+            <nav aria-label="Servizi Amministrazione"
+                 class="glass-card rounded-2xl p-2 border border-slate-800 flex flex-col gap-1.5">
+              ${services.map(s => {
+                const isActive = s.id === this.activeTab;
+                const activeClass = isActive
+                  ? 'bg-indigo-600/20 text-white border-indigo-500/60 shadow-sm font-semibold'
+                  : 'bg-transparent text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 border-transparent font-medium';
+                const badgeBg = this._getBadgeClass(s, isActive);
+
+                return `
+                  <button onclick="window.adminManager.selectTab('${s.id}')"
+                          class="w-full px-3 py-2.5 rounded-xl text-xs border transition-all flex items-center justify-between gap-2 text-left cursor-pointer active:scale-[0.99] ${activeClass}">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                      <div class="w-7 h-7 rounded-lg ${isActive ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-500/30' : 'bg-slate-800/90 text-slate-300'} flex items-center justify-center text-xs shrink-0">
+                        <i class="fa-solid ${s.icon}"></i>
+                      </div>
+                      <span class="truncate">${s.name}</span>
+                    </div>
+                    <span class="text-[9.5px] px-1.5 py-0.5 rounded-full font-mono shrink-0 ${badgeBg}">
+                      ${s.badge}
+                    </span>
+                  </button>
+                `;
+              }).join('')}
+            </nav>
+          </aside>
+
+          <div id="admin-service-pane" class="flex-1 min-w-0 w-full space-y-6 overflow-x-hidden">
+            ${this._renderActiveServiceContent(this.activeTab, data, ev, tidbConnected)}
+          </div>
+
         </div>
+        `}
 
       </div>
     `;
@@ -279,7 +345,7 @@ class AdminManager {
         <!-- Banner di avviso se disconnesso -->
         ${!ev.bosch?.connected ? `
           <div class="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-start justify-between flex-wrap gap-3 text-xs">
-            <div class="flex items-start gap-3 flex-1 min-w-[260px]">
+            <div class="flex items-start gap-3 flex-1 min-w-0 sm:min-w-[260px]">
               <i class="fa-solid fa-triangle-exclamation text-amber-400 text-base mt-0.5 shrink-0"></i>
               <div class="space-y-1">
                 <div class="font-bold text-amber-300">Autenticazione Cloud Richiesta</div>
@@ -330,7 +396,7 @@ class AdminManager {
 
                   return `
                     <div class="p-3.5 rounded-xl border ${borderCls} flex items-start justify-between flex-wrap gap-3 text-xs">
-                      <div class="flex items-start gap-3 flex-1 min-w-[260px]">
+                      <div class="flex items-start gap-3 flex-1 min-w-0 sm:min-w-[260px]">
                         <i class="fa-solid ${a.icon || 'fa-triangle-exclamation'} ${iconColor} text-base mt-0.5 shrink-0"></i>
                         <div class="space-y-0.5">
                           <div class="font-bold text-white flex items-center gap-2">

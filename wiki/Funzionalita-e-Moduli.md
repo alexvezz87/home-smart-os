@@ -69,6 +69,7 @@ Per garantire scalabilità, pulizia del codice e massima reattività su Smartpho
 - **Drawer / Bottom Sheet Contestuale**: Toccando un pin dispositivo, si apre un drawer laterale semitrasparente (su tablet/desktop) o un bottom sheet (su smartphone) con comandi rapidi (dimmer luci, termostato Bosch, porte/clima Volvo EX30, ricarica Wallbox ABB, stream video Tapo RTSP/WebSockets e toggle prese Meross).
 
 ### B. ⚡ Consumi & Energia (Energy Intelligence)
+Organizzata con lo stesso layout **modulare responsive** di Amministrazione e Mobilità EV (sidebar verticale sticky a sinistra + dettaglio a destra su desktop, fisarmonica accordion su smartphone `< 768px` con zero scroll orizzontali):
 - **Sintesi Energetica Unificata Casa (Gas Metano Bosch + Elettricità Meross)**: Quadro sinottico che unisce la spesa del Gas Metano (calcolato a 0.87 €/Smc con offerta Dolomiti Energia *Mitica Gas 24 Web*) e dell'energia elettrica (rilevata in tempo reale dalle prese Meross e quadro generale secondo tariffa ARERA). Visualizza la spesa totale stimata del giorno in Euro (€) e la ripartizione percentuale del mix energetico (Calore / Luce).
 - **Monitoraggio Prese Smart Meross & Angolo Snack Cucina**: Censimento puntuale dei carichi elettrici con dialog modale dettagliato. La *Presa Cucina* (pin #32) specifica con precisione gli elettrodomestici collegati (angolo colazione/snack: tostapane, bollitore elettrico, forno a microonde, friggitrice ad aria) evidenziando che forno a incasso e piano cottura a induzione sono esclusi e cablati su linee separate dedicate.
 - **Heatmap Energetica sulla Piantina**: Aloni colorati sui dispositivi proporzionali ai Watt assorbiti (blu < 100W, ambra 100-1000W, rosso intenso > 1000W).
@@ -78,7 +79,7 @@ Per garantire scalabilità, pulizia del codice e massima reattività su Smartpho
 - **Confronto Ricarica EV Volvo EX30 / Wallbox ABB**: Calcolo risparmio economico rispetto ai veicoli termici tradizionali (~72% di risparmio medio).
 
 ### C. ⚙️ Amministrazione & Hub (Gestione Modulare per Servizi & Diagnostica)
-Riorganizzata con un'architettura **modulare a schede (Tab Switcher)** con persistenza in `localStorage ('admin_active_tab')`. Ciascun servizio dispone di una scheda dedicata minimale ed intuitiva con impostazioni di login, configurazione hardware e telemetria isolata:
+Riorganizzata con un'architettura **modulare responsive**: su desktop/tablet orizzontale usa un layout a **2 colonne** (sidebar verticale sticky a sinistra + pannello di dettaglio a destra), mentre su smartphone/schermi verticali (`< 768px`) passa automaticamente a una **fisarmonica (accordion)** verticale con apertura/chiusura contestuale per eliminare qualsiasi scroll orizzontale. La scheda attiva viene salvata in `localStorage ('admin_active_tab')` e ciascun servizio dispone di un pannello dedicato con impostazioni di login, configurazione hardware e telemetria isolata:
 1. 🔥 **Clima & Caldaia (Bosch EasyControl CT200)**:
    - Diagnostica telemetrica in tempo reale (stato bruciatore/fiamma, pressione circuito riscaldamento in bar con range 1.0-2.0, temperatura mandata, sonda esterna, ACS).
    - Controllo rapido e telemetria delle 9 termovalvole smart (setpoint, apertura %, temperatura letta, stato batteria AA).
@@ -161,5 +162,12 @@ Riorganizzata con un'architettura **modulare a schede (Tab Switcher)** con persi
 - **Parsing Semantico & PDF (`src/delivery-billing-parser.js`)**: estrazione strutturata pacchi (`home-active-deliveries`) e bollette extra-Dolomiti (`home-active-bills`, inclusi PDF allegati `application/pdf`) via `aiGateway.generateJSON({ role: 'fast' })`.
 - **Riconciliazione Visiva & Notifiche**: ascolto `camera:vision_alert` per allerta immediata corriere alla porta (`mail:courier_arrived`), riepilogo mattutino pacchi in arrivo e promemoria discreto a `<= 3 giorni` dalla scadenza bollette.
 - **UI & Status**: widget *"📦 Consegne di Casa"* in `#area-home` (`public/js/app.js`), sezione *"📅 Scadenzario Utenze Extra"* in *Consumi & Energia* (`public/js/energy.js`), box **Gmail Alex** / **Gmail Cinzia** in *Amministrazione* (`public/js/admin.js`) e card `gmail_hub` in Statuspage (`src/service-status.js`).
+
+---
+
+## 🎬 9. Temporal Scene Understanding Multi-Frame con Gemini Vision (`#34`)
+- **Burst Temporale & Rolling Memory Buffer (`src/go2rtc-manager.js`, `src/security-system.js`)**: acquisizione burst di 2–6 fotogrammi (`captureTemporalBurst`) e buffer circolare in RAM (`pushRollingFrame`, `getRollingFrames`, `captureRollingFrame`, max 6 frame, TTL 30s) alimentato a zero spreco API da eventi ONVIF (`IsMotion`, `IsPeople`, `IsTPSmartEvent`) e dal Sensore Corridoio Hue SSE (`sensor:motion`).
+- **Temporal Reasoning (`src/gemini-vision.js`)**: `analyzeTemporalSequence` combina pre-frame + burst live (fino a 5 frame con offset `[T=+x.xs]`) e foto di riferimento pet (`_buildPetReferenceParts`), invoca `aiGateway.generateJSON({ role: 'fast' })` con guardrail `camera:vision` per trigger automatici, restituisce JSON strutturato (`summary`, `francescoState`, `posture`, `trajectory`, `nightWalkingOutOfBed`, `petsDetected`, `anomaly`) ed emette `camera:temporal_analysis` su `eventBus`.
+- **Maxi-Player, API & Assistente (`public/js/camera-theater.js`, `server.js`, `src/assistant.js`)**: pulsanti **Fotogramma Singolo** vs **Sequenza Dinamica (Burst 4 Frame)** con strip thumbnail e badge strutturati sanitizzati; endpoint `POST /api/camera/:id/analyze` (`temporal: true`) e `POST /api/camera/:id/analyze-sequence`; instradamento query vocali dinamiche/Baby Monitor in `src/assistant.js`.
 
 

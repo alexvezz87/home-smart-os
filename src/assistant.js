@@ -35,10 +35,15 @@ async function processAssistantCommand(input) {
     return { success: true, action: 'cast_camera', reply: result.message };
   }
 
-  // 0a-bis. Analisi visiva della scena con Gemini Vision ("Cosa succede in camera", "Guarda in salone", "Francesco dorme?", "Analizza la stanza")
+  // 0a-bis. Analisi visiva della scena con Gemini Vision ("Cosa succede in camera", "Guarda in salone", "Francesco dorme?", "Cosa sta facendo Francesco?", "Qualcuno si è mosso in salone?")
   const isVisionQuery = (
     text.includes('cosa sta succedendo') ||
     text.includes('cosa succede') ||
+    text.includes('cosa sta facendo') ||
+    text.includes('sta facendo francesco') ||
+    text.includes('si è mosso') ||
+    text.includes('si sta muovendo') ||
+    text.includes('analisi temporale') ||
     text.includes('guarda in') ||
     text.includes('analizza') ||
     text.includes('situazione in') ||
@@ -58,16 +63,33 @@ async function processAssistantCommand(input) {
     const targetCam = isBaby ? 'baby' : isLetto ? 'letto' : 'salone';
     const targetRoomName = isBaby ? 'Baby Monitor' : isLetto ? 'Camera da letto' : 'Salone';
 
-    const result = await geminiVision.analyzeCameraScene(targetCam, input, securitySystem);
+    const isTemporalQuery =
+      isBaby ||
+      text.includes('sta facendo') ||
+      text.includes('si è mosso') ||
+      text.includes('si sta muovendo') ||
+      text.includes('movimento') ||
+      text.includes('sta succedendo') ||
+      text.includes('sequenza');
+
+    const result = isTemporalQuery
+      ? await geminiVision.analyzeTemporalSequence(targetCam, input, securitySystem, {
+          frameCount: 3,
+          intervalMs: 1000,
+          triggerSource: 'assistant'
+        })
+      : await geminiVision.analyzeCameraScene(targetCam, input, securitySystem);
+
     if (!result.success) {
       return { success: false, action: 'vision_error', reply: result.message };
     }
     return {
       success: true,
-      action: 'vision_analysis',
+      action: isTemporalQuery ? 'temporal_vision_analysis' : 'vision_analysis',
       camera: targetCam,
       room: targetRoomName,
-      reply: `👁️ [Gemini Vision - ${targetRoomName}]: ${result.analysis}`
+      structured: result.structured || null,
+      reply: `👁️ [Gemini Vision${isTemporalQuery ? ' Temporale' : ''} - ${targetRoomName}]: ${result.analysis}`
     };
   }
 

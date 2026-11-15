@@ -26,140 +26,121 @@ class EnergyManager {
     this.thermalDays = 7;
     this.thermalSelectedZone = 'zn1';
     this.thermalChart = null;
+
+    this.activeTab = localStorage.getItem('energy_active_tab') || 'overview';
+    this._energyAiCache = null;
+    this._isMobileView = typeof window !== 'undefined' ? window.innerWidth < 768 : false;
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', () => {
+        const nowMobile = window.innerWidth < 768;
+        if (nowMobile !== this._isMobileView) {
+          this._isMobileView = nowMobile;
+          const area = document.getElementById('area-energy');
+          if (area && !area.classList.contains('hidden')) {
+            this.renderView(true);
+          }
+        }
+      });
+    }
   }
 
-  async renderView() {
-    const container = document.getElementById('area-energy');
-    if (!container) return;
+  selectTab(tabId) {
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    if (isMobile && this.activeTab === tabId) {
+      this.activeTab = null;
+    } else {
+      this.activeTab = tabId;
+      localStorage.setItem('energy_active_tab', tabId);
+    }
+    this.renderView(true);
+  }
 
-    let energyAi = window.homeData?.energySummary || null;
-    try {
-      const res = await fetch('/api/energy/intelligence');
-      const json = await res.json();
-      if (json.success) energyAi = json.data;
-    } catch (_) {}
+  _renderOverviewPane(mg, tariff, barColor) {
+    const rawHist = window.homeData?.evClimate?.bosch?.energyHistory || {};
+    const daily = rawHist.daily || [];
+    const totals = rawHist.totals || {};
+    const gasTariff = Number(totals.dolomitiTariffEurPerSmc) || 0.87;
+    const bands = tariff.allBands || { F1: 0.29, F2: 0.25, F3: 0.21 };
+    const todayRecord = daily.length > 0 ? daily[daily.length - 1] : null;
+    const gasM3Today = todayRecord ? todayRecord.gasTotal : (totals.totalGasM3 || 1.84);
+    const gasCostToday = todayRecord ? todayRecord.costEur : +(gasM3Today * gasTariff).toFixed(2);
 
-    const mg = energyAi?.meterGuard || { currentW: 0, limitW: 3000, loadPercent: 0, status: 'SAFE', availableW: 3000 };
-    const tariff = energyAi?.tariff || { band: 'F3', label: 'Fascia F3 (Notte)', priceKwh: 0.21, currentHourlyCostEur: 0, advice: 'Ottimo momento per lavatrice, lavastoviglie o ricarica EV!' };
-    const plugs = energyAi?.plugs || [];
-    const appliances = energyAi?.smartAppliances || [];
+    const currentPowerW = mg.currentW || 380;
+    const estElecKwh = +((currentPowerW * 14 / 1000) + 2.5).toFixed(1);
+    const elecCostToday = +(estElecKwh * (tariff.priceKwh || bands.F2 || 0.24)).toFixed(2);
+    const totalCostToday = +(gasCostToday + elecCostToday).toFixed(2);
+    const gasPct = Math.min(100, Math.max(0, Math.round((gasCostToday / (totalCostToday || 1)) * 100)));
+    const elecPct = 100 - gasPct;
 
-    const barColor = mg.status === 'CRITICAL' ? 'bg-rose-500' : mg.status === 'WARNING' ? 'bg-amber-500' : 'bg-emerald-500';
-
-    container.innerHTML = `
+    return `
       <div class="space-y-6">
-
-        <!-- 1. Quick Energy Header & Heatmap Toggle -->
-        <div class="glass-card rounded-2xl p-5 border border-slate-800 flex items-center justify-between flex-wrap gap-4">
-          <div class="flex items-center gap-3">
-            <div class="w-12 h-12 rounded-2xl bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center justify-center text-2xl shadow-lg shadow-amber-500/10">
-              <i class="fa-solid fa-bolt-lightning"></i>
-            </div>
-            <div>
-              <div class="flex items-center gap-2">
-                <h2 class="text-lg font-bold text-white tracking-tight">Consumi &amp; Energy Intelligence</h2>
-                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">Live 100ms</span>
+        <!-- Sintesi Energetica Unificata Casa -->
+        <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-4 bg-gradient-to-br from-slate-900/90 via-slate-950 to-slate-900/80">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-3">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500/20 to-sky-500/20 text-amber-300 border border-amber-500/30 flex items-center justify-center text-lg shadow-md">
+                <i class="fa-solid fa-chart-pie"></i>
               </div>
-              <p class="text-xs text-slate-400">Analisi carichi domestici, gas metano Bosch, ricarica elettrica e tariffe ARERA</p>
+              <div>
+                <h3 class="text-base font-bold text-white flex items-center gap-2 flex-wrap">
+                  <span>Sintesi Energetica Casa Unificata</span>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Gas Metano + Elettricità</span>
+                </h3>
+                <p class="text-xs text-slate-400">Dolomiti Energia Gas (${gasTariff.toFixed(3)} €/Smc da bollette) + Luce (${Number(tariff.priceKwh).toFixed(3)} €/kWh netto fissi)</p>
+              </div>
+            </div>
+
+            <div class="text-right">
+              <span class="text-xs text-slate-400 block font-medium">Spesa Totale Oggi:</span>
+              <span class="text-2xl font-black text-emerald-400 font-mono">~${totalCostToday.toFixed(2)} €</span>
             </div>
           </div>
 
-          <div class="flex items-center gap-2">
-            <button onclick="window.energyManager.toggleHeatmapOnHome()" class="px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all shadow-md shadow-indigo-600/20 flex items-center gap-1.5 active:scale-95">
-              <i class="fa-solid fa-map-location-dot"></i>
-              <span>Vedi Heatmap sulla Piantina</span>
-            </button>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div class="p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/30 space-y-1">
+              <div class="flex items-center justify-between text-xs text-amber-400 font-bold">
+                <span class="flex items-center gap-1.5"><i class="fa-solid fa-fire-flame-curved"></i> Gas Metano (Caldaia)</span>
+                <span class="font-mono">${gasPct}% spesa</span>
+              </div>
+              <div class="text-xl font-black text-white font-mono mt-0.5">${gasM3Today} Smc</div>
+              <div class="text-xs text-amber-300/90 font-mono">~${gasCostToday.toFixed(2)} € stimati oggi</div>
+              <div class="text-[10.5px] text-slate-400">CT200 + 9 radiatori modulanti</div>
+            </div>
+
+            <div class="p-3.5 rounded-xl bg-sky-950/20 border border-sky-500/30 space-y-1">
+              <div class="flex items-center justify-between text-xs text-sky-400 font-bold">
+                <span class="flex items-center gap-1.5"><i class="fa-solid fa-bolt"></i> Elettricità Domestica</span>
+                <span class="font-mono">${elecPct}% spesa</span>
+              </div>
+              <div class="text-xl font-black text-white font-mono mt-0.5">~${estElecKwh} kWh</div>
+              <div class="text-xs text-sky-300/90 font-mono">~${elecCostToday.toFixed(2)} € stimati oggi</div>
+              <div class="text-[10.5px] text-slate-400">${tariff.label} · Meross live</div>
+            </div>
+
+            <div class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2 flex flex-col justify-between">
+              <div class="text-xs text-slate-300 font-bold flex items-center justify-between">
+                <span>Mix Energetico Quotidiano</span>
+                <span class="text-[10px] text-emerald-400 font-semibold">Comfort Bilanciato</span>
+              </div>
+              <div class="w-full h-3 rounded-full bg-slate-800 overflow-hidden flex">
+                <div class="h-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-500" style="width: ${gasPct}%" title="Gas: ${gasPct}%"></div>
+                <div class="h-full bg-gradient-to-r from-sky-500 to-indigo-500 transition-all duration-500" style="width: ${elecPct}%" title="Luce: ${elecPct}%"></div>
+              </div>
+              <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                <span class="text-amber-400">🔥 Calore: ${gasPct}%</span>
+                <span class="text-sky-400">⚡ Luce: ${elecPct}%</span>
+              </div>
+            </div>
           </div>
         </div>
 
-        <!-- 1b. Sintesi Energetica Unificata Casa (Gas Metano Bosch + Elettricità Meross) -->
-        ${(() => {
-          const rawHist = window.homeData?.evClimate?.bosch?.energyHistory || {};
-          const daily = rawHist.daily || [];
-          const totals = rawHist.totals || {};
-          const gasTariff = Number(totals.dolomitiTariffEurPerSmc) || 0.87;
-          const bands = tariff.allBands || { F1: 0.29, F2: 0.25, F3: 0.21 };
-          const todayRecord = daily.length > 0 ? daily[daily.length - 1] : null;
-          const gasM3Today = todayRecord ? todayRecord.gasTotal : (totals.totalGasM3 || 1.84);
-          const gasCostToday = todayRecord ? todayRecord.costEur : +(gasM3Today * gasTariff).toFixed(2);
-          
-          const currentPowerW = mg.currentW || 380;
-          const estElecKwh = +((currentPowerW * 14 / 1000) + 2.5).toFixed(1);
-          const elecCostToday = +(estElecKwh * (tariff.priceKwh || bands.F2 || 0.24)).toFixed(2);
-          const totalCostToday = +(gasCostToday + elecCostToday).toFixed(2);
-          const gasPct = Math.min(100, Math.max(0, Math.round((gasCostToday / (totalCostToday || 1)) * 100)));
-          const elecPct = 100 - gasPct;
-
-          return `
-            <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-4 bg-gradient-to-br from-slate-900/90 via-slate-950 to-slate-900/80">
-              <div class="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-3">
-                <div class="flex items-center gap-3">
-                  <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500/20 to-sky-500/20 text-amber-300 border border-amber-500/30 flex items-center justify-center text-lg shadow-md">
-                    <i class="fa-solid fa-chart-pie"></i>
-                  </div>
-                  <div>
-                    <h3 class="text-base font-bold text-white flex items-center gap-2">
-                      <span>Sintesi Energetica Casa Unificata</span>
-                      <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Gas Metano + Elettricità</span>
-                    </h3>
-                    <p class="text-xs text-slate-400">Dolomiti Energia Gas (${gasTariff.toFixed(3)} €/Smc da bollette) + Luce (${Number(tariff.priceKwh).toFixed(3)} €/kWh netto fissi)</p>
-                  </div>
-                </div>
-
-                <div class="text-right">
-                  <span class="text-xs text-slate-400 block font-medium">Spesa Totale Oggi:</span>
-                  <span class="text-2xl font-black text-emerald-400 font-mono">~${totalCostToday.toFixed(2)} €</span>
-                </div>
-              </div>
-
-              <!-- KPI Box Gas + Luce -->
-              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div class="p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/30 space-y-1">
-                  <div class="flex items-center justify-between text-xs text-amber-400 font-bold">
-                    <span class="flex items-center gap-1.5"><i class="fa-solid fa-fire-flame-curved"></i> Gas Metano (Caldaia)</span>
-                    <span class="font-mono">${gasPct}% spesa</span>
-                  </div>
-                  <div class="text-xl font-black text-white font-mono mt-0.5">${gasM3Today} Smc</div>
-                  <div class="text-xs text-amber-300/90 font-mono">~${gasCostToday.toFixed(2)} € stimati oggi</div>
-                  <div class="text-[10.5px] text-slate-400">CT200 + 9 radiatori modulanti</div>
-                </div>
-
-                <div class="p-3.5 rounded-xl bg-sky-950/20 border border-sky-500/30 space-y-1">
-                  <div class="flex items-center justify-between text-xs text-sky-400 font-bold">
-                    <span class="flex items-center gap-1.5"><i class="fa-solid fa-bolt"></i> Elettricità Domestica</span>
-                    <span class="font-mono">${elecPct}% spesa</span>
-                  </div>
-                  <div class="text-xl font-black text-white font-mono mt-0.5">~${estElecKwh} kWh</div>
-                  <div class="text-xs text-sky-300/90 font-mono">~${elecCostToday.toFixed(2)} € stimati oggi</div>
-                  <div class="text-[10.5px] text-slate-400">${tariff.label} · Meross live</div>
-                </div>
-
-                <div class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2 flex flex-col justify-between">
-                  <div class="text-xs text-slate-300 font-bold flex items-center justify-between">
-                    <span>Mix Energetico Quotidiano</span>
-                    <span class="text-[10px] text-emerald-400 font-semibold">Comfort Bilanciato</span>
-                  </div>
-                  <div class="w-full h-3 rounded-full bg-slate-800 overflow-hidden flex">
-                    <div class="h-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-500" style="width: ${gasPct}%" title="Gas: ${gasPct}%"></div>
-                    <div class="h-full bg-gradient-to-r from-sky-500 to-indigo-500 transition-all duration-500" style="width: ${elecPct}%" title="Luce: ${elecPct}%"></div>
-                  </div>
-                  <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono">
-                    <span class="text-amber-400">🔥 Calore: ${gasPct}%</span>
-                    <span class="text-sky-400">⚡ Luce: ${elecPct}%</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          `;
-        })()}
-
-        <!-- 2. Guardia Carichi 3 kW & Simulatore Bolletta ARERA -->
+        <!-- Guardia Carichi 3 kW & Simulatore Bolletta ARERA -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <!-- Card Guardia Contatore -->
           <div class="glass-card rounded-2xl p-6 border ${mg.status === 'CRITICAL' ? 'border-rose-500/60 bg-rose-950/20 animate-pulse' : 'border-slate-800'} space-y-4">
-            <div class="flex items-center justify-between">
+            <div class="flex items-center justify-between gap-3">
               <div class="flex items-center gap-3">
-                <div class="w-11 h-11 rounded-xl bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center justify-center text-xl">
+                <div class="w-11 h-11 rounded-xl bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center justify-center text-xl shrink-0">
                   <i class="fa-solid fa-gauge-high"></i>
                 </div>
                 <div>
@@ -167,13 +148,12 @@ class EnergyManager {
                   <h3 class="text-base font-bold text-white">Carico Attuale Contatore</h3>
                 </div>
               </div>
-              <div class="text-right">
+              <div class="text-right shrink-0">
                 <span class="text-2xl font-black text-amber-300">${mg.currentW} W</span>
                 <span class="text-xs text-slate-400 block">su ${mg.limitW} W contrattuali</span>
               </div>
             </div>
 
-            <!-- Progress Bar Carico -->
             <div class="w-full h-3.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800 p-0.5">
               <div class="h-full ${barColor} rounded-full transition-all duration-500" style="width: ${Math.max(3, Math.min(100, mg.loadPercent))}%"></div>
             </div>
@@ -184,11 +164,10 @@ class EnergyManager {
             </div>
           </div>
 
-          <!-- Card Tariffe ARERA -->
           <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-4 flex flex-col justify-between">
             <div class="flex items-start justify-between gap-3">
               <div class="flex items-center gap-3">
-                <div class="w-11 h-11 rounded-xl bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 flex items-center justify-center text-xl">
+                <div class="w-11 h-11 rounded-xl bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 flex items-center justify-center text-xl shrink-0">
                   <i class="fa-solid fa-coins"></i>
                 </div>
                 <div>
@@ -196,7 +175,7 @@ class EnergyManager {
                   <h3 class="text-base font-bold text-white">${tariff.label}</h3>
                 </div>
               </div>
-              <span class="px-3 py-1 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 text-sm font-black">
+              <span class="px-3 py-1 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 text-sm font-black shrink-0">
                 ${tariff.priceKwh} €/kWh
               </span>
             </div>
@@ -221,237 +200,392 @@ class EnergyManager {
             </div>
           </div>
         </div>
+      </div>
+    `;
+  }
 
-        <!-- 3. Caldaia Bosch CT200 - Storico Consumi Gas Metano & Costi -->
-        <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
-          <div class="flex items-center justify-between flex-wrap gap-3 border-b border-slate-800 pb-4">
-            <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-xl bg-rose-500/15 text-rose-400 border border-rose-500/30 flex items-center justify-center text-lg">
-                <i class="fa-solid fa-fire-flame-curved"></i>
-              </div>
-              <div>
-                <h3 class="text-base font-bold text-white">Consumi Gas Caldaia Bosch EasyControl CT200</h3>
-                <p class="text-xs text-slate-400">Tariffa Dolomiti Energia (${(Number(window.homeData?.evClimate?.bosch?.energyHistory?.totals?.dolomitiTariffEurPerSmc) || 0.87).toFixed(3)} €/Smc da bollette) · Storico dal 2022</p>
-              </div>
+  _renderGasPane() {
+    return `
+      <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-3 border-b border-slate-800 pb-4">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-rose-500/15 text-rose-400 border border-rose-500/30 flex items-center justify-center text-lg">
+              <i class="fa-solid fa-fire-flame-curved"></i>
             </div>
-
-            <div class="flex items-center flex-wrap gap-2">
-              <!-- Timeframe selector -->
-              <div class="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
-                <button onclick="window.energyManager.switchBoschTimeframe('3d')" data-bosch-tf="3d" class="bosch-tf-btn px-2.5 py-1 rounded-lg ${this.boschTimeframe === '3d' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all">3 Giorni</button>
-                <button onclick="window.energyManager.switchBoschTimeframe('month')" data-bosch-tf="month" class="bosch-tf-btn px-2.5 py-1 rounded-lg ${this.boschTimeframe === 'month' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all">Mese</button>
-                <button onclick="window.energyManager.switchBoschTimeframe('year')" data-bosch-tf="year" class="bosch-tf-btn px-2.5 py-1 rounded-lg ${this.boschTimeframe === 'year' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all">Anno</button>
-                <button onclick="window.energyManager.switchBoschTimeframe('years')" data-bosch-tf="years" class="bosch-tf-btn px-2.5 py-1 rounded-lg ${this.boschTimeframe === 'years' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all">Anni</button>
-              </div>
-
-              <!-- Unit toggle m³ / € -->
-              <div class="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
-                <button onclick="window.energyManager.switchBoschUnit('m3')" data-bosch-unit="m3" class="bosch-unit-btn px-2.5 py-1 rounded-lg ${this.boschUnit === 'm3' ? 'bg-slate-200 text-slate-900 font-bold' : 'text-slate-400 hover:text-white'} transition-all">m³</button>
-                <button onclick="window.energyManager.switchBoschUnit('eur')" data-bosch-unit="eur" class="bosch-unit-btn px-2.5 py-1 rounded-lg ${this.boschUnit === 'eur' ? 'bg-emerald-500 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all">€</button>
-              </div>
+            <div>
+              <h3 class="text-base font-bold text-white">Consumi Gas Caldaia Bosch EasyControl CT200</h3>
+              <p class="text-xs text-slate-400">Tariffa Dolomiti Energia (${(Number(window.homeData?.evClimate?.bosch?.energyHistory?.totals?.dolomitiTariffEurPerSmc) || 0.87).toFixed(3)} €/Smc da bollette) · Storico dal 2022</p>
             </div>
           </div>
 
-          <!-- Period Navigator -->
-          <div class="flex items-center justify-between px-1">
-            <button id="bosch-nav-prev" onclick="window.energyManager.stepBoschPeriod(-1)" class="w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 flex items-center justify-center transition-all disabled:opacity-30 disabled:cursor-not-allowed">
-              <i class="fa-solid fa-chevron-left text-xs"></i>
-            </button>
-            <div id="bosch-period-label" class="text-sm font-bold text-white tracking-wide">--</div>
-            <button id="bosch-nav-next" onclick="window.energyManager.stepBoschPeriod(1)" class="w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 flex items-center justify-center transition-all disabled:opacity-30 disabled:cursor-not-allowed">
-              <i class="fa-solid fa-chevron-right text-xs"></i>
-            </button>
-          </div>
+          <div class="flex items-center flex-wrap gap-2">
+            <div class="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
+              <button onclick="window.energyManager.switchBoschTimeframe('3d')" data-bosch-tf="3d" class="bosch-tf-btn px-2.5 py-1 rounded-lg ${this.boschTimeframe === '3d' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all">3 Giorni</button>
+              <button onclick="window.energyManager.switchBoschTimeframe('month')" data-bosch-tf="month" class="bosch-tf-btn px-2.5 py-1 rounded-lg ${this.boschTimeframe === 'month' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all">Mese</button>
+              <button onclick="window.energyManager.switchBoschTimeframe('year')" data-bosch-tf="year" class="bosch-tf-btn px-2.5 py-1 rounded-lg ${this.boschTimeframe === 'year' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all">Anno</button>
+              <button onclick="window.energyManager.switchBoschTimeframe('years')" data-bosch-tf="years" class="bosch-tf-btn px-2.5 py-1 rounded-lg ${this.boschTimeframe === 'years' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all">Anni</button>
+            </div>
 
-          <!-- Chart Gas Canvas -->
-          <div class="h-64 sm:h-72 w-full relative">
-            <canvas id="boschGasChart"></canvas>
-          </div>
-
-          <!-- KPI Cards Gas (allineate allo stile Bosch) -->
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
-            <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-              <span class="text-[10px] text-slate-400 uppercase font-semibold">Totale consumata</span>
-              <div id="kpi-bosch-tot" class="text-lg font-black text-white mt-0.5">-- m³</div>
-              <div id="kpi-bosch-cost" class="text-xs font-mono text-emerald-400 mt-0.5">-- €</div>
-            </div>
-            <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-              <span class="text-[10px] text-slate-400 uppercase font-semibold flex items-center gap-1.5">
-                <span class="w-2 h-2 rounded-sm bg-red-500 inline-block"></span> Riscaldamento
-              </span>
-              <div id="kpi-bosch-ch" class="text-lg font-black text-red-400 mt-0.5">-- m³</div>
-            </div>
-            <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-              <span class="text-[10px] text-slate-400 uppercase font-semibold flex items-center gap-1.5">
-                <span class="w-2 h-2 rounded-sm bg-fuchsia-500 inline-block"></span> Acqua calda
-              </span>
-              <div id="kpi-bosch-hw" class="text-lg font-black text-fuchsia-400 mt-0.5">-- m³</div>
-            </div>
-            <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-              <span class="text-[10px] text-slate-400 uppercase font-semibold flex items-center gap-1.5">
-                <span class="w-2 h-2 rounded-full bg-white inline-block"></span> Temp. esterna media
-              </span>
-              <div id="kpi-bosch-temp" class="text-lg font-black text-slate-100 mt-0.5">-- °C</div>
+            <div class="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
+              <button onclick="window.energyManager.switchBoschUnit('m3')" data-bosch-unit="m3" class="bosch-unit-btn px-2.5 py-1 rounded-lg ${this.boschUnit === 'm3' ? 'bg-slate-200 text-slate-900 font-bold' : 'text-slate-400 hover:text-white'} transition-all">m³</button>
+              <button onclick="window.energyManager.switchBoschUnit('eur')" data-bosch-unit="eur" class="bosch-unit-btn px-2.5 py-1 rounded-lg ${this.boschUnit === 'eur' ? 'bg-emerald-500 text-white font-bold' : 'text-slate-400 hover:text-white'} transition-all">€</button>
             </div>
           </div>
         </div>
 
-        <!-- 4. Ricarica Elettrica Volvo EX30 & Wallbox ABB Terra AC -->
-        <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
-          <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center justify-center text-lg">
-                <i class="fa-solid fa-charging-station"></i>
-              </div>
-              <div>
-                <h3 class="text-base font-bold text-white">Ricarica Elettrica EV &amp; Calcolatore Risparmio</h3>
-                <p class="text-xs text-slate-400">Volvo EX30 Twin Motor Performance · Wallbox ABB Terra AC</p>
-              </div>
-            </div>
-            <span class="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-bold">
-              Risparmio medio: ~72% vs Benzina
+        <div class="flex items-center justify-between px-1">
+          <button id="bosch-nav-prev" onclick="window.energyManager.stepBoschPeriod(-1)" class="w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 flex items-center justify-center transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+            <i class="fa-solid fa-chevron-left text-xs"></i>
+          </button>
+          <div id="bosch-period-label" class="text-sm font-bold text-white tracking-wide">--</div>
+          <button id="bosch-nav-next" onclick="window.energyManager.stepBoschPeriod(1)" class="w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 flex items-center justify-center transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+            <i class="fa-solid fa-chevron-right text-xs"></i>
+          </button>
+        </div>
+
+        <div class="h-64 sm:h-72 w-full relative">
+          <canvas id="boschGasChart"></canvas>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+          <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+            <span class="text-[10px] text-slate-400 uppercase font-semibold">Totale consumata</span>
+            <div id="kpi-bosch-tot" class="text-lg font-black text-white mt-0.5">-- m³</div>
+            <div id="kpi-bosch-cost" class="text-xs font-mono text-emerald-400 mt-0.5">-- €</div>
+          </div>
+          <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+            <span class="text-[10px] text-slate-400 uppercase font-semibold flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-sm bg-red-500 inline-block"></span> Riscaldamento
             </span>
+            <div id="kpi-bosch-ch" class="text-lg font-black text-red-400 mt-0.5">-- m³</div>
+          </div>
+          <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+            <span class="text-[10px] text-slate-400 uppercase font-semibold flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-sm bg-fuchsia-500 inline-block"></span> Acqua calda
+            </span>
+            <div id="kpi-bosch-hw" class="text-lg font-black text-fuchsia-400 mt-0.5">-- m³</div>
+          </div>
+          <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+            <span class="text-[10px] text-slate-400 uppercase font-semibold flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-white inline-block"></span> Temp. esterna media
+            </span>
+            <div id="kpi-bosch-temp" class="text-lg font-black text-slate-100 mt-0.5">-- °C</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderEvPane(tariff) {
+    return `
+      <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-3 border-b border-slate-800 pb-3">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center justify-center text-lg">
+              <i class="fa-solid fa-charging-station"></i>
+            </div>
+            <div>
+              <h3 class="text-base font-bold text-white">Ricarica Elettrica EV &amp; Calcolatore Risparmio</h3>
+              <p class="text-xs text-slate-400">Volvo EX30 Twin Motor Performance · Wallbox ABB Terra AC</p>
+            </div>
+          </div>
+          <span class="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-bold">
+            Risparmio medio: ~72% vs Benzina
+          </span>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-800 space-y-1">
+            <span class="text-xs text-slate-400 font-medium">Costo 100 km (Ricarica Domestica)</span>
+            <div class="text-2xl font-black text-emerald-400">~${(17 * Number(tariff.allBands?.F3 ?? tariff.priceKwh ?? 0.21)).toFixed(2)} €</div>
+            <span class="text-[10px] text-slate-400 block font-mono">17 kWh/100km @ ${Number(tariff.allBands?.F3 ?? tariff.priceKwh ?? 0.21).toFixed(3)} €/kWh (F3)</span>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-800 space-y-1">
-              <span class="text-xs text-slate-400 font-medium">Costo 100 km (Ricarica Domestica)</span>
-              <div class="text-2xl font-black text-emerald-400">~${(17 * Number(tariff.allBands?.F3 ?? tariff.priceKwh ?? 0.21)).toFixed(2)} €</div>
-              <span class="text-[10px] text-slate-400 block font-mono">17 kWh/100km @ ${Number(tariff.allBands?.F3 ?? tariff.priceKwh ?? 0.21).toFixed(3)} €/kWh (F3)</span>
-            </div>
+          <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-800 space-y-1">
+            <span class="text-xs text-slate-400 font-medium">Costo 100 km (Equivalente Benzina)</span>
+            <div class="text-2xl font-black text-rose-400">~12.80 €</div>
+            <span class="text-[10px] text-slate-400 block font-mono">7.0 L/100km @ 1.83 €/L</span>
+          </div>
 
-            <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-800 space-y-1">
-              <span class="text-xs text-slate-400 font-medium">Costo 100 km (Equivalente Benzina)</span>
-              <div class="text-2xl font-black text-rose-400">~12.80 €</div>
-              <span class="text-[10px] text-slate-400 block font-mono">7.0 L/100km @ 1.83 €/L</span>
-            </div>
+          <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-800 space-y-1">
+            <span class="text-xs text-slate-400 font-medium">Risparmio Netto Stimato (15.000 km/anno)</span>
+            <div class="text-2xl font-black text-sky-300">~1.385 € / anno</div>
+            <span class="text-[10px] text-emerald-400 block font-semibold">Zero emissioni allo scarico</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
 
-            <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-800 space-y-1">
-              <span class="text-xs text-slate-400 font-medium">Risparmio Netto Stimato (15.000 km/anno)</span>
-              <div class="text-2xl font-black text-sky-300">~1.385 € / anno</div>
-              <span class="text-[10px] text-emerald-400 block font-semibold">Zero emissioni allo scarico</span>
+  _renderPlugsPane(plugs) {
+    return `
+      <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-sky-500/15 text-sky-400 border border-sky-500/30 flex items-center justify-center text-lg">
+              <i class="fa-solid fa-plug"></i>
+            </div>
+            <div>
+              <h3 class="text-base font-bold text-white">Prese Smart Meross &amp; Carichi Locali</h3>
+              <p class="text-xs text-slate-400">Clicca su una presa per visualizzare la telemetria energetica dettagliata</p>
             </div>
           </div>
         </div>
 
-        <!-- 5. Monitoraggio Prese Smart Meross -->
-        <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
-          <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-xl bg-sky-500/15 text-sky-400 border border-sky-500/30 flex items-center justify-center text-lg">
-                <i class="fa-solid fa-plug"></i>
-              </div>
-              <div>
-                <h3 class="text-base font-bold text-white">Prese Smart Meross &amp; Carichi Locali</h3>
-                <p class="text-xs text-slate-400">Clicca su una presa per visualizzare la telemetria energetica dettagliata</p>
-              </div>
-            </div>
-          </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          ${plugs.map(p => {
+            const isKitchen = p.name && p.name.toLowerCase().includes('cucina');
+            return `
+              <div class="p-3.5 rounded-xl bg-slate-900/70 border ${isKitchen ? 'border-amber-500/40 bg-amber-950/10' : 'border-slate-800'} hover:border-sky-500/40 transition-colors cursor-pointer space-y-2 flex flex-col justify-between"
+                   onclick="window.energyManager.openPlugDetail('${p.name}', '${p.id}', ${Boolean(p.powerW > 0)}, ${isKitchen})">
+                <div>
+                  <div class="flex items-center justify-between mb-1.5">
+                    <span class="font-bold text-white text-xs truncate flex items-center gap-1.5">
+                      <i class="fa-solid fa-plug text-sky-400 text-[10px]"></i>
+                      <span class="truncate">${p.name}</span>
+                    </span>
+                    <span class="w-2 h-2 rounded-full ${p.powerW > 5 ? 'bg-amber-400 animate-ping' : 'bg-slate-600'}"></span>
+                  </div>
+                  <div class="flex items-baseline justify-between">
+                    <span class="text-xl font-black text-amber-300 font-mono">${p.powerW || 0} W</span>
+                    <span class="text-[10px] text-slate-400 font-mono">${p.voltage || 230}V</span>
+                  </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            ${plugs.map(p => {
-              const isKitchen = p.name && p.name.toLowerCase().includes('cucina');
-              return `
-                <div class="p-3.5 rounded-xl bg-slate-900/70 border ${isKitchen ? 'border-amber-500/40 bg-amber-950/10' : 'border-slate-800'} hover:border-sky-500/40 transition-colors cursor-pointer space-y-2 flex flex-col justify-between"
-                     onclick="window.energyManager.openPlugDetail('${p.name}', '${p.id}', ${Boolean(p.powerW > 0)}, ${isKitchen})">
-                  <div>
-                    <div class="flex items-center justify-between mb-1.5">
-                      <span class="font-bold text-white text-xs truncate flex items-center gap-1.5">
-                        <i class="fa-solid fa-plug text-sky-400 text-[10px]"></i>
-                        <span class="truncate">${p.name}</span>
-                      </span>
-                      <span class="w-2 h-2 rounded-full ${p.powerW > 5 ? 'bg-amber-400 animate-ping' : 'bg-slate-600'}"></span>
-                    </div>
-                    <div class="flex items-baseline justify-between">
-                      <span class="text-xl font-black text-amber-300 font-mono">${p.powerW || 0} W</span>
-                      <span class="text-[10px] text-slate-400 font-mono">${p.voltage || 230}V</span>
-                    </div>
-
-                    ${isKitchen ? `
-                      <div class="mt-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-300 space-y-1">
-                        <div class="font-bold flex items-center gap-1">
-                          <i class="fa-solid fa-kitchen-set"></i> Angolo Snack &amp; Colazione
-                        </div>
-                        <div class="text-[9.5px] text-slate-300 leading-tight">Tostapane, bollitore, microonde, airfryer</div>
-                        <div class="text-[9px] text-slate-400 italic pt-0.5 border-t border-amber-500/10">Esclusi forno e induzione (linee separate)</div>
+                  ${isKitchen ? `
+                    <div class="mt-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-300 space-y-1">
+                      <div class="font-bold flex items-center gap-1">
+                        <i class="fa-solid fa-kitchen-set"></i> Angolo Snack &amp; Colazione
                       </div>
-                    ` : ''}
-                  </div>
-
-                  <div class="pt-1 border-t border-slate-800/80 text-[10px] text-sky-400 font-semibold flex items-center justify-between">
-                    <span><i class="fa-solid fa-chart-line text-[9px] mr-1"></i>Dettaglio &amp; Carichi</span>
-                    <i class="fa-solid fa-chevron-right text-[8px]"></i>
-                  </div>
+                      <div class="text-[9.5px] text-slate-300 leading-tight">Tostapane, bollitore, microonde, airfryer</div>
+                      <div class="text-[9px] text-slate-400 italic pt-0.5 border-t border-amber-500/10">Esclusi forno e induzione (linee separate)</div>
+                    </div>
+                  ` : ''}
                 </div>
-              `;
-            }).join('')}
-          </div>
+
+                <div class="pt-1 border-t border-slate-800/80 text-[10px] text-sky-400 font-semibold flex items-center justify-between">
+                  <span><i class="fa-solid fa-chart-line text-[9px] mr-1"></i>Dettaglio &amp; Carichi</span>
+                  <i class="fa-solid fa-chevron-right text-[8px]"></i>
+                </div>
+              </div>
+            `;
+          }).join('')}
         </div>
+      </div>
+    `;
+  }
 
-        <!-- 6. Analisi Termica Stanze & Efficienza (Thermal Learning Loop #60) -->
-        <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
-          <div class="flex items-center justify-between flex-wrap gap-3 border-b border-slate-800 pb-3">
-            <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-xl bg-rose-500/15 text-rose-400 border border-rose-500/30 flex items-center justify-center text-lg">
-                <i class="fa-solid fa-temperature-half"></i>
-              </div>
-              <div>
-                <h3 class="text-base font-bold text-white">Analisi Termica Stanze &amp; Efficienza</h3>
-                <p class="text-xs text-slate-400">Storico 15m per zona Bosch, inerzia infissi PVC triplo vetro, guadagni passivi e correlazione gas</p>
-              </div>
+  _renderThermalPane() {
+    return `
+      <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-3 border-b border-slate-800 pb-3">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-rose-500/15 text-rose-400 border border-rose-500/30 flex items-center justify-center text-lg">
+              <i class="fa-solid fa-temperature-half"></i>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-              <select id="thermal-zone-select" onchange="window.energyManager.selectThermalZone(this.value)" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white"></select>
-              <div class="inline-flex rounded-xl bg-slate-900 border border-slate-800 p-0.5 text-xs">
-                <button onclick="window.energyManager.switchThermalDays(1)" data-thermal-days="1" class="thermal-days-btn px-2.5 py-1 rounded-lg text-slate-400 hover:text-white">24h</button>
-                <button onclick="window.energyManager.switchThermalDays(7)" data-thermal-days="7" class="thermal-days-btn px-2.5 py-1 rounded-lg bg-rose-600 text-white font-bold">7g</button>
-                <button onclick="window.energyManager.switchThermalDays(30)" data-thermal-days="30" class="thermal-days-btn px-2.5 py-1 rounded-lg text-slate-400 hover:text-white">30g</button>
-              </div>
-              <button onclick="window.energyManager.runThermalAnalyzeNow()" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all active:scale-95">
-                <i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Analizza Ora
-              </button>
+            <div>
+              <h3 class="text-base font-bold text-white">Analisi Termica Stanze &amp; Efficienza</h3>
+              <p class="text-xs text-slate-400">Storico 15m per zona Bosch, inerzia infissi PVC triplo vetro, guadagni passivi e correlazione gas</p>
             </div>
           </div>
-
-          <div class="h-64 relative">
-            <canvas id="thermalZoneChart"></canvas>
-          </div>
-
-          <div id="thermal-analytics-summary" class="space-y-3 text-xs text-slate-300">
-            <span class="text-slate-400">Caricamento analisi termica stanze...</span>
-          </div>
-        </div>
-
-        <!-- 7. Scadenzario Utenze Extra (Gmail Alex & Cinzia, extra-Dolomiti #36) -->
-        <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
-          <div class="flex items-center justify-between flex-wrap gap-3 border-b border-slate-800 pb-3">
-            <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-xl bg-sky-500/15 text-sky-400 border border-sky-500/30 flex items-center justify-center text-lg">
-                <i class="fa-solid fa-calendar-check"></i>
-              </div>
-              <div>
-                <h3 class="text-base font-bold text-white">📅 Scadenzario Utenze Extra</h3>
-                <p class="text-xs text-slate-400">Iliad Fibra, TARI, Acqua, Assicurazione/Bollo Auto &amp; Manutenzioni (esclusa Dolomiti Energia Drive)</p>
-              </div>
-            </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <select id="thermal-zone-select" onchange="window.energyManager.selectThermalZone(this.value)" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white"></select>
             <div class="inline-flex rounded-xl bg-slate-900 border border-slate-800 p-0.5 text-xs">
-              <button onclick="window.energyManager.loadExtraBills('all')" class="extra-bill-filter-btn px-2.5 py-1 rounded-lg bg-sky-600 text-white font-bold" data-bill-filter="all">Tutte</button>
-              <button onclick="window.energyManager.loadExtraBills('pending')" class="extra-bill-filter-btn px-2.5 py-1 rounded-lg text-slate-400 hover:text-white" data-bill-filter="pending">Da Pagare</button>
-              <button onclick="window.energyManager.loadExtraBills('paid')" class="extra-bill-filter-btn px-2.5 py-1 rounded-lg text-slate-400 hover:text-white" data-bill-filter="paid">Pagate</button>
+              <button onclick="window.energyManager.switchThermalDays(1)" data-thermal-days="1" class="thermal-days-btn px-2.5 py-1 rounded-lg text-slate-400 hover:text-white">24h</button>
+              <button onclick="window.energyManager.switchThermalDays(7)" data-thermal-days="7" class="thermal-days-btn px-2.5 py-1 rounded-lg bg-rose-600 text-white font-bold">7g</button>
+              <button onclick="window.energyManager.switchThermalDays(30)" data-thermal-days="30" class="thermal-days-btn px-2.5 py-1 rounded-lg text-slate-400 hover:text-white">30g</button>
+            </div>
+            <button onclick="window.energyManager.runThermalAnalyzeNow()" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all active:scale-95">
+              <i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Analizza Ora
+            </button>
+          </div>
+        </div>
+
+        <div class="h-64 relative">
+          <canvas id="thermalZoneChart"></canvas>
+        </div>
+
+        <div id="thermal-analytics-summary" class="space-y-3 text-xs text-slate-300">
+          <span class="text-slate-400">Caricamento analisi termica stanze...</span>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderBillsPane() {
+    return `
+      <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-3 border-b border-slate-800 pb-3">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-sky-500/15 text-sky-400 border border-sky-500/30 flex items-center justify-center text-lg">
+              <i class="fa-solid fa-calendar-check"></i>
+            </div>
+            <div>
+              <h3 class="text-base font-bold text-white">📅 Scadenzario Utenze Extra</h3>
+              <p class="text-xs text-slate-400">Iliad Fibra, TARI, Acqua, Assicurazione/Bollo Auto &amp; Manutenzioni (esclusa Dolomiti Energia Drive)</p>
+            </div>
+          </div>
+          <div class="inline-flex rounded-xl bg-slate-900 border border-slate-800 p-0.5 text-xs">
+            <button onclick="window.energyManager.loadExtraBills('all')" class="extra-bill-filter-btn px-2.5 py-1 rounded-lg bg-sky-600 text-white font-bold" data-bill-filter="all">Tutte</button>
+            <button onclick="window.energyManager.loadExtraBills('pending')" class="extra-bill-filter-btn px-2.5 py-1 rounded-lg text-slate-400 hover:text-white" data-bill-filter="pending">Da Pagare</button>
+            <button onclick="window.energyManager.loadExtraBills('paid')" class="extra-bill-filter-btn px-2.5 py-1 rounded-lg text-slate-400 hover:text-white" data-bill-filter="paid">Pagate</button>
+          </div>
+        </div>
+
+        <div id="extra-bills-list" class="text-xs text-slate-400">
+          Caricamento scadenzario utenze extra...
+        </div>
+      </div>
+    `;
+  }
+
+  _renderActiveEnergyTab(tabId, mg, tariff, barColor, plugs) {
+    switch (tabId) {
+      case 'overview': return this._renderOverviewPane(mg, tariff, barColor);
+      case 'gas': return this._renderGasPane();
+      case 'ev': return this._renderEvPane(tariff);
+      case 'plugs': return this._renderPlugsPane(plugs);
+      case 'thermal': return this._renderThermalPane();
+      case 'bills': return this._renderBillsPane();
+      default: return this._renderOverviewPane(mg, tariff, barColor);
+    }
+  }
+
+  async renderView(skipFetch = false) {
+    const container = document.getElementById('area-energy');
+    if (!container) return;
+
+    let energyAi = this._energyAiCache || window.homeData?.energySummary || null;
+    if (!skipFetch || !energyAi) {
+      try {
+        const res = await fetch('/api/energy/intelligence');
+        const json = await res.json();
+        if (json.success) {
+          energyAi = json.data;
+          this._energyAiCache = energyAi;
+        }
+      } catch (_) {}
+    }
+
+    const mg = energyAi?.meterGuard || { currentW: 0, limitW: 3000, loadPercent: 0, status: 'SAFE', availableW: 3000 };
+    const tariff = energyAi?.tariff || { band: 'F3', label: 'Fascia F3 (Notte)', priceKwh: 0.21, currentHourlyCostEur: 0, advice: 'Ottimo momento per lavatrice, lavastoviglie o ricarica EV!' };
+    const plugs = energyAi?.plugs || [];
+    const barColor = mg.status === 'CRITICAL' ? 'bg-rose-500' : mg.status === 'WARNING' ? 'bg-amber-500' : 'bg-emerald-500';
+
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    if (!isMobile && !this.activeTab) {
+      this.activeTab = localStorage.getItem('energy_active_tab') || 'overview';
+    }
+
+    const sections = [
+      { id: 'overview', name: 'Panoramica & 3 kW', icon: 'fa-bolt-lightning', badge: `${mg.currentW || 0} W`, badgeClass: mg.status === 'CRITICAL' ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30' : 'bg-amber-500/15 text-amber-400 border border-amber-500/30' },
+      { id: 'gas', name: 'Caldaia Gas Bosch', icon: 'fa-fire-flame-curved', badge: 'Metano', badgeClass: 'bg-rose-500/15 text-rose-400 border border-rose-500/30' },
+      { id: 'ev', name: 'Ricarica EV & Risparmio', icon: 'fa-charging-station', badge: '-72%', badgeClass: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' },
+      { id: 'plugs', name: 'Prese Smart Meross', icon: 'fa-plug', badge: `${plugs.length} Prese`, badgeClass: 'bg-sky-500/15 text-sky-400 border border-sky-500/30' },
+      { id: 'thermal', name: 'Analisi Termica', icon: 'fa-temperature-half', badge: 'AI Clima', badgeClass: 'bg-indigo-500/15 text-indigo-400 border border-indigo-500/30' },
+      { id: 'bills', name: 'Scadenzario Extra', icon: 'fa-calendar-check', badge: 'Utenze', badgeClass: 'bg-slate-800 text-slate-300 border border-slate-700/60' }
+    ];
+
+    container.innerHTML = `
+      <div class="space-y-5">
+
+        <!-- Header Consumi & Energy Intelligence -->
+        <div class="glass-card rounded-2xl p-4 sm:p-5 border border-slate-800 flex items-center justify-between flex-wrap gap-4">
+          <div class="flex items-center gap-3">
+            <div class="w-11 h-11 rounded-2xl bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center justify-center text-xl shadow-lg shadow-amber-500/10 shrink-0">
+              <i class="fa-solid fa-bolt-lightning"></i>
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h2 class="text-base sm:text-lg font-bold text-white tracking-tight">Consumi &amp; Energy Intelligence</h2>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">Live 100ms</span>
+              </div>
+              <p class="text-xs text-slate-400">Analisi carichi domestici, gas metano Bosch, ricarica elettrica e tariffe ARERA</p>
             </div>
           </div>
 
-          <div id="extra-bills-list" class="text-xs text-slate-400">
-            Caricamento scadenzario utenze extra...
+          <div class="flex items-center gap-2">
+            <button onclick="window.energyManager.toggleHeatmapOnHome()" class="px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all shadow-md shadow-indigo-600/20 flex items-center gap-1.5 active:scale-95">
+              <i class="fa-solid fa-map-location-dot"></i>
+              <span>Vedi Heatmap sulla Piantina</span>
+            </button>
           </div>
         </div>
+
+        ${isMobile ? `
+        <!-- Vista Mobile / Verticale: Fisarmonica (Accordion) -->
+        <div class="space-y-2.5" aria-label="Sezioni Energia Accordion">
+          ${sections.map(s => {
+            const isOpen = s.id === this.activeTab;
+            const badgeCls = isOpen ? 'bg-indigo-500/30 text-indigo-200 border border-indigo-400/40' : s.badgeClass;
+            return `
+              <div class="glass-card rounded-2xl border ${isOpen ? 'border-indigo-500/50 shadow-lg shadow-indigo-500/10' : 'border-slate-800'} overflow-hidden transition-all">
+                <button onclick="window.energyManager.selectTab('${s.id}')"
+                        aria-expanded="${isOpen}"
+                        class="w-full px-4 py-3 flex items-center justify-between gap-3 text-left cursor-pointer ${isOpen ? 'bg-indigo-600/15 text-white' : 'text-slate-200 hover:bg-slate-800/40'} transition-colors">
+                  <div class="flex items-center gap-3 min-w-0">
+                    <div class="w-8 h-8 rounded-xl ${isOpen ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-500/30' : 'bg-slate-800/90 text-slate-300'} flex items-center justify-center text-xs shrink-0">
+                      <i class="fa-solid ${s.icon}"></i>
+                    </div>
+                    <span class="text-xs font-semibold truncate">${s.name}</span>
+                  </div>
+                  <div class="flex items-center gap-2 shrink-0">
+                    <span class="text-[9.5px] px-2 py-0.5 rounded-full font-mono ${badgeCls}">${s.badge}</span>
+                    <i class="fa-solid fa-chevron-down text-[11px] text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-300' : ''}"></i>
+                  </div>
+                </button>
+                ${isOpen ? `
+                  <div id="energy-service-pane" class="border-t border-slate-800/80 p-3 space-y-5 min-w-0 overflow-x-hidden">
+                    ${this._renderActiveEnergyTab(s.id, mg, tariff, barColor, plugs)}
+                  </div>
+                ` : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>
+        ` : `
+        <!-- Vista Desktop / Orizzontale: Sidebar Verticale a Sinistra + Dettaglio a Destra -->
+        <div class="flex flex-row gap-5 items-start">
+          <aside class="w-64 lg:w-72 shrink-0 sticky top-20">
+            <nav aria-label="Sezioni Energia"
+                 class="glass-card rounded-2xl p-2 border border-slate-800 flex flex-col gap-1.5">
+              ${sections.map(s => {
+                const isActive = s.id === this.activeTab;
+                const activeClass = isActive
+                  ? 'bg-indigo-600/20 text-white border-indigo-500/60 shadow-sm font-semibold'
+                  : 'bg-transparent text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 border-transparent font-medium';
+                const badgeCls = isActive ? 'bg-indigo-500/30 text-indigo-200 border border-indigo-400/40' : s.badgeClass;
+                return `
+                  <button onclick="window.energyManager.selectTab('${s.id}')"
+                          class="w-full px-3 py-2.5 rounded-xl text-xs border transition-all flex items-center justify-between gap-2 text-left cursor-pointer active:scale-[0.99] ${activeClass}">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                      <div class="w-7 h-7 rounded-lg ${isActive ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-500/30' : 'bg-slate-800/90 text-slate-300'} flex items-center justify-center text-xs shrink-0">
+                        <i class="fa-solid ${s.icon}"></i>
+                      </div>
+                      <span class="truncate">${s.name}</span>
+                    </div>
+                    <span class="text-[9.5px] px-1.5 py-0.5 rounded-full font-mono shrink-0 ${badgeCls}">${s.badge}</span>
+                  </button>
+                `;
+              }).join('')}
+            </nav>
+          </aside>
+
+          <div id="energy-service-pane" class="flex-1 min-w-0 w-full space-y-6 overflow-x-hidden">
+            ${this._renderActiveEnergyTab(this.activeTab, mg, tariff, barColor, plugs)}
+          </div>
+        </div>
+        `}
 
       </div>
     `;
 
-    this.renderBoschGasChart();
-    this.loadThermalAnalytics();
-    this.loadExtraBills('all');
+    if (this.activeTab === 'gas') {
+      this.renderBoschGasChart();
+    } else if (this.activeTab === 'thermal') {
+      this.loadThermalAnalytics();
+    } else if (this.activeTab === 'bills') {
+      this.loadExtraBills('all');
+    }
   }
 
   toggleHeatmapOnHome() {
