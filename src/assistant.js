@@ -30,9 +30,6 @@ async function processAssistantCommand(input, options = {}) {
   ) {
     return aiOrchestrator.processCommand(input, options);
   }
-  if (!text) {
-    return { success: false, reply: 'Non ho ricevuto alcun comando.' };
-  }
 
   // 0a. Cast Telecamera su Nest Hub (avvio e arresto)
   if ((text.includes('interrompi') || text.includes('ferma') || text.includes('stop') || text.includes('chiudi')) && 
@@ -354,10 +351,14 @@ async function processAssistantCommand(input, options = {}) {
     return { success: true, action: 'query_status', reply };
   }
 
-  // Impostazione temperatura stanza/zona Bosch CT200 (es. "imposta salone a 21 gradi")
-  const tempMatch = text.match(/(?:imposta|metti|porta|regola|temperatura)\s+(?:il\s+|la\s+|in\s+|a\s+)?(salone|cucina|camera da letto|cameretta|bagno cinzia|bagno alex|cabina armadio|ingresso|corridoio)\s+(?:a\s+)?(\d+(?:[.,]\d+)?)/i);
+  // Impostazione temperatura stanza/zona Bosch CT200 (es. "imposta temperatura salone a 21 gradi", "imposta salone a 21 gradi", "metti riscaldamento a 20.5")
+  const tempMatch =
+    text.match(/(?:imposta|metti|porta|regola|scalda|abbassa|alza|temperatura)(?:\s+(?:la\s+|il\s+)?(?:temperatura|riscaldamento|termostato|clima))?\s+(?:del\s+|della\s+|nel\s+|nella\s+|il\s+|la\s+|in\s+|a\s+)?(salone|cucina|camera da letto|cameretta|camera|bagno cinzia|bagno alex|cabina armadio|ingresso|corridoio)\s+(?:a\s+)?(\d+(?:[.,]\d+)?)/i) ||
+    text.match(/(?:imposta|metti|porta|regola|scalda|abbassa|alza)\s+(?:la\s+|il\s+)?(temperatura|riscaldamento|termostato|caldaia)\s+(?:a\s+)?(\d+(?:[.,]\d+)?)/i);
   if (tempMatch) {
-    const zone = tempMatch[1].toLowerCase();
+    const rawZone = tempMatch[1].toLowerCase();
+    const isGenericZone = ['temperatura', 'riscaldamento', 'termostato', 'caldaia'].includes(rawZone);
+    const zone = isGenericZone ? 'zn1' : (rawZone === 'camera' ? 'camera da letto' : rawZone);
     const rawTemp = parseFloat(tempMatch[2].replace(',', '.'));
     const guard = aiGateway.validateHardwareAction({ action: 'climate:set_temp', value: rawTemp });
     if (guard && guard.allowed === false) {
@@ -375,7 +376,7 @@ async function processAssistantCommand(input, options = {}) {
       zone,
       temperature: finalTemp,
       clamped: Boolean(guard?.clamped),
-      reply: `Temperatura ${zone} impostata a ${finalTemp}°C${guard?.clamped ? ' (limitata dai guardrail)' : ''}.`
+      reply: `Temperatura ${isGenericZone ? 'casa' : zone} impostata a ${finalTemp}°C${guard?.clamped ? ' (limitata dai guardrail)' : ''}.`
     };
   }
 
@@ -520,7 +521,16 @@ async function processAssistantCommand(input, options = {}) {
       };
     }
     if (text.includes('acqua calda') || text.includes('boost')) {
-      const res = await evClimateHub.boostBoschDhw();
+      let res = null;
+      try {
+        if (typeof evClimateHub.controlBosch === 'function') {
+          res = await evClimateHub.controlBosch('boost_dhw');
+        } else if (typeof evClimateHub.boostBoschDhw === 'function') {
+          res = await evClimateHub.boostBoschDhw();
+        }
+      } catch (err) {
+        if (!String(err.message || '').includes('non conness')) throw err;
+      }
       return {
         success: true,
         action: 'bosch:boost_dhw',
@@ -529,17 +539,33 @@ async function processAssistantCommand(input, options = {}) {
       };
     }
     if (text.includes('manuale')) {
-      await evClimateHub.setBoschMode('manual');
+      try {
+        if (typeof evClimateHub.controlBosch === 'function') {
+          await evClimateHub.controlBosch('set_mode', 'manual');
+        } else if (typeof evClimateHub.setBoschMode === 'function') {
+          await evClimateHub.setBoschMode('manual');
+        }
+      } catch (err) {
+        if (!String(err.message || '').includes('non conness')) throw err;
+      }
       return { success: true, action: 'bosch:mode_manual', reply: 'Caldaia Bosch CT200 impostata in modalità manuale.' };
     }
-    if (text.includes('automatic') || text.includes('orologio') || text.includes('clock')) {
-      await evClimateHub.setBoschMode('clock');
+    if (text.includes('automatic') || text.includes('orologio') || text.includes('clock') || text.includes('programma')) {
+      try {
+        if (typeof evClimateHub.controlBosch === 'function') {
+          await evClimateHub.controlBosch('set_mode', 'clock');
+        } else if (typeof evClimateHub.setBoschMode === 'function') {
+          await evClimateHub.setBoschMode('clock');
+        }
+      } catch (err) {
+        if (!String(err.message || '').includes('non conness')) throw err;
+      }
       return { success: true, action: 'bosch:mode_clock', reply: 'Caldaia Bosch CT200 impostata in modalità programmata.' };
     }
     const status = evClimateHub.getUnifiedStatus ? evClimateHub.getUnifiedStatus() : {};
     const bosch = status.bosch || {};
     const zones = Array.isArray(bosch.zones) ? bosch.zones : [];
-    const summary = zones.slice(0, 4).map((z) => `${z.name}: ${z.currentTemp ?? z.temp ?? '--'}°C`).join(', ');
+    const summary = zones.slice(0, 4).map((z) => `${z.name}: ${z.tempActual ?? z.currentTemp ?? z.temp ?? '--'}°C`).join(', ');
     return {
       success: true,
       action: 'bosch:query',
@@ -629,8 +655,14 @@ async function processAssistantCommand(input, options = {}) {
     };
   }
 
-  // Fallback intelligente tramite AI Orchestrator
-  return aiOrchestrator.processCommand(input, options);
+  // Fallback intelligente tramite AI Orchestrator (se chiave Gemini configurata)
+  if (aiGateway.getApiKey()) {
+    return aiOrchestrator.processCommand(input, options);
+  }
+  return {
+    success: false,
+    reply: `Non ho capito cosa fare per "${text}". Puoi provare: "Imposta salone a 20 gradi", "Stato Volvo EX30", "Avvia ricarica wallbox" o "Spegni tutto".`
+  };
 }
 
 module.exports = {

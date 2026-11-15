@@ -434,8 +434,8 @@ function toggleAssistantTts() {
   showToast(assistantTtsEnabled ? 'Risposte vocali TTS attive' : 'Risposte vocali TTS disattive', 'info');
 }
 
-function speakAssistantReply(text) {
-  if (!assistantTtsEnabled || !text || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+function speakAssistantReply(text, forceSpeak = false) {
+  if ((!assistantTtsEnabled && !forceSpeak) || !text || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
   try {
     window.speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
@@ -484,7 +484,7 @@ async function toggleVoiceAssistant() {
       if (input) input.value = transcript;
       setMicButtonListening(false);
       activeSpeechRecognition = null;
-      if (transcript.trim()) await sendAssistantCommand(transcript.trim());
+      if (transcript.trim()) await sendAssistantCommand(transcript.trim(), { speakReply: true });
     };
     rec.onerror = () => {
       setMicButtonListening(false);
@@ -539,7 +539,7 @@ async function toggleVoiceAssistant() {
           const json = await res.json();
           const reply = json.reply || json.error || 'Audio elaborato.';
           if (textEl) textEl.innerText = json.transcript ? `"${json.transcript}" -> ${reply}` : reply;
-          speakAssistantReply(reply);
+          speakAssistantReply(reply, true);
           await loadDashboard();
         } catch (err) {
           if (textEl) textEl.innerText = 'Errore audio AI: ' + err.message;
@@ -579,7 +579,7 @@ async function sendAssistantCommand(cmd, options = {}) {
 
   if (box && text) {
     box.classList.remove('hidden');
-    text.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2"></i>Elaborazione: "${cmd}"...`;
+    text.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2"></i>Elaborazione: "${escapeMailHtml(cmd)}"...`;
   }
 
   try {
@@ -596,7 +596,7 @@ async function sendAssistantCommand(cmd, options = {}) {
 
     if (json.requiresConfirmation && !options.humanConfirmed) {
       if (window.confirm(`${json.reply || 'Azione sensibile.'}\nVuoi confermare l'esecuzione?`)) {
-        return sendAssistantCommand(cmd, { humanConfirmed: true });
+        return sendAssistantCommand(cmd, { ...options, humanConfirmed: true });
       }
     }
 
@@ -604,7 +604,7 @@ async function sendAssistantCommand(cmd, options = {}) {
     if (text) {
       text.innerText = replyText;
     }
-    speakAssistantReply(replyText);
+    speakAssistantReply(replyText, Boolean(options.speakReply));
     showToast('Comando recepito', 'info');
     await loadDashboard();
   } catch (err) {

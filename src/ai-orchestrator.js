@@ -66,12 +66,23 @@ class AIOrchestrator {
         const res = await this.evClimateHub.applyBabyComfortProfile({});
         return { tool, action: act, result: res };
       }
-      if (act === 'set_mode' && typeof this.evClimateHub.setBoschMode === 'function') {
-        const res = await this.evClimateHub.setBoschMode(args.mode || 'clock');
-        return { tool, action: act, result: res };
+      if (act === 'set_mode') {
+        const modeVal = args.mode || 'clock';
+        let res = null;
+        if (typeof this.evClimateHub.controlBosch === 'function') {
+          res = await this.evClimateHub.controlBosch('set_mode', modeVal, { zoneId: args.zone || 'zn1' });
+        } else if (typeof this.evClimateHub.setBoschMode === 'function') {
+          res = await this.evClimateHub.setBoschMode(modeVal);
+        }
+        return { tool, action: act, mode: modeVal, result: res };
       }
-      if (act === 'boost_dhw' && typeof this.evClimateHub.boostBoschDhw === 'function') {
-        const res = await this.evClimateHub.boostBoschDhw();
+      if (act === 'boost_dhw') {
+        let res = null;
+        if (typeof this.evClimateHub.controlBosch === 'function') {
+          res = await this.evClimateHub.controlBosch('boost_dhw');
+        } else if (typeof this.evClimateHub.boostBoschDhw === 'function') {
+          res = await this.evClimateHub.boostBoschDhw();
+        }
         return { tool, action: act, result: res };
       }
       const status = this.evClimateHub.getUnifiedStatus ? this.evClimateHub.getUnifiedStatus() : {};
@@ -130,7 +141,11 @@ class AIOrchestrator {
     if (tool === 'controlLightsAndPlugs') {
       const act = args.action || 'all_off';
       if (act === 'all_off') {
-        await this.mcp.setAllLightsPower(false);
+        if (typeof this.mcp.turnOffAllLights === 'function') {
+          await this.mcp.turnOffAllLights();
+        } else if (typeof this.mcp.setAllLightsPower === 'function') {
+          await this.mcp.setAllLightsPower(false);
+        }
         return { tool, action: act };
       }
       if (act === 'turn_on_room') {

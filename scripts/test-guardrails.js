@@ -922,9 +922,10 @@ test('AIOrchestrator & Assistant (#4): comandi Bosch/Volvo/Wallbox, guardrail sb
     assert.equal(volvoBlocked.success, false);
     assert.equal(volvoBlocked.requiresConfirmation, true);
 
-    const boschCmd = await processAssistantCommand('imposta salone a 21 gradi');
+    const boschCmd = await processAssistantCommand('imposta temperatura salone a 25 gradi');
     assert.equal(boschCmd.success, true);
-    assert.equal(boschCmd.temperature, 21);
+    assert.equal(boschCmd.temperature, 23.5);
+    assert.equal(boschCmd.clamped, true);
 
     const wbCmd = await processAssistantCommand('imposta wallbox a 12 ampere');
     assert.equal(wbCmd.success, true);
