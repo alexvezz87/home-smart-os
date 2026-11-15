@@ -362,14 +362,72 @@ app.post('/api/hue/effect', async (req, res) => {
   }
 });
 
-// Regolazione Colore (Gamut XY) e Temperatura Kelvin precisa
+// Catalogo vocale completo Hue (stanze, scene, luci, effetti)
+app.get('/api/hue/voice-catalog', (req, res) => {
+  try {
+    res.json({ success: true, data: hueLocal.getVoiceCatalog() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Regolazione Colore (Gamut XY), Temperatura Kelvin e Luminosità
 app.post('/api/hue/color', async (req, res) => {
   try {
-    const { lightId, lightName, roomName, kelvin, hex, xy } = req.body || {};
-    const result = await hueLocal.setColorOrTemperature({ lightId, lightName, roomName, kelvin, hex, xy });
+    const body = req.body || {};
+    const { lightId, lightName, roomName, targetName, kelvin, hex, xy, colorName, brightness } = body;
+    const result = (colorName || brightness !== undefined || targetName)
+      ? await hueLocal.setColorOrBrightness(body)
+      : await hueLocal.setColorOrTemperature({ lightId, lightName, roomName, kelvin, hex, xy });
     res.json({ success: true, data: result });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// Google Home Smart Home Fulfillment (SYNC & ActivateScene per Scene Hue)
+app.post('/api/google/fulfillment', async (req, res) => {
+  try {
+    const { requestId, inputs = [] } = req.body || {};
+    const firstInput = inputs[0] || {};
+    const intent = firstInput.intent;
+
+    if (intent === 'action.devices.SYNC') {
+      return res.json({
+        requestId,
+        payload: {
+          agentUserId: 'home-smart-os-user',
+          devices: hueLocal.getGoogleHomeSceneDevices()
+        }
+      });
+    }
+
+    if (intent === 'action.devices.EXECUTE') {
+      const commands = firstInput.payload?.commands || [];
+      const commandResults = [];
+      for (const cmd of commands) {
+        const devices = cmd.devices || [];
+        const execution = cmd.execution || [];
+        const activateExec = execution.find((e) => e.command === 'action.devices.commands.ActivateScene');
+        if (activateExec) {
+          const ids = [];
+          for (const dev of devices) {
+            const rawId = String(dev.id || '');
+            const sceneId = rawId.startsWith('hue_scene_') ? rawId.slice('hue_scene_'.length) : rawId;
+            try {
+              await hueLocal.activateScene(sceneId);
+              ids.push(rawId);
+            } catch (_) {}
+          }
+          commandResults.push({ ids, status: ids.length ? 'SUCCESS' : 'ERROR', states: { online: true } });
+        }
+      }
+      return res.json({ requestId, payload: { commands: commandResults } });
+    }
+
+    res.json({ requestId, payload: {} });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 

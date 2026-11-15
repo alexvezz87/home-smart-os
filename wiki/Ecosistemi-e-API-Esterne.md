@@ -110,3 +110,6 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 
 ### Assistente Vocale & Audio Multimodale (`#4`)
 - **Endpoint**: `POST /api/assistant` e alias `POST /api/assistant/command` (payload `{ command | message | text, humanConfirmed }`), più `POST /api/assistant/audio` (`{ audioBase64, mimeType, prompt, humanConfirmed }`) orchestrato tramite `aiGateway` (`role: 'fast'`).
+
+### Controllo Vocale Scene & Luci Philips Hue (`#39`)
+- **Endpoint**: `GET /api/hue/voice-catalog` (stanze, scene, luci, effetti live), `POST /api/hue/color` (colore `colorName`/`hex`, temperatura `kelvin` e `brightness`) e `POST /api/google/fulfillment` (Google Home Smart Home `SYNC` per `action.devices.types.SCENE` e `EXECUTE` `ActivateScene`).

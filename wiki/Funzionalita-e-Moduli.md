@@ -177,5 +177,13 @@ Riorganizzata con un'architettura **modulare responsive**: su desktop/tablet ori
 - **Comandi Vocali Estesi (`src/assistant.js`)**: supporto deterministico per caldaia e 9 zone termostatiche Bosch CT200 (setpoint, modalità, boost ACS, profilo Comfort Neonato), Volvo EX30 (stato batteria/autonomia, preclimatizzazione, blocco/sblocco sicuro) e Wallbox ABB (stato, avvio/stop ricarica, regolazione ampere), con delega intelligente ad `aiOrchestrator` per richieste multi-azione o non riconosciute.
 - **PWA Kiosk & Voce Browser (`public/manifest.json`, `public/sw.js`, `public/index.html`, `public/js/app.js`)**: manifest installabile `standalone` landscape, Service Worker `home-os-shell-v1` (caching statico Network-First con esclusione `/api/*`, `/ws*`, `/go2rtc*` e preservazione Web Push), Screen Wake Lock API (`initKioskWakeLock`), microfono `#btn-assistant-mic` (`SpeechRecognition` `it-IT` con fallback `MediaRecorder` verso `POST /api/assistant/audio`) e sintesi vocale `#btn-assistant-tts` (`speechSynthesis`).
 
+---
+
+## 🎨 11. Controllo Vocale Completo Scene, Effetti & Colori Philips Hue (`#39`)
+- **Catalogo Dinamico & Matching Emotivo (`src/hue-local.js`)**: `getVoiceCatalog()` espone in tempo reale stanze, 43+ scene, luci ed effetti firmware; `activateSceneByName` estende i sinonimi emotivi/colloquiali (*romantica/cena*, *notturna/nanna*, *film/cinema*, *festa/party*, *mattina/sveglia*); `setColorOrBrightness` mappa nomi colore italiani (`blu`, `verde`, `bianco caldo/naturale/freddo`, ecc.), temperature Kelvin e luminosità `1–100%` su singole luci o stanze via CLIP v2; `getGoogleHomeSceneDevices()` genera i descrittori `action.devices.types.SCENE`.
+- **Iniezione Dinamica AI & Assistente (`src/ai-orchestrator.js`, `src/assistant.js`)**: `_buildSystemPrompt` inietta dinamicamente il catalogo vivo Hue; `executeAction` supporta `activateHueScene`, `setHueLightEffect` e `setHueColorOrBrightness`; `src/assistant.js` risolve localmente frasi emotive e regolazioni colore/Kelvin/luminosità.
+- **Telegram & Google Fulfillment (`src/telegram-bot.js`, `server.js`)**: fix unwrap `transcript.text` in `_handleVoiceMessage`, comandi `/scene` (con tastiera inline `hue_scene:` / `hue_effect:`) e `/scena <argomenti>`; nuovi endpoint `GET /api/hue/voice-catalog`, `POST /api/hue/color` e `POST /api/google/fulfillment` (`action.devices.SYNC` e `ActivateScene`).
+
+
 
 

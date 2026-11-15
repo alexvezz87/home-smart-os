@@ -24,6 +24,25 @@ class AIOrchestrator {
   }
 
   _buildSystemPrompt(extraPrompt = '') {
+    let hueSummary = '';
+    try {
+      if (this.hueLocal && typeof this.hueLocal.getVoiceCatalog === 'function') {
+        const cat = this.hueLocal.getVoiceCatalog();
+        const rooms = (cat.rooms || []).join(', ');
+        const sceneNames = Array.from(new Set((cat.scenes || []).map((s) => s.name))).slice(0, 40).join(', ');
+        const lightNames = (cat.lights || []).map((l) => l.name).slice(0, 30).join(', ');
+        const effects = (cat.effects || []).join(', ');
+        if (rooms || sceneNames || lightNames) {
+          hueSummary =
+            `Catalogo Philips Hue sincronizzato:\n` +
+            `- Stanze Hue: ${rooms || 'n/d'}\n` +
+            `- Scene Hue: ${sceneNames || 'n/d'}\n` +
+            `- Luci Hue: ${lightNames || 'n/d'}\n` +
+            `- Effetti Hue: ${effects}\n`;
+        }
+      }
+    } catch (_) {}
+
     return (
       `Sei il cervello orchestratore vocale di Home Smart OS (casa di Alex e Cinzia). ` +
       `Interpreta il comando dell'utente (testo o audio) ed estrai una risposta vocale concisa in italiano e la lista di azioni hardware da eseguire.\n` +
@@ -34,6 +53,9 @@ class AIOrchestrator {
       `4. controlLightsAndPlugs: { action: "turn_on_room"|"turn_off_room"|"set_room_brightness"|"toggle_device"|"all_off", room: string, device: string, brightness: number, on: boolean }\n` +
       `5. analyzeCameraScene: { camera: "salone"|"letto"|"baby", prompt: string }\n` +
       `6. activateHueScene: { sceneName: string, roomName: string, dynamic: boolean }\n` +
+      `7. setHueLightEffect: { effect: string, roomName: string, lightName: string }\n` +
+      `8. setHueColorOrBrightness: { targetName: string, roomName: string, lightName: string, brightness: number, colorName: string, kelvin: number, hex: string }\n` +
+      hueSummary +
       (extraPrompt ? `Contesto aggiuntivo: ${extraPrompt}\n` : '') +
       `Restituisci ESCLUSIVAMENTE JSON valido:\n` +
       `{"transcript":"...","reply":"...","actions":[{"tool":"...","args":{}}]}`
@@ -177,7 +199,33 @@ class AIOrchestrator {
     }
 
     if (tool === 'activateHueScene') {
-      const res = await this.hueLocal.activateSceneByName(args.sceneName, args.roomName || null, Boolean(args.dynamic));
+      const res = await this.hueLocal.activateSceneByName(
+        args.sceneName,
+        args.roomName || null,
+        Boolean(args.dynamic ?? args.isDynamic)
+      );
+      return { tool, result: res };
+    }
+
+    if (tool === 'setHueLightEffect') {
+      const res = await this.hueLocal.setEffect({
+        effect: args.effect,
+        roomName: args.roomName || null,
+        lightName: args.lightName || null
+      });
+      return { tool, result: res };
+    }
+
+    if (tool === 'setHueColorOrBrightness') {
+      const res = await this.hueLocal.setColorOrBrightness({
+        targetName: args.targetName || null,
+        roomName: args.roomName || null,
+        lightName: args.lightName || null,
+        brightness: args.brightness !== undefined ? Number(args.brightness) : null,
+        colorName: args.colorName || null,
+        kelvin: args.kelvin !== undefined ? Number(args.kelvin) : null,
+        hex: args.hex || null
+      });
       return { tool, result: res };
     }
 

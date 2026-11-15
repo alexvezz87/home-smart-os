@@ -936,3 +936,125 @@ test('AIOrchestrator & Assistant (#4): comandi Bosch/Volvo/Wallbox, guardrail sb
     evClimateHub.controlWallbox = prevWallbox;
   }
 });
+
+test('Hue Voice Control (#39): catalogo dinamico, matching emotivo scene, colori/kelvin, AIOrchestrator e Telegram /scene', async () => {
+  const hueLocalMod = require('../src/hue-local');
+  const { HueLocalManager } = hueLocalMod;
+  const { AIOrchestrator } = require('../src/ai-orchestrator');
+  const { TelegramBotManager } = require('../src/telegram-bot');
+  const aiGateway = require('../src/ai-gateway');
+  const axios = require('axios');
+
+  const hue = new HueLocalManager();
+  hue.isPaired = true;
+  hue.scenes = [
+    { id: 'sc-savana', name: 'Savanna sunset', groupName: 'Salone' },
+    { id: 'sc-relax', name: 'Relax', groupName: 'Salone' },
+    { id: 'sc-night', name: 'Nightlight', groupName: 'Camera da letto' }
+  ];
+  hue.scenesByGroup = {
+    Salone: [hue.scenes[0], hue.scenes[1]],
+    'Camera da letto': [hue.scenes[2]]
+  };
+  hue.lightsById = {
+    '1': { id: '1', name: 'Nuvoletta', type: 'Extended color light' },
+    '2': { id: '2', name: 'Striscia Cucina', type: 'Color temperature light' }
+  };
+  hue.v2LightIdByName = { nuvoletta: 'v2-nuvoletta', 'striscia cucina': 'v2-cucina' };
+  hue.v2LightIdByHueId = { '1': 'v2-nuvoletta', '2': 'v2-cucina' };
+  hue.groupsByName = { cucina: { name: 'Cucina', lights: ['2'] }, salone: { name: 'Salone', lights: ['1'] } };
+
+  const putCalls = [];
+  hue.v2Client = {
+    put: async (url, payload) => {
+      putCalls.push({ url, payload });
+      return { data: {} };
+    }
+  };
+
+  // 1. Catalogo e Google Home SYNC
+  const catalog = hue.getVoiceCatalog();
+  assert.equal(catalog.paired, true);
+  assert.equal(catalog.scenes.length, 3);
+  assert.equal(catalog.lights.length, 2);
+  assert.ok(catalog.effects.includes('candle'));
+
+  const ghDevices = hue.getGoogleHomeSceneDevices();
+  assert.equal(ghDevices.length, 3);
+  assert.equal(ghDevices[0].id, 'hue_scene_sc-savana');
+  assert.equal(ghDevices[0].type, 'action.devices.types.SCENE');
+
+  // 2. Matching emotivo scene
+  let activatedSceneId = null;
+  hue.activateScene = async (id) => {
+    activatedSceneId = id;
+    const sc = hue.scenes.find((s) => s.id === id);
+    return { scene: { id, name: sc.name, room: sc.groupName } };
+  };
+  const emoRes = await hue.activateSceneByName('atmosfera romantica', 'Salone');
+  assert.equal(emoRes.handled, true);
+  assert.equal(activatedSceneId, 'sc-savana');
+
+  // 3. Colore e temperatura Kelvin + luminosità
+  const colorRes = await hue.setColorOrBrightness({ lightName: 'Nuvoletta', colorName: 'blu', brightness: 40 });
+  assert.equal(colorRes.success, true);
+  assert.equal(colorRes.brightness, 40);
+  assert.ok(putCalls.some((c) => c.url === '/resource/light/v2-nuvoletta' && c.payload.dimming?.brightness === 40 && c.payload.color?.xy));
+
+  const warmRes = await hue.setColorOrBrightness({ roomName: 'Cucina', colorName: 'bianco caldo', brightness: 30 });
+  assert.equal(warmRes.success, true);
+  assert.equal(warmRes.kelvin, 2400);
+  assert.ok(putCalls.some((c) => c.url === '/resource/light/v2-cucina' && c.payload.dimming?.brightness === 30 && c.payload.color_temperature?.mirek));
+
+  // 4. AIOrchestrator: system prompt dinamico + tool setHueLightEffect & setHueColorOrBrightness
+  const effectCalls = [];
+  hue.setEffect = async (args) => {
+    effectCalls.push(args);
+    return { success: true, ...args };
+  };
+  const orch = new AIOrchestrator({ aiGateway, hueLocal: hue });
+  const sysPrompt = orch._buildSystemPrompt();
+  assert.ok(sysPrompt.includes('Savanna sunset'));
+  assert.ok(sysPrompt.includes('Nuvoletta'));
+
+  const effExec = await orch.executeAction({ tool: 'setHueLightEffect', args: { effect: 'candle', roomName: 'Salone' } });
+  assert.equal(effExec.tool, 'setHueLightEffect');
+  assert.equal(effectCalls[0].effect, 'candle');
+
+  const colExec = await orch.executeAction({ tool: 'setHueColorOrBrightness', args: { lightName: 'Nuvoletta', colorName: 'verde', brightness: 65 } });
+  assert.equal(colExec.tool, 'setHueColorOrBrightness');
+  assert.equal(colExec.result.brightness, 65);
+
+  // 5. TelegramBotManager: unwrap transcript.text in _handleVoiceMessage & /scene replyMarkup
+  const bot = new TelegramBotManager({ hueLocal: hue });
+  bot.token = 'fake-token';
+  bot.allowedUsers = new Set(['12345']);
+  const sentMsgs = [];
+  bot.sendMessage = async (text, opts = {}) => {
+    sentMsgs.push({ text, opts });
+    return { sent: 1 };
+  };
+  let forwarded = null;
+  bot._forwardToAssistant = async (_cid, text) => {
+    forwarded = text;
+    return { handled: true };
+  };
+
+  await bot._handleSlashCommand('12345', '/scene');
+  assert.ok(sentMsgs.some((m) => m.opts?.replyMarkup?.inline_keyboard?.length === 3));
+
+  const prevAxiosGet = axios.get;
+  const prevGenText = aiGateway.generateText;
+  try {
+    axios.get = async (url) => {
+      if (String(url).includes('getFile')) return { data: { result: { file_path: 'voice/file.ogg' } } };
+      return { data: Buffer.from('fake-ogg') };
+    };
+    aiGateway.generateText = async () => ({ text: 'Attiva scena savana in salone', model: 'gemini-3.8-flash' });
+    await bot._handleVoiceMessage('12345', { file_id: 'f1', mime_type: 'audio/ogg' });
+    assert.equal(forwarded, 'Attiva scena savana in salone');
+  } finally {
+    axios.get = prevAxiosGet;
+    aiGateway.generateText = prevGenText;
+  }
+});

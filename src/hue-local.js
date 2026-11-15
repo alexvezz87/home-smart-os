@@ -688,8 +688,11 @@ class HueLocalManager extends EventEmitter {
       { keys: ['lettu', 'leggi', 'libro', 'read'], matches: ['read', 'lettura'] },
       { keys: ['concentra', 'studio', 'concentrate'], matches: ['concentrate', 'concentrazione'] },
       { keys: ['energi', 'carica', 'energize'], matches: ['energize', 'energia'] },
-      { keys: ['nott', 'nightlight'], matches: ['nightlight', 'luce notturna'] },
-      { keys: ['soffus', 'dimmed'], matches: ['dimmed', 'luce soffusa'] },
+      { keys: ['nott', 'nanna', 'sonno', 'nightlight'], matches: ['nightlight', 'luce notturna', 'rest', 'riposo'] },
+      { keys: ['romantic', 'cena', 'intim', 'soffus', 'dimmed'], matches: ['savanna sunset', 'tramonto nella savana', 'relax', 'dimmed', 'attenuata', 'luce soffusa'] },
+      { keys: ['film', 'cinema', 'tv'], matches: ['dimmed', 'attenuata', 'relax', 'tokyo'] },
+      { keys: ['festa', 'party', 'colorat'], matches: ['tokyo', 'rio', 'ibiza', 'miami'] },
+      { keys: ['mattin', 'sveglia', 'buongiorno'], matches: ['energize', 'energia', 'bright', 'intensa', 'spring blossom'] },
       { keys: ['brillant', 'bright'], matches: ['bright', 'luce brillante'] },
       { keys: ['rio'], matches: ['rio'] }
     ];
@@ -966,6 +969,166 @@ class HueLocalManager extends EventEmitter {
       success: true,
       target: targetDesc,
       lightsCount: targetV2LightIds.length
+    };
+  }
+
+  getVoiceCatalog() {
+    return {
+      paired: this.isPaired,
+      rooms: Object.keys(this.scenesByGroup || {}),
+      scenes: (this.scenes || []).map(s => ({ id: s.id, name: s.name, room: s.groupName })),
+      lights: Object.values(this.lightsById || {}).map(l => ({ id: l.id, name: l.name, type: l.type })),
+      effects: ['candle', 'fire', 'prism', 'sparkle', 'opal', 'glisten', 'underwater', 'cosmos', 'sunbeam', 'enchant', 'no_effect']
+    };
+  }
+
+  getGoogleHomeSceneDevices() {
+    return (this.scenes || []).map(scene => ({
+      id: `hue_scene_${scene.id}`,
+      type: 'action.devices.types.SCENE',
+      traits: ['action.devices.traits.Scene'],
+      name: {
+        name: `${scene.name} ${scene.groupName}`,
+        nicknames: [scene.name, `${scene.name} ${scene.groupName}`]
+      },
+      willReportState: false,
+      attributes: { sceneReversible: false },
+      roomHint: scene.groupName
+    }));
+  }
+
+  async setColorOrBrightness({ targetName = null, roomName = null, lightName = null, brightness = null, colorName = null, hex = null, kelvin = null } = {}) {
+    if (!this.isPaired || !this.v2Client) {
+      throw new Error('Hue Bridge non disponibile');
+    }
+
+    const COLOR_MAP = {
+      blu: { hex: '#1d4ed8' },
+      azzurro: { hex: '#38bdf8' },
+      ciano: { hex: '#06b6d4' },
+      rosso: { hex: '#ef4444' },
+      verde: { hex: '#22c55e' },
+      smeraldo: { hex: '#10b981' },
+      viola: { hex: '#8b5cf6' },
+      lavanda: { hex: '#c4b5fd' },
+      malva: { hex: '#a855f7' },
+      arancione: { hex: '#f97316' },
+      ambra: { hex: '#f59e0b' },
+      giallo: { hex: '#eab308' },
+      oro: { hex: '#fbbf24' },
+      rosa: { hex: '#ec4899' },
+      magenta: { hex: '#d946ef' },
+      'bianco caldo': { kelvin: 2400 },
+      calda: { kelvin: 2400 },
+      caldo: { kelvin: 2400 },
+      'bianco naturale': { kelvin: 4000 },
+      naturale: { kelvin: 4000 },
+      'bianco freddo': { kelvin: 6000 },
+      fredda: { kelvin: 6000 },
+      freddo: { kelvin: 6000 }
+    };
+
+    let resolvedHex = hex || null;
+    let resolvedKelvin = typeof kelvin === 'number' ? kelvin : null;
+    if (colorName && !resolvedHex && !resolvedKelvin) {
+      const normColor = this.normalizeName(colorName);
+      const entry = COLOR_MAP[normColor] || Object.entries(COLOR_MAP).find(([k]) => normColor.includes(k))?.[1];
+      if (entry) {
+        if (entry.hex) resolvedHex = entry.hex;
+        if (entry.kelvin) resolvedKelvin = entry.kelvin;
+      }
+    }
+
+    const payload = { on: { on: true } };
+    let finalBrightness = null;
+    if (brightness !== null && brightness !== undefined && Number.isFinite(Number(brightness))) {
+      finalBrightness = Math.max(1, Math.min(100, Math.round(Number(brightness))));
+      payload.dimming = { brightness: finalBrightness };
+    }
+    if (typeof resolvedKelvin === 'number' && Number.isFinite(resolvedKelvin)) {
+      const mirek = Math.max(153, Math.min(500, Math.round(1000000 / resolvedKelvin)));
+      payload.color_temperature = { mirek };
+    } else if (resolvedHex) {
+      payload.color = { xy: hexToXy(resolvedHex) };
+    }
+
+    const targetV2LightIds = [];
+    let targetDesc = '';
+    const candidateLight = lightName || targetName;
+    const candidateRoom = roomName || targetName;
+
+    if (candidateLight) {
+      const normL = this.normalizeName(candidateLight);
+      let v2Id = this.v2LightIdByName[normL];
+      let matchedName = candidateLight;
+      if (!v2Id) {
+        const entry = Object.entries(this.v2LightIdByName || {}).find(([k]) => k.includes(normL) || normL.includes(k));
+        if (entry) {
+          v2Id = entry[1];
+          matchedName = entry[0];
+        }
+      }
+      if (!v2Id) {
+        const lightObj = Object.values(this.lightsById || {}).find(l => {
+          const ln = this.normalizeName(l.name);
+          return ln === normL || ln.includes(normL) || normL.includes(ln);
+        });
+        if (lightObj) {
+          v2Id = this.v2LightIdByHueId[String(lightObj.id)] || lightObj.v2Id || String(lightObj.id);
+          matchedName = lightObj.name;
+        }
+      }
+      if (v2Id) {
+        targetV2LightIds.push(v2Id);
+        targetDesc = matchedName;
+      }
+    }
+
+    if (targetV2LightIds.length === 0 && candidateRoom) {
+      const normR = this.normalizeName(candidateRoom);
+      let grp = this.groupsByName?.[normR];
+      if (!grp) {
+        const gEntry = Object.entries(this.groupsByName || {}).find(([k]) => k.includes(normR) || normR.includes(k));
+        if (gEntry) grp = gEntry[1];
+      }
+      if (grp && Array.isArray(grp.lights)) {
+        targetDesc = `Stanza ${grp.name || candidateRoom}`;
+        for (const hueId of grp.lights) {
+          const v2Id = this.v2LightIdByHueId[String(hueId)] || String(hueId);
+          if (v2Id) targetV2LightIds.push(v2Id);
+        }
+      }
+    }
+
+    if (targetV2LightIds.length === 0) {
+      throw new Error(`Nessuna luce o stanza Hue trovata per "${lightName || roomName || targetName || 'target'}"`);
+    }
+
+    for (const v2Id of targetV2LightIds) {
+      try {
+        await this.v2Client.put(`/resource/light/${v2Id}`, payload);
+      } catch (e) {
+        console.warn(`[Hue Local] Errore setColorOrBrightness su ${v2Id}:`, e.message);
+      }
+      if (targetV2LightIds.length > 1) {
+        await new Promise(r => setTimeout(r, 60));
+      }
+    }
+
+    eventLogger.log(
+      'hue_color',
+      `Colore/Luminosità aggiornati su ${targetDesc} via Hue Bridge LAN`,
+      { target: targetDesc, brightness: finalBrightness, colorName, kelvin: resolvedKelvin, hex: resolvedHex, count: targetV2LightIds.length }
+    );
+
+    return {
+      success: true,
+      target: targetDesc,
+      lightsCount: targetV2LightIds.length,
+      brightness: finalBrightness,
+      colorName: colorName || null,
+      kelvin: resolvedKelvin,
+      hex: resolvedHex
     };
   }
 

@@ -403,7 +403,8 @@ class TelegramBotManager {
         ]
       });
 
-      const cleanText = String(transcript || '').trim();
+      const rawText = (transcript && typeof transcript === 'object') ? transcript.text : transcript;
+      const cleanText = String(rawText || '').trim();
       if (!cleanText) {
         await this.sendMessage('⚠️ Non sono riuscito a comprendere la nota vocale.', { chatId });
         return { handled: true };
@@ -431,9 +432,40 @@ class TelegramBotManager {
         '/foto_camera — Snapshot live Camera\n' +
         '/clima — Stato riscaldamento e valvole\n' +
         '/auto — Stato auto elettrica e wallbox\n' +
+        '/scene — Tastiera rapida scene ed effetti Philips Hue\n' +
         '/spegni_tutto — Spegne luci e carichi non essenziali\n' +
         'Oppure scrivi o invia un vocale in linguaggio naturale.',
         { chatId }
+      );
+      return { handled: true };
+    }
+
+    if (cmd === '/scena' || cmd === '/scene') {
+      const args = rawText.replace(/^\/scen[ae]\b(?:@\S+)?\s*/i, '').trim();
+      if (args) {
+        return this._forwardToAssistant(chatId, `Attiva scena ${args}`);
+      }
+      await this.sendMessage(
+        '🎨 <b>Scene &amp; Effetti Philips Hue</b>\nScegli un\'atmosfera rapida o scrivi <code>/scena salone savana</code>:',
+        {
+          chatId,
+          replyMarkup: {
+            inline_keyboard: [
+              [
+                { text: '🌅 Savana Salone', callback_data: 'hue_scene:Salone:Savana' },
+                { text: '🛋️ Relax Salone', callback_data: 'hue_scene:Salone:Relax' }
+              ],
+              [
+                { text: '📖 Lettura Studio', callback_data: 'hue_scene:Studio:Lettura' },
+                { text: '🌙 Notturna Camera', callback_data: 'hue_scene:Camera da letto:Notturna' }
+              ],
+              [
+                { text: '🕯️ Candela Salone', callback_data: 'hue_effect:Salone:candle' },
+                { text: '⏹️ Stop Effetti', callback_data: 'hue_effect:Salone:no_effect' }
+              ]
+            ]
+          }
+        }
       );
       return { handled: true };
     }
@@ -529,6 +561,37 @@ class TelegramBotManager {
       await processAssistantCommand('Attiva modalità fuori casa e spegni le luci');
       await this.answerCallbackQuery(cb.id, 'Modalità Fuori Casa attivata');
       await this.sendMessage('🛡️ Modalità Fuori Casa attivata e luci spente.', { chatId });
+      return { handled: true };
+    }
+
+    if (data.startsWith('hue_scene:')) {
+      const [, roomName = '', ...sceneParts] = data.split(':');
+      const sceneName = sceneParts.join(':');
+      try {
+        const hueLocal = this.deps.hueLocal || require('./hue-local');
+        const res = await hueLocal.activateSceneByName(sceneName, roomName || null);
+        const label = res?.scene?.name || sceneName;
+        await this.answerCallbackQuery(cb.id, `Scena "${label}" attivata`);
+        await this.sendMessage(`✨ Scena <b>${this._escapeHtml(label)}</b> attivata${roomName ? ` in <b>${this._escapeHtml(roomName)}</b>` : ''}.`, { chatId });
+      } catch (err) {
+        await this.answerCallbackQuery(cb.id, 'Errore Hue');
+        await this.sendMessage(`❌ Errore scena Hue: ${this._escapeHtml(err.message)}`, { chatId });
+      }
+      return { handled: true };
+    }
+
+    if (data.startsWith('hue_effect:')) {
+      const [, roomName = 'Salone', effect = 'no_effect'] = data.split(':');
+      try {
+        const hueLocal = this.deps.hueLocal || require('./hue-local');
+        await hueLocal.setEffect({ roomName: roomName || 'Salone', effect });
+        const msg = effect === 'no_effect' ? 'Effetti dinamici Hue interrotti.' : `Effetto <b>${this._escapeHtml(effect)}</b> attivato in <b>${this._escapeHtml(roomName)}</b>.`;
+        await this.answerCallbackQuery(cb.id, effect === 'no_effect' ? 'Effetti fermati' : `Effetto ${effect}`);
+        await this.sendMessage(`🕯️ ${msg}`, { chatId });
+      } catch (err) {
+        await this.answerCallbackQuery(cb.id, 'Errore effetto Hue');
+        await this.sendMessage(`❌ Errore effetto Hue: ${this._escapeHtml(err.message)}`, { chatId });
+      }
       return { handled: true };
     }
 

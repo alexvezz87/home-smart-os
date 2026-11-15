@@ -175,7 +175,7 @@ async function processAssistantCommand(input, options = {}) {
     }
   }
 
-  // 0e. Scene & Atmosfere Native Philips Hue (Savana, Aurora, Tropicale, Fioritura, Relax, Lettura, Energia, ecc.)
+  // 0e. Scene & Atmosfere Native Philips Hue (Savana, Aurora, Tropicale, Fioritura, Relax, Lettura, Energia, frasi emotive, ecc.)
   const isHueScene = (
     text.includes('scena') ||
     text.includes('atmosfera') ||
@@ -186,6 +186,14 @@ async function processAssistantCommand(input, options = {}) {
     text.includes('primaverile') ||
     text.includes('tramonto') ||
     text.includes('rio') ||
+    text.includes('romantic') ||
+    text.includes('cenar') ||
+    text.includes('cena') ||
+    text.includes('luce notturna') ||
+    text.includes('luci da film') ||
+    text.includes('modalità cinema') ||
+    text.includes('festa') ||
+    text.includes('party') ||
     (text.includes('dinamica') && (text.includes('luci') || text.includes('relax') || text.includes('colori')))
   );
 
@@ -203,8 +211,8 @@ async function processAssistantCommand(input, options = {}) {
 
     // Estrai nome scena ripulendo parole chiave con word boundary
     let cleanScene = text
-      .replace(/\b(imposta|attiva|metti|avvia|accendi|cambia|fammi|vorrei|la|il|lo|le|i)\b/g, '')
-      .replace(/\b(scena|atmosfera|modalità)\b/g, '')
+      .replace(/\b(imposta|attiva|metti|avvia|accendi|cambia|fammi|vorrei|la|il|lo|le|i|per)\b/g, '')
+      .replace(/\b(scena|atmosfera|modalità|luci|luce)\b/g, '')
       .replace(/\b(dinamica|dinamico)\b/g, '')
       .replace(/\b(in\s+salone|in\s+studio|in\s+camera|in\s+cucina|in\s+corridoio|nel\s+salone|nello\s+studio|nella\s+camera|nella\s+cucina)\b/g, '')
       .replace(/\s+/g, ' ')
@@ -222,6 +230,55 @@ async function processAssistantCommand(input, options = {}) {
       }
     } catch (err) {
       console.warn('[Assistant Hue Scene Error]:', err.message);
+    }
+  }
+
+  // 0e-bis. Colore, Temperatura Colore & Luminosità Philips Hue
+  if (hueLocal.isPaired) {
+    const colorMatch = text.match(/\b(bianco\s+caldo|bianco\s+naturale|bianco\s+freddo|blu|azzurro|ciano|rosso|verde|smeraldo|viola|lavanda|malva|arancione|ambra|giallo|oro|rosa|magenta|calda|caldo|naturale|fredda|freddo)\b/i);
+    const brightMatch = text.match(/(\d{1,3})\s*%/);
+    const hasLightContext = text.includes('luce') || text.includes('luci') || text.includes('lampadario') || text.includes('nuvoletta') || text.includes('piantana') || text.includes('abajour') || text.includes('abat-jour') || text.includes('salone') || text.includes('cucina') || text.includes('camera') || text.includes('studio') || text.includes('corridoio');
+    if ((colorMatch || brightMatch) && hasLightContext && !text.includes('temperatura')) {
+      const isSalone = text.includes('salone') || text.includes('soggiorno') || text.includes('sala');
+      const isStudio = text.includes('studio');
+      const isLetto = text.includes('letto') || text.includes('camera');
+      const isCucina = text.includes('cucina');
+      const isCorridoio = text.includes('corridoio');
+      const roomName = isSalone ? 'Salone' : isStudio ? 'Studio' : isLetto ? 'Camera da letto' : isCucina ? 'Cucina' : isCorridoio ? 'Corridoio' : null;
+
+      let lightName = null;
+      const catalog = typeof hueLocal.getVoiceCatalog === 'function' ? hueLocal.getVoiceCatalog() : { lights: [] };
+      const matchedLight = (catalog.lights || []).find(l => l && l.name && text.includes(l.name.toLowerCase()));
+      if (matchedLight) {
+        lightName = matchedLight.name;
+      } else if (text.includes('nuvoletta')) {
+        lightName = 'Nuvoletta';
+      } else if (text.includes('piantana')) {
+        lightName = 'Piantana';
+      } else if (text.includes('lampadario')) {
+        lightName = roomName ? `Lampadario ${roomName}` : 'Lampadario';
+      }
+
+      if (lightName || roomName) {
+        try {
+          const res = await hueLocal.setColorOrBrightness({
+            lightName,
+            roomName,
+            colorName: colorMatch ? colorMatch[1].toLowerCase() : null,
+            brightness: brightMatch ? parseInt(brightMatch[1], 10) : null
+          });
+          if (res && res.success) {
+            return {
+              success: true,
+              action: 'hue_color',
+              ...res,
+              reply: `🎨 [Philips Hue LAN]: ${res.target} aggiornata${res.colorName ? ` (${res.colorName})` : ''}${res.brightness ? ` al ${res.brightness}%` : ''}.`
+            };
+          }
+        } catch (err) {
+          console.warn('[Assistant Hue Color Error]:', err.message);
+        }
+      }
     }
   }
 
