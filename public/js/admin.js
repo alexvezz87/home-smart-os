@@ -19,6 +19,20 @@ class AdminManager {
     this.driveStatus = null;
     this.wallboxDriveStatus = null;
     this.driveLoading = false;
+    this._isMobileView = typeof window !== 'undefined' ? window.innerWidth < 768 : false;
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', () => {
+        const nowMobile = window.innerWidth < 768;
+        if (nowMobile !== this._isMobileView) {
+          this._isMobileView = nowMobile;
+          const area = document.getElementById('area-admin');
+          if (area && !area.classList.contains('hidden')) {
+            this.renderView();
+          }
+        }
+      });
+    }
   }
 
   escapeHtml(str) {
@@ -38,12 +52,40 @@ class AdminManager {
   }
 
   /**
-   * Seleziona una scheda di servizio e salva la preferenza
+   * Seleziona una scheda di servizio e salva la preferenza.
+   * Su mobile (accordion) consente anche di chiudere la scheda aperta ri-toccandola.
    */
   selectTab(tabId) {
-    this.activeTab = tabId;
-    localStorage.setItem('admin_active_tab', tabId);
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    if (isMobile && this.activeTab === tabId) {
+      this.activeTab = null;
+    } else {
+      this.activeTab = tabId;
+      localStorage.setItem('admin_active_tab', tabId);
+    }
     this.renderView();
+  }
+
+  _getBadgeClass(s, isActive) {
+    if (isActive) return 'bg-indigo-500/30 text-indigo-200 border border-indigo-400/40';
+    if (s.badgeType === 'success') return 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
+    if (s.badgeType === 'warning') return 'bg-amber-500/15 text-amber-400 border border-amber-500/30';
+    if (s.badgeType === 'info') return 'bg-sky-500/15 text-sky-400 border border-sky-500/30';
+    if (s.badgeType === 'rose') return 'bg-rose-500/15 text-rose-400 border border-rose-500/30';
+    return 'bg-slate-800 text-slate-400 border border-slate-700/60';
+  }
+
+  _renderActiveServiceContent(tabId, data, ev, tidbConnected) {
+    switch (tabId) {
+      case 'climate': return this.renderClimatePane(data, ev);
+      case 'lights': return this.renderLightsPane(data);
+      case 'plugs': return this.renderPlugsPane(data);
+      case 'ev': return this.renderEvPane(data, ev);
+      case 'security': return this.renderSecurityPane(data);
+      case 'floorplan': return this.renderFloorplanPane(data);
+      case 'system': return this.renderSystemPane(data, tidbConnected);
+      default: return this.renderClimatePane(data, ev);
+    }
   }
 
   async renderView() {
@@ -114,6 +156,11 @@ class AdminManager {
       }
     ];
 
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    if (!isMobile && !this.activeTab) {
+      this.activeTab = localStorage.getItem('admin_active_tab') || 'climate';
+    }
+
     container.innerHTML = `
       <div class="space-y-5">
 
@@ -142,26 +189,52 @@ class AdminManager {
           </div>
         </div>
 
-        <!-- 2. Layout a 2 Colonne: Sidebar Verticale a Sinistra + Scheda Dettaglio a Destra -->
-        <div class="flex flex-col md:flex-row gap-5 items-start">
+        ${isMobile ? `
+        <!-- 2A. Vista Mobile / Verticale: Fisarmonica (Accordion) -->
+        <div class="space-y-2.5" aria-label="Servizi Amministrazione Accordion">
+          ${services.map(s => {
+            const isOpen = s.id === this.activeTab;
+            const badgeBg = this._getBadgeClass(s, isOpen);
+            return `
+              <div class="glass-card rounded-2xl border ${isOpen ? 'border-indigo-500/50 shadow-lg shadow-indigo-500/10' : 'border-slate-800'} overflow-hidden transition-all">
+                <button onclick="window.adminManager.selectTab('${s.id}')"
+                        aria-expanded="${isOpen}"
+                        class="w-full px-4 py-3 flex items-center justify-between gap-3 text-left cursor-pointer ${isOpen ? 'bg-indigo-600/15 text-white' : 'text-slate-200 hover:bg-slate-800/40'} transition-colors">
+                  <div class="flex items-center gap-3 min-w-0">
+                    <div class="w-8 h-8 rounded-xl ${isOpen ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-500/30' : 'bg-slate-800/90 text-slate-300'} flex items-center justify-center text-xs shrink-0">
+                      <i class="fa-solid ${s.icon}"></i>
+                    </div>
+                    <span class="text-xs font-semibold truncate">${s.name}</span>
+                  </div>
+                  <div class="flex items-center gap-2 shrink-0">
+                    <span class="text-[9.5px] px-2 py-0.5 rounded-full font-mono ${badgeBg}">
+                      ${s.badge}
+                    </span>
+                    <i class="fa-solid fa-chevron-down text-[11px] text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-300' : ''}"></i>
+                  </div>
+                </button>
+                ${isOpen ? `
+                  <div id="admin-service-pane" class="border-t border-slate-800/80 p-3 space-y-5 min-w-0 overflow-x-hidden">
+                    ${this._renderActiveServiceContent(s.id, data, ev, tidbConnected)}
+                  </div>
+                ` : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>
+        ` : `
+        <!-- 2B. Vista Desktop / Orizzontale: Sidebar Verticale a Sinistra + Scheda Dettaglio a Destra -->
+        <div class="flex flex-row gap-5 items-start">
 
-          <!-- Sidebar Verticale Servizi (2 colonne compatte su mobile, lista verticale sticky su desktop) -->
-          <aside class="w-full md:w-64 lg:w-72 shrink-0 md:sticky md:top-20">
+          <aside class="w-64 lg:w-72 shrink-0 sticky top-20">
             <nav aria-label="Servizi Amministrazione"
-                 class="glass-card rounded-2xl p-2 border border-slate-800 grid grid-cols-2 sm:grid-cols-3 md:flex md:flex-col gap-1.5">
+                 class="glass-card rounded-2xl p-2 border border-slate-800 flex flex-col gap-1.5">
               ${services.map(s => {
                 const isActive = s.id === this.activeTab;
                 const activeClass = isActive
                   ? 'bg-indigo-600/20 text-white border-indigo-500/60 shadow-sm font-semibold'
                   : 'bg-transparent text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 border-transparent font-medium';
-
-                const badgeBg = isActive
-                  ? 'bg-indigo-500/30 text-indigo-200 border border-indigo-400/40'
-                  : (s.badgeType === 'success' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
-                     s.badgeType === 'warning' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' :
-                     s.badgeType === 'info' ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30' :
-                     s.badgeType === 'rose' ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30' :
-                     'bg-slate-800 text-slate-400 border border-slate-700/60');
+                const badgeBg = this._getBadgeClass(s, isActive);
 
                 return `
                   <button onclick="window.adminManager.selectTab('${s.id}')"
@@ -172,7 +245,7 @@ class AdminManager {
                       </div>
                       <span class="truncate">${s.name}</span>
                     </div>
-                    <span class="hidden sm:inline-block text-[9.5px] px-1.5 py-0.5 rounded-full font-mono shrink-0 ${badgeBg}">
+                    <span class="text-[9.5px] px-1.5 py-0.5 rounded-full font-mono shrink-0 ${badgeBg}">
                       ${s.badge}
                     </span>
                   </button>
@@ -181,31 +254,12 @@ class AdminManager {
             </nav>
           </aside>
 
-          <!-- Contenuto Dinamico del Servizio Selezionato -->
           <div id="admin-service-pane" class="flex-1 min-w-0 w-full space-y-6 overflow-x-hidden">
-            ${(() => {
-              switch (this.activeTab) {
-                case 'climate':
-                  return this.renderClimatePane(data, ev);
-                case 'lights':
-                  return this.renderLightsPane(data);
-                case 'plugs':
-                  return this.renderPlugsPane(data);
-                case 'ev':
-                  return this.renderEvPane(data, ev);
-                case 'security':
-                  return this.renderSecurityPane(data);
-                case 'floorplan':
-                  return this.renderFloorplanPane(data);
-                case 'system':
-                  return this.renderSystemPane(data, tidbConnected);
-                default:
-                  return this.renderClimatePane(data, ev);
-              }
-            })()}
+            ${this._renderActiveServiceContent(this.activeTab, data, ev, tidbConnected)}
           </div>
 
         </div>
+        `}
 
       </div>
     `;
