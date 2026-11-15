@@ -570,6 +570,12 @@ class TelegramBotManager {
       try {
         const hueLocal = this.deps.hueLocal || require('./hue-local');
         const res = await hueLocal.activateSceneByName(sceneName, roomName || null);
+        if (!res || res.handled === false) {
+          const msg = res?.message || `Scena "${sceneName}" non trovata`;
+          await this.answerCallbackQuery(cb.id, 'Scena non trovata');
+          await this.sendMessage(`⚠️ ${this._escapeHtml(msg)}`, { chatId });
+          return { handled: true };
+        }
         const label = res?.scene?.name || sceneName;
         await this.answerCallbackQuery(cb.id, `Scena "${label}" attivata`);
         await this.sendMessage(`✨ Scena <b>${this._escapeHtml(label)}</b> attivata${roomName ? ` in <b>${this._escapeHtml(roomName)}</b>` : ''}.`, { chatId });
