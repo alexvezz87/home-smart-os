@@ -2871,6 +2871,7 @@ AdminManager.prototype.loadGmailHubPanel = async function() {
       `;
     };
 
+    const redirectUri = `${window.location.origin}/api/auth/google/callback`;
     el.innerHTML = `
       <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
         <div>
@@ -2881,6 +2882,24 @@ AdminManager.prototype.loadGmailHubPanel = async function() {
           <i class="fa-solid fa-rotate mr-1"></i>Sincronizza Posta Ora
         </button>
       </div>
+
+      <div class="p-3 rounded-xl bg-slate-950/70 border ${st.oauthClientConfigured ? 'border-emerald-500/30' : 'border-amber-500/40'} space-y-2">
+        <div class="flex items-center justify-between flex-wrap gap-2 text-[11px]">
+          <span class="font-bold text-slate-200">
+            <i class="fa-brands fa-google text-sky-400 mr-1"></i>Credenziali Google Cloud OAuth 2.0 (Web App)
+            ${st.oauthClientConfigured ? `<span class="ml-1.5 text-emerald-400 font-mono">(${this.escapeHtml(st.clientIdPreview || 'Configurato')})</span>` : '<span class="ml-1.5 text-amber-300">(Richieste per collegare Gmail)</span>'}
+          </span>
+          <span class="text-slate-400">Redirect URI da autorizzare: <code class="px-1.5 py-0.5 rounded bg-slate-900 text-indigo-300 select-all">${this.escapeHtml(redirectUri)}</code></span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+          <input id="admin-gmail-client-id" type="text" placeholder="${st.oauthClientConfigured ? 'Nuovo Client ID (.apps.googleusercontent.com)' : 'Incolla Client ID (.apps.googleusercontent.com)'}" class="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono" />
+          <input id="admin-gmail-client-secret" type="password" placeholder="${st.oauthClientConfigured ? 'Nuovo Client Secret (GOCSPX-...)' : 'Incolla Client Secret (GOCSPX-...)'}" class="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono" />
+          <button onclick="window.adminManager.saveGmailOAuthConfig()" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold">
+            Salva Credenziali OAuth
+          </button>
+        </div>
+      </div>
+
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         ${renderAccountCard('alex', 'Alex')}
         ${renderAccountCard('cinzia', 'Cinzia')}
@@ -2891,8 +2910,38 @@ AdminManager.prototype.loadGmailHubPanel = async function() {
   }
 };
 
+AdminManager.prototype.saveGmailOAuthConfig = async function() {
+  const clientId = document.getElementById('admin-gmail-client-id')?.value?.trim() || '';
+  const clientSecret = document.getElementById('admin-gmail-client-secret')?.value?.trim() || '';
+  if (!clientId || !clientSecret) {
+    window.showToast?.('Inserisci sia il Client ID sia il Client Secret OAuth 2.0', 'error');
+    return false;
+  }
+  try {
+    const res = await fetch('/api/mail/oauth/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId, clientSecret })
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Errore salvataggio OAuth');
+    window.showToast?.('Credenziali Google OAuth 2.0 salvate!', 'success');
+    await this.loadGmailHubPanel();
+    return true;
+  } catch (err) {
+    window.showToast?.(this.escapeHtml(err.message), 'error');
+    return false;
+  }
+};
+
 AdminManager.prototype.connectGmailAccount = async function(account) {
   try {
+    const pendingId = document.getElementById('admin-gmail-client-id')?.value?.trim() || '';
+    const pendingSecret = document.getElementById('admin-gmail-client-secret')?.value?.trim() || '';
+    if (pendingId && pendingSecret) {
+      const ok = await this.saveGmailOAuthConfig();
+      if (!ok) return;
+    }
     const res = await fetch(`/api/mail/oauth/start?account=${encodeURIComponent(account)}`);
     const json = await res.json();
     if (!res.ok || !json.success || !json.url) throw new Error(json.error || 'URL OAuth non disponibile');

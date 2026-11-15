@@ -840,6 +840,16 @@ app.post('/api/ev-climate/dolomiti/bills/sync', async (req, res) => {
 });
 
 // Hub Posta Intelligente Multi-Account (Gmail Alex & Cinzia -> Consegne & Scadenzario Extra #36)
+app.post('/api/mail/oauth/config', async (req, res) => {
+  try {
+    const { clientId, clientSecret } = req.body || {};
+    const saved = await gmailHub.saveOAuthClient({ clientId, clientSecret });
+    res.json({ success: true, ...saved, status: gmailHub.getStatus() });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
 app.get('/api/mail/oauth/start', async (req, res) => {
   try {
     const account = String(req.query.account || 'alex').toLowerCase();

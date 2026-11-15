@@ -83,6 +83,7 @@ function extractBodyAndAttachments(payload) {
 class GmailHub {
   constructor() {
     this.tokens = { alex: null, cinzia: null };
+    this.oauthClient = { clientId: '', clientSecret: '' };
     this.processedIds = [];
     this.lastSyncAt = null;
     this.lastError = null;
@@ -93,6 +94,20 @@ class GmailHub {
   }
 
   async init() {
+    try {
+      const oauthSaved = (await db.get('google-drive-oauth')) || (await db.get('volvo-drive-config')) || null;
+      if (oauthSaved && typeof oauthSaved === 'object') {
+        if (oauthSaved.clientId) {
+          this.oauthClient.clientId = String(oauthSaved.clientId).trim();
+          if (!process.env.GOOGLE_AUTH_CLIENT_ID) process.env.GOOGLE_AUTH_CLIENT_ID = this.oauthClient.clientId;
+        }
+        if (oauthSaved.clientSecret) {
+          this.oauthClient.clientSecret = String(oauthSaved.clientSecret).trim();
+          if (!process.env.GOOGLE_AUTH_CLIENT_SECRET) process.env.GOOGLE_AUTH_CLIENT_SECRET = this.oauthClient.clientSecret;
+        }
+      }
+    } catch (_) {}
+
     for (const account of ['alex', 'cinzia']) {
       try {
         const saved = await db.get(TOKEN_KEYS[account]);
@@ -115,14 +130,31 @@ class GmailHub {
     }, 'gmail-hub');
   }
 
+  async saveOAuthClient({ clientId = '', clientSecret = '' } = {}) {
+    const cleanId = String(clientId || '').trim();
+    const cleanSecret = String(clientSecret || '').trim();
+    if (!cleanId || !cleanSecret) {
+      throw new Error('Inserisci sia Client ID sia Client Secret OAuth 2.0');
+    }
+    this.oauthClient = { clientId: cleanId, clientSecret: cleanSecret };
+    process.env.GOOGLE_AUTH_CLIENT_ID = cleanId;
+    process.env.GOOGLE_AUTH_CLIENT_SECRET = cleanSecret;
+    await db.set('google-drive-oauth', {
+      clientId: cleanId,
+      clientSecret: cleanSecret,
+      updatedAt: new Date().toISOString()
+    }, this._canEncrypt());
+    return { configured: true, clientIdPreview: cleanId.slice(0, 16) + '...' };
+  }
+
   async _resolveOAuthCredentials(req = null) {
-    let clientId = process.env.GOOGLE_AUTH_CLIENT_ID || '';
-    let clientSecret = process.env.GOOGLE_AUTH_CLIENT_SECRET || '';
+    let clientId = process.env.GOOGLE_AUTH_CLIENT_ID || this.oauthClient?.clientId || '';
+    let clientSecret = process.env.GOOGLE_AUTH_CLIENT_SECRET || this.oauthClient?.clientSecret || '';
     let redirectUri = process.env.GOOGLE_AUTH_REDIRECT_URI || '';
 
     if (!clientId || !clientSecret) {
       try {
-        const driveCfg = (await db.get('volvo-drive-config')) || (await db.get('google-drive-oauth')) || {};
+        const driveCfg = (await db.get('google-drive-oauth')) || (await db.get('volvo-drive-config')) || {};
         if (!clientId && driveCfg.clientId) clientId = driveCfg.clientId;
         if (!clientSecret && driveCfg.clientSecret) clientSecret = driveCfg.clientSecret;
       } catch (_) {}
@@ -365,8 +397,12 @@ class GmailHub {
       overallStatus = 'operational';
     }
 
+    const cid = process.env.GOOGLE_AUTH_CLIENT_ID || this.oauthClient?.clientId || '';
+    const csec = process.env.GOOGLE_AUTH_CLIENT_SECRET || this.oauthClient?.clientSecret || '';
     return {
       overallStatus,
+      oauthClientConfigured: Boolean(cid && csec),
+      clientIdPreview: cid ? `${cid.slice(0, 16)}...` : null,
       accounts: { alex, cinzia },
       lastSyncAt: this.lastSyncAt,
       lastError: this.lastError,

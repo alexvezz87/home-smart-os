@@ -309,7 +309,7 @@ async function loadDashboard() {
     // Rinfresca vista attiva (evita di sovrascrivere i form se l'utente sta digitando in Amministrazione)
     const activeTag = document.activeElement?.tagName;
     const isTypingInForm = activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT';
-    const hasPendingDysonInput = ['dyson-email-input', 'dyson-otp-input', 'dyson-pwd-input'].some(
+    const hasPendingDysonInput = ['dyson-email-input', 'dyson-otp-input', 'dyson-pwd-input', 'admin-gmail-client-id', 'admin-gmail-client-secret'].some(
       (id) => Boolean(document.getElementById(id)?.value)
     );
 
