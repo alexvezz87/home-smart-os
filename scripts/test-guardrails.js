@@ -822,3 +822,117 @@ test('GeminiVisionEngine (#34): RollingFrameBuffer, analyzeTemporalSequence e ca
     go2rtc.captureTemporalBurst = prevBurst;
   }
 });
+
+test('AIOrchestrator & Assistant (#4): comandi Bosch/Volvo/Wallbox, guardrail sblocco Volvo e audio multimodale', async () => {
+  const { AIOrchestrator } = require('../src/ai-orchestrator');
+  const aiGateway = require('../src/ai-gateway');
+  const evClimateHub = require('../src/ev-climate-hub');
+  const { processAssistantCommand } = require('../src/assistant');
+
+  const calls = [];
+  const fakeHub = {
+    getUnifiedStatus: () => ({
+      bosch: { connected: true, zones: [{ name: 'Salone', currentTemp: 20.5 }] },
+      volvo: { batteryLevel: 82, rangeKm: 340 },
+      wallbox: { status: 'Available', powerKw: 0, currentLimitA: 16 }
+    }),
+    setBoschZoneSetpoint: async (zone, temp) => {
+      calls.push(['bosch:set_temp', zone, temp]);
+      return { ok: true };
+    },
+    controlVolvo: async (act) => {
+      calls.push(['volvo', act]);
+      return { ok: true, action: act };
+    },
+    controlWallbox: async (act, amps) => {
+      calls.push(['wallbox', act, amps]);
+      return { ok: true, action: act, amps };
+    }
+  };
+  const fakeMcp = {
+    setAllLightsPower: async (on) => { calls.push(['mcp:all', on]); },
+    setRoomPower: async (room, on) => { calls.push(['mcp:room', room, on]); },
+    setRoomBrightness: async (room, b) => { calls.push(['mcp:brightness', room, b]); }
+  };
+  const fakeGateway = {
+    getApiKey: () => 'fake-key',
+    validateHardwareAction: (payload) => aiGateway.validateHardwareAction(payload),
+    generateJSON: async ({ parts }) => {
+      const hasAudio = Array.isArray(parts) && parts.some((p) => p && p.inlineData);
+      if (hasAudio) {
+        return {
+          data: {
+            transcript: 'Imposta la wallbox a 12 ampere',
+            reply: 'Wallbox impostata a 12 ampere.',
+            actions: [{ tool: 'controlWallbox', args: { action: 'set_current', amps: 12 } }]
+          }
+        };
+      }
+      return {
+        data: {
+          transcript: 'Imposta salone a 29 gradi e spegni salone',
+          reply: 'Temperatura salone aggiornata e luci spente.',
+          actions: [
+            { tool: 'controlBoschClimate', args: { action: 'set_temp', zone: 'salone', temperature: 29 } },
+            { tool: 'controlLightsAndPlugs', args: { action: 'turn_off_room', room: 'salone' } }
+          ]
+        }
+      };
+    }
+  };
+
+  const orch = new AIOrchestrator({ aiGateway: fakeGateway, evClimateHub: fakeHub, mcp: fakeMcp });
+
+  // 1. Multi-azione + clamp temperatura (29°C -> 26°C)
+  const multiRes = await orch.processCommand('Imposta salone a 29 gradi e spegni salone');
+  assert.equal(multiRes.success, true);
+  const boschExec = multiRes.actionsExecuted.find((e) => e.tool === 'controlBoschClimate');
+  assert.ok(boschExec && boschExec.temperature <= 26);
+  assert.ok(calls.some((c) => c[0] === 'mcp:room' && c[1] === 'salone' && c[2] === false));
+
+  // 2. Guardrail sblocco Volvo EX30 senza humanConfirmed -> bloccato, poi sbloccato con humanConfirmed=true
+  const blockedUnlock = await orch.executeAction({ tool: 'controlVolvo', args: { action: 'unlock' } }, { humanConfirmed: false });
+  assert.equal(blockedUnlock.blocked, true);
+  assert.equal(blockedUnlock.requiresConfirmation, true);
+
+  const allowedUnlock = await orch.executeAction({ tool: 'controlVolvo', args: { action: 'unlock' } }, { humanConfirmed: true });
+  assert.equal(allowedUnlock.action, 'unlock');
+  assert.ok(calls.some((c) => c[0] === 'volvo' && c[1] === 'unlock'));
+
+  // 3. Audio multimodale -> parse JSON + guardrail Wallbox
+  const audioRes = await orch.processAudio({ audioBase64: 'ZmFrZQ==', mimeType: 'audio/webm' });
+  assert.equal(audioRes.success, true);
+  assert.equal(audioRes.transcript, 'Imposta la wallbox a 12 ampere');
+  assert.ok(calls.some((c) => c[0] === 'wallbox' && c[1] === 'set_current' && c[2] === 12));
+
+  // 4. Comandi deterministici in src/assistant.js (con stub temporaneo su evClimateHub)
+  const prevUnified = evClimateHub.getUnifiedStatus;
+  const prevSetpoint = evClimateHub.setBoschZoneSetpoint;
+  const prevWallbox = evClimateHub.controlWallbox;
+  try {
+    evClimateHub.getUnifiedStatus = fakeHub.getUnifiedStatus;
+    evClimateHub.setBoschZoneSetpoint = fakeHub.setBoschZoneSetpoint;
+    evClimateHub.controlWallbox = fakeHub.controlWallbox;
+
+    const volvoQuery = await processAssistantCommand('stato volvo ex30');
+    assert.equal(volvoQuery.success, true);
+    assert.ok(volvoQuery.reply.includes('82%'));
+
+    const volvoBlocked = await processAssistantCommand('sblocca volvo ex30', { humanConfirmed: false });
+    assert.equal(volvoBlocked.success, false);
+    assert.equal(volvoBlocked.requiresConfirmation, true);
+
+    const boschCmd = await processAssistantCommand('imposta temperatura salone a 25 gradi');
+    assert.equal(boschCmd.success, true);
+    assert.equal(boschCmd.temperature, 23.5);
+    assert.equal(boschCmd.clamped, true);
+
+    const wbCmd = await processAssistantCommand('imposta wallbox a 12 ampere');
+    assert.equal(wbCmd.success, true);
+    assert.equal(wbCmd.amps, 12);
+  } finally {
+    evClimateHub.getUnifiedStatus = prevUnified;
+    evClimateHub.setBoschZoneSetpoint = prevSetpoint;
+    evClimateHub.controlWallbox = prevWallbox;
+  }
+});

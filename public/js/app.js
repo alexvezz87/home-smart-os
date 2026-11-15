@@ -13,6 +13,7 @@ let currentPinBuffer = '';
 document.addEventListener('DOMContentLoaded', async () => {
   setupNavigation();
   setupAssistantForm();
+  initKioskWakeLock();
   await checkAuth();
   await loadDashboard();
 
@@ -415,26 +416,195 @@ function sendQuickCommand(cmd) {
   sendAssistantCommand(cmd);
 }
 
-async function sendAssistantCommand(cmd) {
+let assistantTtsEnabled = false;
+let activeSpeechRecognition = null;
+let activeMediaRecorder = null;
+let kioskWakeLock = null;
+
+function toggleAssistantTts() {
+  assistantTtsEnabled = !assistantTtsEnabled;
+  const btn = document.getElementById('btn-assistant-tts');
+  if (btn) {
+    btn.classList.toggle('bg-indigo-600', assistantTtsEnabled);
+    btn.classList.toggle('text-white', assistantTtsEnabled);
+    btn.innerHTML = assistantTtsEnabled
+      ? '<i class="fa-solid fa-volume-high text-[11px]"></i>'
+      : '<i class="fa-solid fa-volume-xmark text-[11px]"></i>';
+  }
+  showToast(assistantTtsEnabled ? 'Risposte vocali TTS attive' : 'Risposte vocali TTS disattive', 'info');
+}
+
+function speakAssistantReply(text, forceSpeak = false) {
+  if ((!assistantTtsEnabled && !forceSpeak) || !text || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+  try {
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = 'it-IT';
+    utter.rate = 1.05;
+    window.speechSynthesis.speak(utter);
+  } catch (_) {}
+}
+
+function setMicButtonListening(listening) {
+  const btn = document.getElementById('btn-assistant-mic');
+  if (!btn) return;
+  btn.classList.toggle('bg-rose-600', listening);
+  btn.classList.toggle('animate-pulse', listening);
+  btn.classList.toggle('text-white', listening);
+  btn.innerHTML = listening
+    ? '<i class="fa-solid fa-stop text-[11px]"></i>'
+    : '<i class="fa-solid fa-microphone text-[11px]"></i>';
+}
+
+async function toggleVoiceAssistant() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (activeSpeechRecognition) {
+    try { activeSpeechRecognition.stop(); } catch (_) {}
+    activeSpeechRecognition = null;
+    setMicButtonListening(false);
+    return;
+  }
+  if (activeMediaRecorder && activeMediaRecorder.state === 'recording') {
+    activeMediaRecorder.stop();
+    setMicButtonListening(false);
+    return;
+  }
+
+  if (SpeechRec) {
+    const rec = new SpeechRec();
+    rec.lang = 'it-IT';
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    activeSpeechRecognition = rec;
+    setMicButtonListening(true);
+
+    rec.onresult = async (ev) => {
+      const transcript = ev.results?.[0]?.[0]?.transcript || '';
+      const input = document.getElementById('assistant-input');
+      if (input) input.value = transcript;
+      setMicButtonListening(false);
+      activeSpeechRecognition = null;
+      if (transcript.trim()) await sendAssistantCommand(transcript.trim(), { speakReply: true });
+    };
+    rec.onerror = () => {
+      setMicButtonListening(false);
+      activeSpeechRecognition = null;
+    };
+    rec.onend = () => {
+      setMicButtonListening(false);
+      activeSpeechRecognition = null;
+    };
+    rec.start();
+    return;
+  }
+
+  // Fallback MediaRecorder -> /api/assistant/audio
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showToast('Microfono non supportato su questo browser.', 'warning');
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const chunks = [];
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
+    const recorder = new MediaRecorder(stream, { mimeType });
+    activeMediaRecorder = recorder;
+    setMicButtonListening(true);
+
+    recorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) chunks.push(e.data);
+    };
+    recorder.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      setMicButtonListening(false);
+      activeMediaRecorder = null;
+      const blob = new Blob(chunks, { type: mimeType });
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64 = String(reader.result || '').split(',')[1];
+        if (!base64) return;
+        const box = document.getElementById('assistant-response-box');
+        const textEl = document.getElementById('assistant-response-text');
+        if (box && textEl) {
+          box.classList.remove('hidden');
+          textEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i>Analisi audio Gemini in corso...';
+        }
+        try {
+          const res = await fetch('/api/assistant/audio', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ audioBase64: base64, mimeType })
+          });
+          const json = await res.json();
+          const reply = json.reply || json.error || 'Audio elaborato.';
+          if (textEl) textEl.innerText = json.transcript ? `"${json.transcript}" -> ${reply}` : reply;
+          speakAssistantReply(reply, true);
+          await loadDashboard();
+        } catch (err) {
+          if (textEl) textEl.innerText = 'Errore audio AI: ' + err.message;
+        }
+      };
+      reader.readAsDataURL(blob);
+    };
+
+    recorder.start();
+    setTimeout(() => {
+      if (recorder.state === 'recording') recorder.stop();
+    }, 6000);
+  } catch (err) {
+    setMicButtonListening(false);
+    showToast('Permesso microfono negato: ' + err.message, 'error');
+  }
+}
+
+async function initKioskWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  const acquire = async () => {
+    try {
+      if (document.visibilityState === 'visible') {
+        kioskWakeLock = await navigator.wakeLock.request('screen');
+      }
+    } catch (_) {}
+  };
+  await acquire();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') acquire();
+  });
+}
+
+async function sendAssistantCommand(cmd, options = {}) {
   const box = document.getElementById('assistant-response-box');
   const text = document.getElementById('assistant-response-text');
 
   if (box && text) {
     box.classList.remove('hidden');
-    text.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2"></i>Elaborazione: "${cmd}"...`;
+    text.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2"></i>Elaborazione: "${escapeMailHtml(cmd)}"...`;
   }
 
   try {
     const res = await fetch('/api/assistant', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: cmd })
+      body: JSON.stringify({
+        command: cmd,
+        message: cmd,
+        humanConfirmed: Boolean(options.humanConfirmed)
+      })
     });
     const json = await res.json();
 
-    if (text) {
-      text.innerText = json.reply || json.response || 'Comando eseguito.';
+    if (json.requiresConfirmation && !options.humanConfirmed) {
+      if (window.confirm(`${json.reply || 'Azione sensibile.'}\nVuoi confermare l'esecuzione?`)) {
+        return sendAssistantCommand(cmd, { ...options, humanConfirmed: true });
+      }
     }
+
+    const replyText = json.reply || json.response || 'Comando eseguito.';
+    if (text) {
+      text.innerText = replyText;
+    }
+    speakAssistantReply(replyText, Boolean(options.speakReply));
     showToast('Comando recepito', 'info');
     await loadDashboard();
   } catch (err) {

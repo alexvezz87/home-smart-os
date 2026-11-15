@@ -306,7 +306,10 @@ class EvClimateHub {
       lastError: null
     };
 
-    this.startPolling();
+    const isTestRun = process.env.NODE_ENV === 'test' || process.argv.some((a) => a.includes('test-guardrails'));
+    if (!isTestRun) {
+      this.startPolling();
+    }
   }
 
   loadConfig() {

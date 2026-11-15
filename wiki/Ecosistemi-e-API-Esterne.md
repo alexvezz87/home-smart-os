@@ -107,3 +107,6 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 ## 🎬 Gemini Temporal Vision Multi-Frame (`src/gemini-vision.js`, `src/go2rtc-manager.js`)
 - **Gateway AI (`src/ai-gateway.js`)**: chiamate strutturate `generateJSON({ role: 'fast', taskName: 'temporal_vision:<camId>' })` con sequenza multi-frame (`T=0.0s..+4.8s`) e guardrail hardware `camera:vision` per i trigger automatici ONVIF/SSE.
 - **Endpoint**: `POST /api/camera/:id/analyze` (con `{ temporal: true, frameCount, intervalMs }`), `POST /api/camera/:id/analyze-sequence` e alias `POST /api/camera/:id/analyze-temporal`.
+
+### Assistente Vocale & Audio Multimodale (`#4`)
+- **Endpoint**: `POST /api/assistant` e alias `POST /api/assistant/command` (payload `{ command | message | text, humanConfirmed }`), più `POST /api/assistant/audio` (`{ audioBase64, mimeType, prompt, humanConfirmed }`) orchestrato tramite `aiGateway` (`role: 'fast'`).
