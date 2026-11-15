@@ -54,6 +54,10 @@ class SecuritySystem {
       startedAt: null
     };
     this.nestHubIp = process.env.NEST_HUB_IP || '192.168.1.66';
+    this.nestIps = this._parseNestIpsEnv(process.env.NEST_IPS);
+    if (!this.nestIps['Camera da letto']) {
+      this.nestIps['Camera da letto'] = this.nestHubIp;
+    }
 
     this.cameras = {
       'device@7a20d851-543b-4ae8-845c-edca07903c30': {
@@ -148,6 +152,7 @@ class SecuritySystem {
     // Avvia go2rtc per WebRTC / MSE e Snapshot HD (saltato in ambiente test offline)
     const isTestRun = process.env.NODE_ENV === 'test' || process.argv.some((a) => a.includes('test-guardrails'));
     if (!isTestRun) {
+      this._loadNestIpsFromDb().catch(() => {});
       setTimeout(() => {
         go2rtc.start(this.cameras);
         this.startOnvifEventListeners();
@@ -285,7 +290,152 @@ class SecuritySystem {
     };
   }
 
+  _parseNestIpsEnv(raw = '') {
+    const out = {};
+    const str = String(raw || '').trim();
+    if (!str) return out;
+    if (str.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(str);
+        for (const [k, v] of Object.entries(parsed || {})) {
+          if (this._isValidIpv4(v)) out[String(k).trim()] = String(v).trim();
+        }
+        return out;
+      } catch (_) {}
+    }
+    for (const pair of str.split(',')) {
+      const idx = pair.indexOf('=');
+      if (idx > 0) {
+        const k = pair.slice(0, idx).trim();
+        const v = pair.slice(idx + 1).trim();
+        if (k && this._isValidIpv4(v)) out[k] = v;
+      }
+    }
+    return out;
+  }
+
+  _isValidIpv4(ip) {
+    if (typeof ip !== 'string') return false;
+    const parts = ip.trim().split('.');
+    if (parts.length !== 4) return false;
+    return parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) >= 0 && Number(p) <= 255);
+  }
+
+  async _loadNestIpsFromDb() {
+    if (!db || typeof db.get !== 'function') return;
+    const saved = await db.get('nest-ips-config');
+    if (saved && typeof saved === 'object') {
+      for (const [k, v] of Object.entries(saved)) {
+        if (this._isValidIpv4(v)) this.nestIps[k] = v;
+      }
+      if (this.nestIps['Camera da letto'] || this.nestIps['Nest Hub']) {
+        this.nestHubIp = this.nestIps['Camera da letto'] || this.nestIps['Nest Hub'];
+      }
+    }
+  }
+
+  getNestIps() {
+    return { ...this.nestIps };
+  }
+
+  async updateNestIps(map = {}) {
+    if (!map || typeof map !== 'object') {
+      throw new Error('Mappa IP Nest non valida');
+    }
+    const next = { ...this.nestIps };
+    for (const [room, ip] of Object.entries(map)) {
+      const cleanRoom = String(room || '').trim();
+      const cleanIp = String(ip || '').trim();
+      if (!cleanRoom) continue;
+      if (!this._isValidIpv4(cleanIp)) {
+        throw new Error(`Indirizzo IPv4 non valido per "${cleanRoom}": ${cleanIp}`);
+      }
+      next[cleanRoom] = cleanIp;
+    }
+    this.nestIps = next;
+    if (next['Camera da letto'] || next['Nest Hub']) {
+      this.nestHubIp = next['Camera da letto'] || next['Nest Hub'];
+    }
+    if (db && typeof db.set === 'function') {
+      await db.set('nest-ips-config', this.nestIps, false);
+    }
+    return this.getNestIps();
+  }
+
+  resolveNestIp(roomOrName = '') {
+    const q = String(roomOrName || '').trim().toLowerCase();
+    if (q) {
+      for (const [k, ip] of Object.entries(this.nestIps || {})) {
+        if (k.toLowerCase() === q) return ip;
+      }
+      for (const [k, ip] of Object.entries(this.nestIps || {})) {
+        const kl = k.toLowerCase();
+        if (kl.includes(q) || q.includes(kl)) return ip;
+      }
+    }
+    return this.nestHubIp;
+  }
+
+  async announceToNest(text, { roomName = null, lang = 'it' } = {}) {
+    const cleanText = String(text || '').trim().slice(0, 200);
+    if (!cleanText) {
+      throw new Error('Testo annuncio vuoto');
+    }
+    const guard = typeof aiGateway.checkGuardrail === 'function'
+      ? aiGateway.checkGuardrail('tts:announce', { roomName })
+      : aiGateway.validateHardwareAction({ action: 'tts:announce', roomName });
+    if (guard && guard.allowed === false) {
+      return { success: false, blocked: true, reason: guard.reason || 'Annuncio TTS bloccato dal guardrail.' };
+    }
+
+    const targetIp = this.resolveNestIp(roomName);
+    const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${encodeURIComponent(lang)}&client=tw-ob&q=${encodeURIComponent(cleanText)}`;
+
+    const { Client, DefaultMediaReceiver } = require('castv2-client');
+    await new Promise((resolve, reject) => {
+      const client = new Client();
+      const timeout = setTimeout(() => {
+        try { client.close(); } catch (_) {}
+        reject(new Error(`Timeout connessione Cast verso ${targetIp}:8009`));
+      }, 8000);
+
+      client.on('error', (err) => {
+        clearTimeout(timeout);
+        try { client.close(); } catch (_) {}
+        reject(err);
+      });
+
+      client.connect(targetIp, () => {
+        client.launch(DefaultMediaReceiver, (launchErr, player) => {
+          if (launchErr) {
+            clearTimeout(timeout);
+            try { client.close(); } catch (_) {}
+            return reject(launchErr);
+          }
+          player.load({ contentId: ttsUrl, contentType: 'audio/mp3', streamType: 'BUFFERED' }, { autoplay: true }, (loadErr) => {
+            clearTimeout(timeout);
+            if (loadErr) {
+              try { client.close(); } catch (_) {}
+              return reject(loadErr);
+            }
+            setTimeout(() => { try { client.close(); } catch (_) {} }, 1500);
+            resolve();
+          });
+        });
+      });
+    });
+
+    eventLogger.log('tts_announce', `Annuncio vocale su Nest (${targetIp}): "${cleanText}"`, { roomName, targetIp });
+    return { success: true, targetIp, roomName, text: cleanText };
+  }
+
   getLocalHostIp() {
+    if (process.env.WG_LOCAL_IP && String(process.env.WG_LOCAL_IP).trim()) {
+      return String(process.env.WG_LOCAL_IP).trim();
+    }
+    if (process.env.HOST_LAN_IP && String(process.env.HOST_LAN_IP).trim()) {
+      return String(process.env.HOST_LAN_IP).trim();
+    }
     try {
       const os = require('os');
       const interfaces = os.networkInterfaces();

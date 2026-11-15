@@ -1,0 +1,34 @@
+services:
+  home-smart-os:
+    build: .
+    image: ghcr.io/alexvezz87/home-smart-os:latest
+    container_name: home-smart-os
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./public/snapshots:/app/public/snapshots
+    ports:
+      - "3000:3000"
+      - "8555:8555/tcp"
+      - "8555:8555/udp"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: home-smart-os-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - home-smart-os
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -6,7 +6,7 @@ const axios = require('axios');
 class Go2RtcManager {
   constructor() {
     this.binDir = path.join(__dirname, '..', 'bin');
-    this.exePath = path.join(this.binDir, 'go2rtc.exe');
+    this.exePath = this.getBinaryPath();
     this.configPath = path.join(this.binDir, 'go2rtc.yaml');
     this.apiPort = 1984;
     this.rtspPort = 8554;
@@ -18,18 +18,37 @@ class Go2RtcManager {
     this._lastCameras = {};
   }
 
+  getBinaryPath() {
+    if (process.env.GO2RTC_BIN && String(process.env.GO2RTC_BIN).trim()) {
+      return String(process.env.GO2RTC_BIN).trim();
+    }
+    if (process.platform === 'win32') {
+      return path.join(this.binDir, 'go2rtc.exe');
+    }
+    if (fs.existsSync('/usr/local/bin/go2rtc')) {
+      return '/usr/local/bin/go2rtc';
+    }
+    return path.join(this.binDir, 'go2rtc');
+  }
+
   hasBinary() {
-    return fs.existsSync(this.exePath);
+    const binPath = this.getBinaryPath();
+    this.exePath = binPath;
+    return fs.existsSync(binPath);
   }
 
   generateYaml(cameras = {}) {
     let ffmpegBin = 'ffmpeg';
-    try {
-      const staticFfmpeg = require('ffmpeg-static');
-      if (staticFfmpeg && fs.existsSync(staticFfmpeg)) {
-        ffmpegBin = staticFfmpeg.replace(/\\/g, '/');
-      }
-    } catch (_) {}
+    if (process.platform === 'linux' && fs.existsSync('/usr/bin/ffmpeg')) {
+      ffmpegBin = '/usr/bin/ffmpeg';
+    } else {
+      try {
+        const staticFfmpeg = require('ffmpeg-static');
+        if (staticFfmpeg && fs.existsSync(staticFfmpeg)) {
+          ffmpegBin = staticFfmpeg.replace(/\\/g, '/');
+        }
+      } catch (_) {}
+    }
 
     const lines = [
       'api:',
@@ -94,8 +113,9 @@ class Go2RtcManager {
   }
 
   start(cameras = {}) {
+    this.exePath = this.getBinaryPath();
     if (!this.hasBinary()) {
-      console.warn('⚠️ [go2rtc] Binario bin/go2rtc.exe non trovato. Salto avvio WebRTC.');
+      console.warn(`⚠️ [go2rtc] Binario ${this.exePath} non trovato. Salto avvio WebRTC.`);
       return false;
     }
 
