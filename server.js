@@ -1623,10 +1623,19 @@ app.post('/api/notifications/test', async (req, res) => {
   }
 });
 
-app.post('/api/telegram/pairing-link', (req, res) => {
+app.post('/api/telegram/pairing-link', async (req, res) => {
   try {
+    if (telegramBot.token && !telegramBot.botUsername) {
+      await telegramBot.verifyBot().catch(() => {});
+    }
+    if (sandboxManager && sandboxManager.getState().disableTelegramPolling) {
+      await sandboxManager.updateConfig({ disableTelegramPolling: false }).catch(() => {});
+    }
+    if (telegramBot.token && !telegramBot.polling) {
+      telegramBot.startPolling();
+    }
     const link = telegramBot.createPairingLink();
-    res.json({ success: true, ...link });
+    res.json({ success: true, polling: telegramBot.polling, botUsername: telegramBot.botUsername, ...link });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

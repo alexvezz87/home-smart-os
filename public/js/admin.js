@@ -1667,11 +1667,11 @@ class AdminManager {
             </div>
             <div class="flex items-center justify-between gap-2 pt-1">
               <span class="text-[11px] text-slate-400">Chat autorizzate: <strong class="text-white">${tg.allowedUsersCount || 0}</strong></span>
-              <button onclick="window.adminManager.generateTelegramPairingLink()" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-500/30 font-semibold">
-                <i class="fa-solid fa-link mr-1"></i>Genera Link Abbinamento
+              <button onclick="window.adminManager.generateTelegramPairingLink()" class="px-2.5 py-1 rounded-lg bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/40 font-semibold">
+                <i class="fa-solid fa-link mr-1"></i>Genera Codice / Link Pairing
               </button>
             </div>
-            <div id="admin-tg-pairing-box" class="hidden p-2.5 rounded-lg bg-sky-950/40 border border-sky-500/30 text-[11px] text-sky-200 break-all"></div>
+            <div id="admin-tg-pairing-box" class="${this.lastTelegramPairing ? '' : 'hidden '}p-2.5 rounded-lg bg-sky-950/40 border border-sky-500/30 text-[11px] text-sky-200 break-all">${this.lastTelegramPairing ? this._renderPairingHtml(this.lastTelegramPairing) : ''}</div>
           </div>
 
           <div class="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-3">
@@ -1884,18 +1884,28 @@ class AdminManager {
     }
   }
 
+  _renderPairingHtml(data) {
+    const safeUrl = this.escapeHtml(data?.url || '');
+    const safeCmd = this.escapeHtml(data?.command || '');
+    return `1️⃣ Clicca e premi <b>Avvia / Start</b> su Telegram: <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="underline font-bold text-white">${safeUrl}</a><br/>2️⃣ Oppure copia e invia questo codice nella chat del bot: <code class="px-1.5 py-0.5 rounded bg-slate-900 text-amber-300 font-bold select-all">${safeCmd}</code>`;
+  }
+
   async generateTelegramPairingLink() {
     try {
       const res = await fetch('/api/telegram/pairing-link', { method: 'POST' });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Errore generazione link');
-      const box = document.getElementById('admin-tg-pairing-box');
-      if (box) {
-        box.classList.remove('hidden');
-        const safeUrl = this.escapeHtml(data.url || '');
-        const safeCmd = this.escapeHtml(data.command || '');
-        box.innerHTML = `Apri su Telegram: <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="underline font-bold">${safeUrl}</a><br/>Oppure invia al bot: <code>${safeCmd}</code>`;
+      this.lastTelegramPairing = data;
+      const html = this._renderPairingHtml(data);
+      for (const boxId of ['admin-tg-pairing-box', 'admin-tg-pairing-box-sys']) {
+        const box = document.getElementById(boxId);
+        if (box) {
+          box.classList.remove('hidden');
+          box.innerHTML = html;
+        }
       }
+      window.showToast?.('Codice Pairing Telegram generato e polling attivato!', 'success');
+      if (this.activeTab === 'system') this.loadEnvironmentPanel();
     } catch (err) {
       window.showToast?.(err.message, 'error');
     }
@@ -2084,6 +2094,28 @@ class AdminManager {
           <div id="admin-ai-gateway-panel" class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
             <div class="text-xs text-slate-400"><i class="fa-solid fa-circle-notch fa-spin mr-1.5 text-indigo-400"></i> Caricamento AI Gateway &amp; Guardrail...</div>
           </div>
+        </div>
+
+        <!-- Telegram Bot Pairing Rapido (#34 / #39) -->
+        <div class="p-4 rounded-xl bg-slate-900/60 border border-sky-500/30 space-y-3">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div class="flex items-center gap-2">
+              <i class="fa-brands fa-telegram text-sky-400 text-base"></i>
+              <div>
+                <h4 class="text-xs font-bold text-white uppercase tracking-wider">Telegram Bot (@casa_alex_smart_bot) &amp; Pairing Chat</h4>
+                <p class="text-[11px] text-slate-400">Genera il codice/link di abbinamento per autorizzare il tuo account Telegram o quello di Cinzia</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="window.adminManager.generateTelegramPairingLink()" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95">
+                <i class="fa-solid fa-link"></i> Genera Codice / Link Pairing
+              </button>
+              <button onclick="window.adminManager.selectTab('security')" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold">
+                Impostazioni Avanzate
+              </button>
+            </div>
+          </div>
+          <div id="admin-tg-pairing-box-sys" class="${this.lastTelegramPairing ? '' : 'hidden '}p-2.5 rounded-lg bg-sky-950/40 border border-sky-500/30 text-[11px] text-sky-200 break-all">${this.lastTelegramPairing ? this._renderPairingHtml(this.lastTelegramPairing) : ''}</div>
         </div>
 
         <!-- Hub Posta Multi-Account (Gmail Alex & Cinzia #36) -->
