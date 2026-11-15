@@ -227,6 +227,7 @@ class DatabaseManager {
       this.pool = null;
     }
     this.isInitialized = false;
+    this.memoryCache.clear();
     this.forcedMode = targetMode;
     const ok = await this.initDb(targetMode);
     if (!ok) {
