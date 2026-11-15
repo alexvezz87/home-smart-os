@@ -170,4 +170,12 @@ Riorganizzata con un'architettura **modulare responsive**: su desktop/tablet ori
 - **Temporal Reasoning (`src/gemini-vision.js`)**: `analyzeTemporalSequence` combina pre-frame + burst live (fino a 5 frame con offset `[T=+x.xs]`) e foto di riferimento pet (`_buildPetReferenceParts`), invoca `aiGateway.generateJSON({ role: 'fast' })` con guardrail `camera:vision` per trigger automatici, restituisce JSON strutturato (`summary`, `francescoState`, `posture`, `trajectory`, `nightWalkingOutOfBed`, `petsDetected`, `anomaly`) ed emette `camera:temporal_analysis` su `eventBus`.
 - **Maxi-Player, API & Assistente (`public/js/camera-theater.js`, `server.js`, `src/assistant.js`)**: pulsanti **Fotogramma Singolo** vs **Sequenza Dinamica (Burst 4 Frame)** con strip thumbnail e badge strutturati sanitizzati; endpoint `POST /api/camera/:id/analyze` (`temporal: true`) e `POST /api/camera/:id/analyze-sequence`; instradamento query vocali dinamiche/Baby Monitor in `src/assistant.js`.
 
+---
+
+## 🎙️ 10. Controllo Vocale Completo, AI Orchestrator & PWA Kiosk Tablet (`#4`)
+- **AI Orchestrator (`src/ai-orchestrator.js`)**: orchestratore di function-calling / JSON strutturato tramite `aiGateway.generateJSON({ role: 'fast' })` per comandi complessi multi-azione e note audio multimodali (`processAudio` con `inlineData`), con validazione hardware obbligatoria (`aiGateway.validateHardwareAction`) su `controlBoschClimate` (`climate:set_temp`), `controlVolvo` (`volvo:unlock` protetto da `humanConfirmed`), `controlWallbox` (`wallbox:set_amperage`), `controlLightsAndPlugs`, `analyzeCameraScene` e `activateHueScene`.
+- **Comandi Vocali Estesi (`src/assistant.js`)**: supporto deterministico per caldaia e 9 zone termostatiche Bosch CT200 (setpoint, modalità, boost ACS, profilo Comfort Neonato), Volvo EX30 (stato batteria/autonomia, preclimatizzazione, blocco/sblocco sicuro) e Wallbox ABB (stato, avvio/stop ricarica, regolazione ampere), con delega intelligente ad `aiOrchestrator` per richieste multi-azione o non riconosciute.
+- **PWA Kiosk & Voce Browser (`public/manifest.json`, `public/sw.js`, `public/index.html`, `public/js/app.js`)**: manifest installabile `standalone` landscape, Service Worker `home-os-shell-v1` (caching statico Network-First con esclusione `/api/*`, `/ws*`, `/go2rtc*` e preservazione Web Push), Screen Wake Lock API (`initKioskWakeLock`), microfono `#btn-assistant-mic` (`SpeechRecognition` `it-IT` con fallback `MediaRecorder` verso `POST /api/assistant/audio`) e sintesi vocale `#btn-assistant-tts` (`speechSynthesis`).
+
+
 

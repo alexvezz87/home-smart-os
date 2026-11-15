@@ -31,6 +31,7 @@ process.on('unhandledRejection', (reason) => {
 // Riferimenti ai moduli di dominio (caricati ordinatamente dopo l'idratazione da TiDB Cloud)
 let mcp = null;
 let processAssistantCommand = null;
+let aiOrchestrator = null;
 let eventLogger = null;
 let merossEnergy = null;
 let securitySystem = null;
@@ -1886,14 +1887,36 @@ app.post('/api/all-off', async (req, res) => {
   }
 });
 
-// 8. Assistente AI in linguaggio naturale
-app.post('/api/assistant', async (req, res) => {
+// 8. Assistente AI in linguaggio naturale & Voce Multimodale
+async function handleAssistantCommand(req, res) {
   try {
-    const { command } = req.body;
-    const result = await processAssistantCommand(command);
-    res.json({ success: true, ...result });
+    const command = req.body?.command || req.body?.message || req.body?.text;
+    const humanConfirmed = Boolean(req.body?.humanConfirmed);
+    const result = await processAssistantCommand(command, { humanConfirmed });
+    res.json({ success: result?.success !== false, ...result });
   } catch (error) {
     console.error('[API /api/assistant Error]:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+}
+app.post('/api/assistant', handleAssistantCommand);
+app.post('/api/assistant/command', handleAssistantCommand);
+
+app.post('/api/assistant/audio', async (req, res) => {
+  try {
+    const { audioBase64, mimeType, prompt, humanConfirmed } = req.body || {};
+    if (!audioBase64) {
+      return res.status(400).json({ success: false, error: 'audioBase64 mancante.' });
+    }
+    const result = await aiOrchestrator.processAudio({
+      audioBase64,
+      mimeType,
+      prompt,
+      humanConfirmed: Boolean(humanConfirmed)
+    });
+    res.json({ success: result?.success !== false, ...result });
+  } catch (error) {
+    console.error('[API /api/assistant/audio Error]:', error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1926,6 +1949,7 @@ async function bootstrap() {
   thermalAnalytics = require('./src/thermal-analytics');
   mcp = require('./src/google-home-mcp');
   ({ processAssistantCommand } = require('./src/assistant'));
+  aiOrchestrator = require('./src/ai-orchestrator');
   eventLogger = require('./src/event-logger');
   merossEnergy = require('./src/meross-energy');
   securitySystem = require('./src/security-system');

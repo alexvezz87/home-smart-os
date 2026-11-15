@@ -6,12 +6,30 @@ const hueLocal = require('./hue-local');
 const pantumPrinter = require('./pantum-printer');
 const lgThinq = require('./lg-thinq');
 const dysonPurifier = require('./dyson-purifier');
+const aiGateway = require('./ai-gateway');
+const evClimateHub = require('./ev-climate-hub');
+const aiOrchestrator = require('./ai-orchestrator');
 
 /**
  * Interprete di comandi in linguaggio naturale (italiano) per la Smart Home.
  */
-async function processAssistantCommand(input) {
+async function processAssistantCommand(input, options = {}) {
   const text = (input || '').trim().toLowerCase();
+  const humanConfirmed = Boolean(options && options.humanConfirmed);
+
+  if (!text) {
+    return {
+      success: false,
+      reply: 'Non ho ricevuto nessun comando. Prova a dirmi: "Accendi salone" o "Spegni tutto".'
+    };
+  }
+
+  // Comandi multi-azione complessi -> delega diretta all'AI Orchestrator
+  if (
+    /\b(accendi|spegni|imposta|metti|porta|avvia|ferma|blocca|sblocca|attiva|disattiva|scalda|raffredda)\b.*\s+e\s+.*\b(accendi|spegni|imposta|metti|porta|avvia|ferma|blocca|sblocca|attiva|disattiva|scalda|raffredda)\b/i.test(text)
+  ) {
+    return aiOrchestrator.processCommand(input, options);
+  }
   if (!text) {
     return { success: false, reply: 'Non ho ricevuto alcun comando.' };
   }
@@ -336,6 +354,31 @@ async function processAssistantCommand(input) {
     return { success: true, action: 'query_status', reply };
   }
 
+  // Impostazione temperatura stanza/zona Bosch CT200 (es. "imposta salone a 21 gradi")
+  const tempMatch = text.match(/(?:imposta|metti|porta|regola|temperatura)\s+(?:il\s+|la\s+|in\s+|a\s+)?(salone|cucina|camera da letto|cameretta|bagno cinzia|bagno alex|cabina armadio|ingresso|corridoio)\s+(?:a\s+)?(\d+(?:[.,]\d+)?)/i);
+  if (tempMatch) {
+    const zone = tempMatch[1].toLowerCase();
+    const rawTemp = parseFloat(tempMatch[2].replace(',', '.'));
+    const guard = aiGateway.validateHardwareAction({ action: 'climate:set_temp', value: rawTemp });
+    if (guard && guard.allowed === false) {
+      return { success: false, blocked: true, reply: guard.reason || 'Temperatura non consentita dai guardrail.' };
+    }
+    const finalTemp = guard?.finalValue ?? rawTemp;
+    try {
+      await evClimateHub.setBoschZoneSetpoint(zone, finalTemp);
+    } catch (err) {
+      if (!String(err.message || '').includes('non conness')) throw err;
+    }
+    return {
+      success: true,
+      action: 'bosch:set_temp',
+      zone,
+      temperature: finalTemp,
+      clamped: Boolean(guard?.clamped),
+      reply: `Temperatura ${zone} impostata a ${finalTemp}°C${guard?.clamped ? ' (limitata dai guardrail)' : ''}.`
+    };
+  }
+
   // 2. Temperatura / Clima
   if (text.includes('temperatura') || text.includes('gradi') || text.includes('clima')) {
     if (snapshot.stats?.temperature) {
@@ -458,11 +501,136 @@ async function processAssistantCommand(input) {
     }
   }
 
-  // Fallback
-  return {
-    success: false,
-    reply: `Non ho capito cosa fare per "${text}". Puoi provare: "Accendi presa cucina", "Temperatura", "Spegni salone", "Spegni tutto" o "Quante luci sono accese?".`
-  };
+  // ── Bosch CT200 (Caldaia & 9 Zone Termostatiche) ──────────────────────────
+  if (
+    text.includes('caldaia') ||
+    text.includes('riscaldamento') ||
+    text.includes('termostato') ||
+    text.includes('bosch') ||
+    text.includes('acqua calda') ||
+    text.includes('comfort neonato')
+  ) {
+    if (text.includes('comfort neonato') || text.includes('modalità neonato')) {
+      const res = await evClimateHub.applyBabyComfortProfile({});
+      return {
+        success: true,
+        action: 'bosch:baby_comfort',
+        result: res,
+        reply: 'Ho attivato il profilo Comfort Neonato Bosch CT200 su cameretta e camera da letto.'
+      };
+    }
+    if (text.includes('acqua calda') || text.includes('boost')) {
+      const res = await evClimateHub.boostBoschDhw();
+      return {
+        success: true,
+        action: 'bosch:boost_dhw',
+        result: res,
+        reply: 'Ho attivato il boost acqua calda sanitaria sulla caldaia Bosch CT200.'
+      };
+    }
+    if (text.includes('manuale')) {
+      await evClimateHub.setBoschMode('manual');
+      return { success: true, action: 'bosch:mode_manual', reply: 'Caldaia Bosch CT200 impostata in modalità manuale.' };
+    }
+    if (text.includes('automatic') || text.includes('orologio') || text.includes('clock')) {
+      await evClimateHub.setBoschMode('clock');
+      return { success: true, action: 'bosch:mode_clock', reply: 'Caldaia Bosch CT200 impostata in modalità programmata.' };
+    }
+    const status = evClimateHub.getUnifiedStatus ? evClimateHub.getUnifiedStatus() : {};
+    const bosch = status.bosch || {};
+    const zones = Array.isArray(bosch.zones) ? bosch.zones : [];
+    const summary = zones.slice(0, 4).map((z) => `${z.name}: ${z.currentTemp ?? z.temp ?? '--'}°C`).join(', ');
+    return {
+      success: true,
+      action: 'bosch:query',
+      bosch,
+      reply: `Stato Bosch CT200: ${bosch.connected ? 'connesso' : 'offline'}${summary ? ` (${summary})` : ''}.`
+    };
+  }
+
+  // ── Volvo EX30 ─────────────────────────────────────────────────────────────
+  if (text.includes('volvo') || text.includes('auto') || text.includes('macchina') || text.includes('ex30')) {
+    if (text.includes('sblocca') || text.includes('apri')) {
+      const guard = aiGateway.validateHardwareAction({ action: 'volvo:unlock', humanConfirmed });
+      if (guard && guard.allowed === false) {
+        return {
+          success: false,
+          blocked: true,
+          requiresConfirmation: true,
+          action: 'volvo:unlock',
+          reply: guard.reason || 'Lo sblocco della Volvo EX30 richiede conferma esplicita.'
+        };
+      }
+      const res = await evClimateHub.controlVolvo('unlock');
+      return { success: true, action: 'volvo:unlock', result: res, reply: 'Volvo EX30 sbloccata.' };
+    }
+    if (text.includes('blocca') || text.includes('chiudi')) {
+      const res = await evClimateHub.controlVolvo('lock');
+      return { success: true, action: 'volvo:lock', result: res, reply: 'Portiere della Volvo EX30 bloccate.' };
+    }
+    if (text.includes('preclimatizza') || text.includes('climatizza') || text.includes('scalda') || text.includes('raffredda')) {
+      const stop = text.includes('spegni') || text.includes('ferma');
+      const act = stop ? 'climatization_stop' : 'climatization_start';
+      const res = await evClimateHub.controlVolvo(act);
+      return {
+        success: true,
+        action: `volvo:${act}`,
+        result: res,
+        reply: stop ? 'Preclimatizzazione Volvo EX30 fermata.' : 'Preclimatizzazione Volvo EX30 avviata.'
+      };
+    }
+    const status = evClimateHub.getUnifiedStatus ? evClimateHub.getUnifiedStatus() : {};
+    const volvo = status.volvo || {};
+    const soc = volvo.batteryLevel ?? volvo.soc ?? '--';
+    const range = volvo.rangeKm ?? volvo.range ?? '--';
+    return {
+      success: true,
+      action: 'volvo:query',
+      volvo,
+      reply: `Volvo EX30: batteria al ${soc}%, autonomia stimata ${range} km.`
+    };
+  }
+
+  // ── Wallbox ABB Terra AC ───────────────────────────────────────────────────
+  if (text.includes('wallbox') || text.includes('ricarica') || text.includes('colonnina')) {
+    const ampsMatch = text.match(/(\d+)\s*(?:a|amp|ampere)\b/i);
+    if (ampsMatch) {
+      const rawAmps = parseInt(ampsMatch[1], 10);
+      const guard = aiGateway.validateHardwareAction({ action: 'wallbox:set_amperage', value: rawAmps });
+      if (guard && guard.allowed === false) {
+        return { success: false, blocked: true, reply: guard.reason || 'Amperaggio non consentito.' };
+      }
+      const finalAmps = guard?.finalValue ?? rawAmps;
+      const res = await evClimateHub.controlWallbox('set_current', finalAmps);
+      return {
+        success: true,
+        action: 'wallbox:set_current',
+        amps: finalAmps,
+        clamped: Boolean(guard?.clamped),
+        result: res,
+        reply: `Corrente Wallbox ABB impostata a ${finalAmps}A.`
+      };
+    }
+    if (text.includes('avvia') || text.includes('inizia') || text.includes('attiva') || text.includes('accendi')) {
+      const res = await evClimateHub.controlWallbox('start');
+      return { success: true, action: 'wallbox:start', result: res, reply: 'Ricarica Wallbox ABB avviata.' };
+    }
+    if (text.includes('ferma') || text.includes('interrompi') || text.includes('stop') || text.includes('spegni')) {
+      const res = await evClimateHub.controlWallbox('stop');
+      return { success: true, action: 'wallbox:stop', result: res, reply: 'Ricarica Wallbox ABB interrotta.' };
+    }
+    const status = evClimateHub.getUnifiedStatus ? evClimateHub.getUnifiedStatus() : {};
+    const wallbox = status.wallbox || {};
+    return {
+      success: true,
+      action: 'wallbox:query',
+      wallbox,
+      reply: `Wallbox ABB: stato ${wallbox.status || 'sconosciuto'}, potenza ${wallbox.powerKw ?? 0} kW, limite ${wallbox.currentLimitA ?? '--'}A.`
+    };
+  }
+
+  // Fallback intelligente tramite AI Orchestrator
+  return aiOrchestrator.processCommand(input, options);
 }
 
 module.exports = {

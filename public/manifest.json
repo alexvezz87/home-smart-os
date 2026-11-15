@@ -1,0 +1,19 @@
+{
+  "name": "Home Smart OS — Digital Twin & Energy Intelligence",
+  "short_name": "Home Smart OS",
+  "description": "Control Center domotica, clima Bosch CT200, mobilità Volvo EX30, Wallbox ABB e videosorveglianza AI.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "landscape-primary",
+  "background_color": "#020617",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='40' fill='%234f46e5'/><path d='M96 42L40 88v62a10 10 0 0 0 10 10h34v-44h24v44h34a10 10 0 0 0 10-10V88L96 42z' fill='white'/></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
