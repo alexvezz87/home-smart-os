@@ -340,14 +340,16 @@ function updateHeaderMetrics(data) {
   const elPlugs = document.getElementById('stat-plugs-on');
   const elOnline = document.getElementById('stat-online');
 
-  if (elPower) elPower.innerText = `${stats.totalPowerW || 0} W`;
+  const livePowerW = data.energySummary?.meterGuard?.currentW ?? stats.totalPowerW ?? 0;
+  if (elPower) elPower.innerText = `${Math.round(Number(livePowerW) || 0)} W`;
   if (elTemp) elTemp.innerText = `${stats.temperature || '--'}°C`;
   if (elLights) elLights.innerText = stats.lightsOn || 0;
   if (elPlugs) elPlugs.innerText = stats.plugsOn || 0;
   if (elOnline) elOnline.innerText = stats.onlineDevices || 0;
 
   if (elSec && data.security) {
-    elSec.innerText = data.security.mode || 'A Casa';
+    const modeMap = { home: 'A Casa', away: 'Fuori Casa' };
+    elSec.innerText = modeMap[data.security.mode] || data.security.mode || 'A Casa';
   }
 }
 
@@ -372,8 +374,9 @@ async function triggerMasterOff() {
  * Alterna modalità sicurezza (A Casa / Fuori Casa / Notte)
  */
 async function cycleSecurityMode() {
-  const current = window.homeData?.security?.mode || 'A Casa';
-  const next = current === 'A Casa' ? 'Fuori Casa' : current === 'Fuori Casa' ? 'Notte' : 'A Casa';
+  const current = window.homeData?.security?.mode || 'home';
+  const next = current === 'away' ? 'home' : 'away';
+  const label = next === 'home' ? 'A Casa (Privacy Cam attiva)' : 'Fuori Casa (Sentinella attiva)';
   try {
     const res = await fetch('/api/security/mode', {
       method: 'POST',
@@ -382,8 +385,10 @@ async function cycleSecurityMode() {
     });
     const json = await res.json();
     if (json.success) {
-      showToast(`🛡️ Modalità Sicurezza impostata su: ${next}`, 'success');
+      showToast(`🛡️ Modalità Sicurezza: ${label}`, 'success');
       await loadDashboard();
+    } else {
+      showToast(`Errore cambio sicurezza: ${json.error || 'richiesta rifiutata'}`, 'error');
     }
   } catch (e) {
     showToast('Errore cambio sicurezza: ' + e.message, 'error');
