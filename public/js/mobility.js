@@ -3,7 +3,7 @@
  */
 class MobilityManager {
   constructor() {
-    this.activeTab = 'live'; // 'live' | 'trips'
+    this.activeTab = localStorage.getItem('mobility_active_tab') || 'live'; // 'live' | 'trips' | 'wallbox'
     this.tyreUnit = 'bar'; // 'bar' | 'kPa' | 'psi'
     this.busyAction = null;
     this.lastFeedback = null; // { type: 'success'|'error'|'info', text: string }
@@ -20,6 +20,20 @@ class MobilityManager {
     this.wallboxFilter = { year: 'all', month: 'all', limit: 60 };
     this.showWallboxSessions = false;
     this._wallboxCharts = {};
+    this._isMobileView = typeof window !== 'undefined' ? window.innerWidth < 768 : false;
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', () => {
+        const nowMobile = window.innerWidth < 768;
+        if (nowMobile !== this._isMobileView) {
+          this._isMobileView = nowMobile;
+          const area = document.getElementById('area-mobility');
+          if (area && !area.classList.contains('hidden')) {
+            this.renderView();
+          }
+        }
+      });
+    }
   }
 
   destroyTripsCharts() {
@@ -48,11 +62,17 @@ class MobilityManager {
 
   setTab(tab) {
     if (!['live', 'trips', 'wallbox'].includes(tab)) return;
-    this.activeTab = tab;
-    if (tab === 'trips' && !this.tripsData && !this.tripsLoading) {
-      this.loadTripsData();
-    } else if (tab === 'wallbox' && !this.wallboxHistoryData && !this.wallboxHistoryLoading) {
-      this.loadWallboxHistory();
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    if (isMobile && this.activeTab === tab) {
+      this.activeTab = null;
+    } else {
+      this.activeTab = tab;
+      localStorage.setItem('mobility_active_tab', tab);
+      if (tab === 'trips' && !this.tripsData && !this.tripsLoading) {
+        this.loadTripsData();
+      } else if (tab === 'wallbox' && !this.wallboxHistoryData && !this.wallboxHistoryLoading) {
+        this.loadWallboxHistory();
+      }
     }
     this.renderView();
   }
@@ -1082,46 +1102,158 @@ class MobilityManager {
     }
   }
 
+  _getMobilityTabContent(tabId) {
+    if (tabId === 'trips') return this.renderTripsTab();
+    if (tabId === 'wallbox') return this.renderWallboxTab();
+    return this.renderLiveTab();
+  }
+
   renderView() {
     const container = document.getElementById('area-mobility');
     if (!container) return;
 
-    const navBarHtml = `
-      <div class="flex items-center justify-between flex-wrap gap-3">
-        <div class="inline-flex flex-wrap rounded-2xl bg-slate-900/90 p-1 border border-slate-800 gap-1">
-          <button onclick="window.mobilityManager.setTab('live')" class="px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${this.activeTab === 'live' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/25' : 'text-slate-400 hover:text-white'}">
-            <i class="fa-solid fa-stethoscope"></i> Stato &amp; Diagnostica
-          </button>
-          <button onclick="window.mobilityManager.setTab('trips')" class="px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${this.activeTab === 'trips' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/25' : 'text-slate-400 hover:text-white'}">
-            <i class="fa-solid fa-route"></i> Storico Viaggi
-          </button>
-          <button onclick="window.mobilityManager.setTab('wallbox')" class="px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${this.activeTab === 'wallbox' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/25' : 'text-slate-400 hover:text-white'}">
-            <i class="fa-solid fa-charging-station"></i> Storico Wallbox
-          </button>
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    if (!isMobile && !this.activeTab) {
+      this.activeTab = localStorage.getItem('mobility_active_tab') || 'live';
+    }
+
+    if (this.activeTab === 'trips') {
+      this.destroyWallboxCharts();
+      if (!this.tripsData && !this.tripsLoading) this.loadTripsData();
+    } else if (this.activeTab === 'wallbox') {
+      this.destroyTripsCharts();
+      if (!this.wallboxHistoryData && !this.wallboxHistoryLoading) this.loadWallboxHistory();
+    } else {
+      this.destroyTripsCharts();
+      this.destroyWallboxCharts();
+    }
+
+    const ev = this.getData();
+    const volvo = ev.volvo || {};
+    const soc = volvo.batteryChargeLevel;
+    const tripsCount = this.tripsData?.summary?.totalTrips ?? this.tripsData?.trips?.length ?? null;
+    const wbCount = this.wallboxHistoryData?.summary?.totalSessions ?? this.wallboxHistoryData?.sessions?.length ?? null;
+
+    const tabs = [
+      {
+        id: 'live',
+        name: 'Stato & Diagnostica',
+        icon: 'fa-stethoscope',
+        badge: soc !== null && soc !== undefined ? `${soc}%` : 'Live',
+        badgeClass: volvo.connected ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700/60'
+      },
+      {
+        id: 'trips',
+        name: 'Storico Viaggi',
+        icon: 'fa-route',
+        badge: tripsCount !== null ? `${tripsCount}` : 'Drive',
+        badgeClass: 'bg-sky-500/15 text-sky-400 border border-sky-500/30'
+      },
+      {
+        id: 'wallbox',
+        name: 'Storico Wallbox',
+        icon: 'fa-charging-station',
+        badge: wbCount !== null ? `${wbCount}` : 'ABB',
+        badgeClass: 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+      }
+    ];
+
+    const headerHtml = `
+      <div class="glass-card rounded-2xl p-4 sm:p-5 border border-slate-800 flex items-center justify-between flex-wrap gap-3">
+        <div class="flex items-center gap-3">
+          <div class="w-11 h-11 rounded-2xl bg-sky-500/15 text-sky-400 border border-sky-500/30 flex items-center justify-center text-xl shadow-lg shadow-sky-500/10 shrink-0">
+            <i class="fa-solid fa-car-side"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h2 class="text-base sm:text-lg font-bold text-white tracking-tight">Mobilità Elettrica &amp; Wallbox</h2>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/10 text-sky-400 border border-sky-500/20">Volvo EX30</span>
+            </div>
+            <p class="text-xs text-slate-400">Diagnostica live veicolo, storico viaggi da Drive e sessioni di ricarica ABB Terra AC</p>
+          </div>
         </div>
       </div>
     `;
 
+    container.innerHTML = `
+      <div class="space-y-5">
+        ${headerHtml}
+
+        ${isMobile ? `
+        <!-- Vista Mobile / Verticale: Fisarmonica (Accordion) -->
+        <div class="space-y-2.5" aria-label="Sezioni Mobilità Accordion">
+          ${tabs.map(t => {
+            const isOpen = t.id === this.activeTab;
+            const badgeCls = isOpen ? 'bg-indigo-500/30 text-indigo-200 border border-indigo-400/40' : t.badgeClass;
+            return `
+              <div class="glass-card rounded-2xl border ${isOpen ? 'border-indigo-500/50 shadow-lg shadow-indigo-500/10' : 'border-slate-800'} overflow-hidden transition-all">
+                <button onclick="window.mobilityManager.setTab('${t.id}')"
+                        aria-expanded="${isOpen}"
+                        class="w-full px-4 py-3 flex items-center justify-between gap-3 text-left cursor-pointer ${isOpen ? 'bg-indigo-600/15 text-white' : 'text-slate-200 hover:bg-slate-800/40'} transition-colors">
+                  <div class="flex items-center gap-3 min-w-0">
+                    <div class="w-8 h-8 rounded-xl ${isOpen ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-500/30' : 'bg-slate-800/90 text-slate-300'} flex items-center justify-center text-xs shrink-0">
+                      <i class="fa-solid ${t.icon}"></i>
+                    </div>
+                    <span class="text-xs font-semibold truncate">${t.name}</span>
+                  </div>
+                  <div class="flex items-center gap-2 shrink-0">
+                    <span class="text-[9.5px] px-2 py-0.5 rounded-full font-mono ${badgeCls}">${t.badge}</span>
+                    <i class="fa-solid fa-chevron-down text-[11px] text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-300' : ''}"></i>
+                  </div>
+                </button>
+                ${isOpen ? `
+                  <div id="mobility-service-pane" class="border-t border-slate-800/80 p-3 space-y-5 min-w-0 overflow-x-hidden">
+                    ${this._getMobilityTabContent(t.id)}
+                  </div>
+                ` : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>
+        ` : `
+        <!-- Vista Desktop / Orizzontale: Sidebar Verticale a Sinistra + Dettaglio a Destra -->
+        <div class="flex flex-row gap-5 items-start">
+          <aside class="w-64 lg:w-72 shrink-0 sticky top-20">
+            <nav aria-label="Sezioni Mobilità"
+                 class="glass-card rounded-2xl p-2 border border-slate-800 flex flex-col gap-1.5">
+              ${tabs.map(t => {
+                const isActive = t.id === this.activeTab;
+                const activeClass = isActive
+                  ? 'bg-indigo-600/20 text-white border-indigo-500/60 shadow-sm font-semibold'
+                  : 'bg-transparent text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 border-transparent font-medium';
+                const badgeCls = isActive ? 'bg-indigo-500/30 text-indigo-200 border border-indigo-400/40' : t.badgeClass;
+                return `
+                  <button onclick="window.mobilityManager.setTab('${t.id}')"
+                          class="w-full px-3 py-2.5 rounded-xl text-xs border transition-all flex items-center justify-between gap-2 text-left cursor-pointer active:scale-[0.99] ${activeClass}">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                      <div class="w-7 h-7 rounded-lg ${isActive ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-500/30' : 'bg-slate-800/90 text-slate-300'} flex items-center justify-center text-xs shrink-0">
+                        <i class="fa-solid ${t.icon}"></i>
+                      </div>
+                      <span class="truncate">${t.name}</span>
+                    </div>
+                    <span class="text-[9.5px] px-1.5 py-0.5 rounded-full font-mono shrink-0 ${badgeCls}">${t.badge}</span>
+                  </button>
+                `;
+              }).join('')}
+            </nav>
+          </aside>
+
+          <div id="mobility-service-pane" class="flex-1 min-w-0 w-full space-y-5 overflow-x-hidden">
+            ${this._getMobilityTabContent(this.activeTab)}
+          </div>
+        </div>
+        `}
+      </div>
+    `;
+
     if (this.activeTab === 'trips') {
-      this.destroyWallboxCharts();
-      if (!this.tripsData && !this.tripsLoading) {
-        this.loadTripsData();
-      }
-      container.innerHTML = `<div class="max-w-7xl mx-auto px-4 md:px-6 py-5 space-y-5">${navBarHtml}${this.renderTripsTab()}</div>`;
       requestAnimationFrame(() => this.renderTripsCharts());
-      return;
-    }
-
-    if (this.activeTab === 'wallbox') {
-      this.destroyTripsCharts();
-      if (!this.wallboxHistoryData && !this.wallboxHistoryLoading) {
-        this.loadWallboxHistory();
-      }
-      container.innerHTML = `<div class="max-w-7xl mx-auto px-4 md:px-6 py-5 space-y-5">${navBarHtml}${this.renderWallboxTab()}</div>`;
+    } else if (this.activeTab === 'wallbox') {
       requestAnimationFrame(() => this.renderWallboxCharts());
-      return;
     }
+  }
 
+  renderLiveTab() {
     const ev = this.getData();
     const volvo = ev.volvo || {};
     const wallbox = ev.wallbox || {};
@@ -1147,10 +1279,8 @@ class MobilityManager {
     const wbCurrentA = wallbox.currentLimitA ?? wallbox.ratedCurrentA ?? 16;
     const wbMaxA = wallbox.ratedCurrentA || 32;
 
-    container.innerHTML = `
-      <div class="max-w-7xl mx-auto px-4 md:px-6 py-5 space-y-5">
-        ${navBarHtml}
-
+    return `
+      <div class="space-y-5">
         <!-- HERO HEADER VOLVO EX30 -->
         <div class="glass-panel rounded-3xl p-5 md:p-6 border border-slate-700/60 bg-gradient-to-br from-slate-900/95 via-slate-900/85 to-slate-950/95">
           <div class="flex flex-wrap items-start justify-between gap-4">
