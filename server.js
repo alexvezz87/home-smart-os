@@ -256,6 +256,13 @@ app.post('/api/google/oauth/token', async (req, res) => {
 
 app.post('/api/google/fulfillment', async (req, res) => {
   try {
+    const sb = sandboxManager || require('./src/sandbox-manager');
+    if (sb?.config?.systemPaused) {
+      return res.json({
+        requestId: req.body?.requestId || '',
+        payload: { errorCode: 'deviceTurnedOff', status: 'ERROR', debugString: 'Home Smart OS in pausa (Modalità App Originali)' }
+      });
+    }
     const gf = googleFulfillment || require('./src/google-fulfillment');
     if (!gf.verifyWebhookToken(req)) {
       return res.status(401).json({ error: 'Unauthorized Google Smart Home Webhook' });
@@ -1855,13 +1862,14 @@ app.get('/api/admin/environment', (req, res) => {
 
 app.post('/api/admin/environment', async (req, res) => {
   try {
-    const { dbMode, mode, disableTelegramPolling, disableBackgroundLoops } = req.body || {};
+    const { dbMode, mode, systemPaused, disableTelegramPolling, disableBackgroundLoops } = req.body || {};
     if (dbMode && (dbMode === 'local' || dbMode === 'cloud')) {
       await db.switchMode(dbMode);
     }
     if (sandboxManager) {
       await sandboxManager.updateConfig({
         ...(mode ? { mode } : {}),
+        ...(systemPaused !== undefined ? { systemPaused } : {}),
         ...(disableTelegramPolling !== undefined ? { disableTelegramPolling } : {}),
         ...(disableBackgroundLoops !== undefined ? { disableBackgroundLoops } : {})
       });
@@ -1875,6 +1883,42 @@ app.post('/api/admin/environment', async (req, res) => {
     });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/admin/system/pause', async (req, res) => {
+  try {
+    const paused = Boolean(req.body?.paused);
+    const status = await sandboxManager.setSystemPaused(paused);
+    res.json({
+      success: true,
+      data: status,
+      message: paused
+        ? '⏸️ Sistema messo in pausa: controllo restituito alle App Originali (Google Home, Bosch, Hue, Tapo).'
+        : '▶️ Home Smart OS riattivato.'
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/admin/system/shutdown', async (req, res) => {
+  try {
+    if (sandboxManager) {
+      await sandboxManager.setSystemPaused(true);
+    }
+    try {
+      require('./src/go2rtc-manager').stop();
+    } catch (_) {}
+    res.json({
+      success: true,
+      message: '🔌 Arresto completo di Home Smart OS in corso. Il controllo è restituito alle App Originali.'
+    });
+    setTimeout(() => {
+      process.exit(0);
+    }, 500);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -2194,7 +2238,18 @@ async function bootstrap() {
   securitySystem.initHueSentinel(hueLocal, iliadboxClient);
   webPushManager.init().catch((err) => console.warn('⚠️ [WebPush] Init background:', err.message));
   telegramBot.init({ go2rtc: require('./src/go2rtc-manager'), notifier }).catch((err) => console.warn('⚠️ [Telegram] Init background:', err.message));
-  sandboxManager.init({ evClimateHub, hueLocal, merossEnergy, securitySystem, telegramBot }).catch((err) => console.warn('⚠️ [Sandbox] Init background:', err.message));
+  sandboxManager.init({
+    evClimateHub,
+    hueLocal,
+    merossEnergy,
+    securitySystem,
+    telegramBot,
+    climateOptimizer,
+    thermalAnalytics,
+    iliadboxClient,
+    gmailHub,
+    go2rtc: require('./src/go2rtc-manager')
+  }).catch((err) => console.warn('⚠️ [Sandbox] Init background:', err.message));
   notifier.init({ telegramBot, webPushManager }).catch((err) => console.warn('⚠️ [Notifier] Init background:', err.message));
   securitySystem.initSentinel({ notifier, iliadboxClient }).catch((err) => console.warn('⚠️ [Sentinel] Init background:', err.message));
   gmailHub.init().catch((err) => console.warn('⚠️ [GmailHub] Init background:', err.message));

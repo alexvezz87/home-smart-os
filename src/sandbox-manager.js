@@ -14,6 +14,7 @@ class SandboxManager {
 
     this.config = {
       mode: initialMode,
+      systemPaused: false,
       disableTelegramPolling: initialMode !== 'live' || disableTgEnv,
       disableBackgroundLoops: initialMode === 'simulator'
     };
@@ -32,6 +33,9 @@ class SandboxManager {
           if (saved.mode && ['live', 'dry_run', 'simulator'].includes(saved.mode)) {
             this.config.mode = saved.mode;
           }
+          if (saved.systemPaused !== undefined) {
+            this.config.systemPaused = Boolean(saved.systemPaused);
+          }
           if (saved.disableTelegramPolling !== undefined) {
             this.config.disableTelegramPolling = Boolean(saved.disableTelegramPolling);
           }
@@ -42,11 +46,14 @@ class SandboxManager {
       } catch (_) {}
     }
     this.installInterceptors(deps);
+    if (this.config.systemPaused) {
+      await this._applyPauseState(true);
+    }
     return this.getStatus();
   }
 
   isSandboxActive() {
-    return this.config.mode === 'dry_run' || this.config.mode === 'simulator';
+    return Boolean(this.config.systemPaused) || this.config.mode === 'dry_run' || this.config.mode === 'simulator';
   }
 
   _recordSimulated(action, details = {}) {
@@ -193,9 +200,80 @@ class SandboxManager {
     };
   }
 
+  async _applyPauseState(paused) {
+    const {
+      telegramBot,
+      climateOptimizer,
+      thermalAnalytics,
+      hueLocal,
+      iliadboxClient,
+      securitySystem,
+      gmailHub,
+      go2rtc
+    } = this._deps;
+
+    if (paused) {
+      try { telegramBot?.stopPolling?.(); } catch (_) {}
+      try { climateOptimizer?.stop?.(); } catch (_) {}
+      try {
+        if (thermalAnalytics?.sampleTimer) { clearInterval(thermalAnalytics.sampleTimer); thermalAnalytics.sampleTimer = null; }
+        if (thermalAnalytics?.analyzeTimer) { clearInterval(thermalAnalytics.analyzeTimer); thermalAnalytics.analyzeTimer = null; }
+      } catch (_) {}
+      try {
+        if (hueLocal?.sseReconnectTimer) { clearTimeout(hueLocal.sseReconnectTimer); hueLocal.sseReconnectTimer = null; }
+        if (hueLocal?.sseRequest) { hueLocal.sseRequest.destroy(); hueLocal.sseRequest = null; hueLocal.sseConnected = false; }
+        if (hueLocal?.pollInterval) { clearInterval(hueLocal.pollInterval); hueLocal.pollInterval = null; }
+      } catch (_) {}
+      try { iliadboxClient?.stop?.(); } catch (_) {}
+      try { securitySystem?.stopSentinelPatrol?.(); } catch (_) {}
+      try { go2rtc?.stop?.(); } catch (_) {}
+      try {
+        if (gmailHub?.pollTimer) { clearInterval(gmailHub.pollTimer); gmailHub.pollTimer = null; }
+      } catch (_) {}
+      try {
+        this.eventLogger.log('system_pause', '⏸️ [SISTEMA IN PAUSA] Controllo restituito alle App Originali (Google Home, Bosch EasyControl, Hue, Tapo, Volvo).');
+      } catch (_) {}
+    } else {
+      try {
+        if (hueLocal?.isPaired) {
+          hueLocal.startPolling?.();
+          hueLocal.startSseStream?.();
+        }
+      } catch (_) {}
+      try { climateOptimizer?.init?.(); } catch (_) {}
+      try { thermalAnalytics?.init?.(); } catch (_) {}
+      try { iliadboxClient?.init?.(); } catch (_) {}
+      try { gmailHub?.init?.(); } catch (_) {}
+      try {
+        if (!this.config.disableTelegramPolling && this.config.mode === 'live') {
+          telegramBot?.startPolling?.();
+        }
+      } catch (_) {}
+      try {
+        this.eventLogger.log('system_resume', '▶️ [SISTEMA RIATTIVATO] Home Smart OS operativo.');
+      } catch (_) {}
+    }
+
+    if (this.eventBus && typeof this.eventBus.publish === 'function') {
+      this.eventBus.publish('system:paused_changed', { systemPaused: Boolean(paused) });
+    }
+  }
+
+  async setSystemPaused(paused) {
+    this.config.systemPaused = Boolean(paused);
+    await this._applyPauseState(this.config.systemPaused);
+    if (this.db && typeof this.db.set === 'function') {
+      await this.db.set('sandbox-config', this.config, false);
+    }
+    return this.getStatus();
+  }
+
   async updateConfig(patch = {}) {
     if (patch.mode && ['live', 'dry_run', 'simulator'].includes(patch.mode)) {
       this.config.mode = patch.mode;
+    }
+    if (patch.systemPaused !== undefined) {
+      await this.setSystemPaused(Boolean(patch.systemPaused));
     }
     if (patch.disableTelegramPolling !== undefined) {
       this.config.disableTelegramPolling = Boolean(patch.disableTelegramPolling);

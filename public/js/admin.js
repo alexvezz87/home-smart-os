@@ -3362,6 +3362,18 @@ AdminManager.prototype.loadEnvironmentPanel = async function() {
     }
 
     body.innerHTML = `
+      ${sandbox.systemPaused ? `
+        <div class="p-3.5 rounded-xl bg-amber-950/60 border border-amber-500/50 flex items-center justify-between flex-wrap gap-3">
+          <div class="space-y-0.5">
+            <div class="text-xs font-bold text-amber-300">⏸️ SISTEMA IN PAUSA — Modalità App Originali Attiva</div>
+            <div class="text-[11px] text-amber-200/80">Tutte le automazioni, i flussi video e i comandi di Home Smart OS sono sospesi. Casa gestita da Google Home, Bosch EasyControl, Hue e Tapo.</div>
+          </div>
+          <button onclick="window.adminManager.toggleSystemPause(false)" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow">
+            ▶️ Riattiva Home Smart OS
+          </button>
+        </div>
+      ` : ''}
+
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="p-3 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2.5">
           <div class="text-[11px] font-bold text-slate-200">Selettore Database</div>
@@ -3398,12 +3410,23 @@ AdminManager.prototype.loadEnvironmentPanel = async function() {
         </div>
       </div>
 
-      <div class="p-3 rounded-xl bg-slate-950/70 border border-slate-800 flex flex-wrap items-center gap-2">
-        <span class="text-[11px] font-bold text-slate-300 mr-1">Simula Evento:</span>
-        <button onclick="window.adminManager.simulateSandboxEvent('motion_corridor')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px]">Movimento Corridoio</button>
-        <button onclick="window.adminManager.simulateSandboxEvent('window_open', { room: 'Cucina' })" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px]">Finestra Aperta Cucina</button>
-        <button onclick="window.adminManager.simulateSandboxEvent('package_arrived')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px]">Arrivo Corriere</button>
-        <button onclick="window.adminManager.simulateSandboxEvent('boiler_low_pressure')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px]">Pressione Caldaia Bassa</button>
+      <div class="p-3 rounded-xl bg-slate-950/70 border border-slate-800 flex flex-wrap items-center justify-between gap-2">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-[11px] font-bold text-slate-300 mr-1">Simula Evento:</span>
+          <button onclick="window.adminManager.simulateSandboxEvent('motion_corridor')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px]">Movimento Corridoio</button>
+          <button onclick="window.adminManager.simulateSandboxEvent('window_open', { room: 'Cucina' })" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px]">Finestra Aperta Cucina</button>
+          <button onclick="window.adminManager.simulateSandboxEvent('package_arrived')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px]">Arrivo Corriere</button>
+          <button onclick="window.adminManager.simulateSandboxEvent('boiler_low_pressure')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px]">Pressione Caldaia Bassa</button>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <button onclick="window.adminManager.toggleSystemPause(${!sandbox.systemPaused})" class="px-3 py-1.5 rounded-lg text-xs font-bold border ${sandbox.systemPaused ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500' : 'bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border-amber-500/40'}">
+            ${sandbox.systemPaused ? '▶️ Riattiva Sistema' : '⏸️ Metti in Pausa (App Originali)'}
+          </button>
+          <button onclick="window.adminManager.shutdownServerNow()" class="px-3 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 text-xs font-bold">
+            🔌 Spegni Server
+          </button>
+        </div>
       </div>
     `;
   } catch (err) {
@@ -3468,5 +3491,34 @@ AdminManager.prototype.simulateSandboxEvent = async function(type, payload = {})
     window.showToast?.(`Evento simulato: ${type}`, 'success');
   } catch (err) {
     window.showToast?.('Errore simulazione: ' + err.message, 'error');
+  }
+};
+
+AdminManager.prototype.toggleSystemPause = async function(paused) {
+  try {
+    const res = await fetch('/api/admin/system/pause', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paused: Boolean(paused) })
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Errore pausa sistema');
+    window.showToast?.(json.message || (paused ? 'Sistema in pausa' : 'Sistema riattivato'), 'success');
+    this.loadEnvironmentPanel();
+  } catch (err) {
+    window.showToast?.('Errore: ' + err.message, 'error');
+  }
+};
+
+AdminManager.prototype.shutdownServerNow = async function() {
+  if (!window.confirm('Confermi lo spegnimento completo del server Home Smart OS? Tutti i dispositivi torneranno alla configurazione base di Google Home e delle app ufficiali.')) {
+    return;
+  }
+  try {
+    const res = await fetch('/api/admin/system/shutdown', { method: 'POST' });
+    const json = await res.json();
+    window.showToast?.(json.message || 'Server in arresto...', 'info');
+  } catch (err) {
+    window.showToast?.('Server arrestato.', 'info');
   }
 };

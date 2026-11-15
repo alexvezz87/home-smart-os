@@ -1350,6 +1350,16 @@ test('Dual DB WAMP & Sandbox Anti-Conflict (#71)', async () => {
     const realRes = await fakeHub.setBoschZoneSetpoint('Cucina', 20.5);
     assert.equal(realRes.real, true);
     assert.equal(hwCalled, 1);
+
+    // 5. Pausa globale sistema (Modalità App Originali) blocca scritture e ferma polling
+    await sb.setSystemPaused(true);
+    assert.equal(sb.getStatus().systemPaused, true);
+    assert.equal(sb.isSandboxActive(), true);
+    const pausedRes = await fakeHub.setBoschZoneSetpoint('Cucina', 19.0);
+    assert.equal(pausedRes.simulated, true);
+    assert.equal(hwCalled, 1);
+    await sb.setSystemPaused(false);
+    assert.equal(sb.getStatus().systemPaused, false);
   } finally {
     if (prevSandboxEnv === undefined) delete process.env.SANDBOX_MODE;
     else process.env.SANDBOX_MODE = prevSandboxEnv;
