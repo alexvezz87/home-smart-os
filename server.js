@@ -53,6 +53,8 @@ let aiGateway = null;
 let serviceStatus = null;
 let climateOptimizer = null;
 let thermalAnalytics = null;
+let gmailHub = null;
+let deliveryBillingParser = null;
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -169,6 +171,10 @@ app.get('/api/auth/google/callback', async (req, res) => {
       await volvoTripsSync.handleDriveOAuthCallback(code, req);
       return res.redirect('/?area=mobility&tab=trips&drive_connected=1');
     }
+    if (typeof state === 'string' && state.startsWith('gmail_sync:') && gmailHub) {
+      const info = await gmailHub.handleOAuthCallback(code, state, req);
+      return res.redirect(`/?area=admin&tab=system&gmail_connected=${encodeURIComponent(info.account)}`);
+    }
     const result = await auth.handleGoogleCallback(code, req);
     if (!result.authorized) {
       return res.redirect(`/?auth_error=${encodeURIComponent(result.error || 'unauthorized')}`);
@@ -179,6 +185,9 @@ app.get('/api/auth/google/callback', async (req, res) => {
     console.error('[Google OAuth Error]:', err.message);
     if (state === 'drive_sync') {
       return res.redirect(`/?area=mobility&tab=trips&drive_error=${encodeURIComponent(err.message)}`);
+    }
+    if (typeof state === 'string' && state.startsWith('gmail_sync:')) {
+      return res.redirect(`/?area=admin&tab=system&gmail_error=${encodeURIComponent(err.message)}`);
     }
     res.redirect(`/?auth_error=${encodeURIComponent(err.message)}`);
   }
@@ -767,6 +776,72 @@ app.post('/api/ev-climate/dolomiti/bills/sync', async (req, res) => {
     res.json({ success: true, ...result, data: dolomitiBillsSync.getFullData() });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// Hub Posta Intelligente Multi-Account (Gmail Alex & Cinzia -> Consegne & Scadenzario Extra #36)
+app.get('/api/mail/oauth/start', async (req, res) => {
+  try {
+    const account = String(req.query.account || 'alex').toLowerCase();
+    const url = await gmailHub.getAuthUrl(account, req);
+    res.json({ success: true, url, account });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/mail/oauth/disconnect', async (req, res) => {
+  try {
+    const account = String(req.body?.account || '').toLowerCase();
+    const result = await gmailHub.disconnect(account);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/mail/status', (req, res) => {
+  try {
+    res.json({ success: true, data: gmailHub.getStatus() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/mail/deliveries', (req, res) => {
+  try {
+    const recipient = req.query.recipient || 'all';
+    res.json({ success: true, items: deliveryBillingParser.getDeliveries(recipient) });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/mail/bills', (req, res) => {
+  try {
+    const status = req.query.status || 'all';
+    res.json({ success: true, items: deliveryBillingParser.getBills(status) });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/mail/bills/:id/status', async (req, res) => {
+  try {
+    const { status } = req.body || {};
+    const updated = await deliveryBillingParser.updateBillStatus(req.params.id, status);
+    res.json({ success: true, item: updated });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/mail/sync', async (req, res) => {
+  try {
+    const result = await deliveryBillingParser.syncAll();
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -1843,6 +1918,8 @@ async function bootstrap() {
   webPushManager = require('./src/web-push-manager');
   telegramBot = require('./src/telegram-bot');
   notifier = require('./src/notifier');
+  gmailHub = require('./src/gmail-hub');
+  deliveryBillingParser = require('./src/delivery-billing-parser');
 
   // Bridge EventBus -> Logger & EventLogger per tracciamento eventi chiave
   const BRIDGED_EVENTS = new Set([
@@ -1882,7 +1959,8 @@ async function bootstrap() {
     wallboxSync,
     dolomitiBillsSync,
     telegramBot,
-    webPushManager
+    webPushManager,
+    gmailHub
   }).catch((err) => console.warn('⚠️ [ServiceStatus] Init background:', err.message));
   merossEnergy.init();
   hueLocal.init();
@@ -1891,6 +1969,8 @@ async function bootstrap() {
   telegramBot.init({ go2rtc: require('./src/go2rtc-manager'), notifier }).catch((err) => console.warn('⚠️ [Telegram] Init background:', err.message));
   notifier.init({ telegramBot, webPushManager }).catch((err) => console.warn('⚠️ [Notifier] Init background:', err.message));
   securitySystem.initSentinel({ notifier, iliadboxClient }).catch((err) => console.warn('⚠️ [Sentinel] Init background:', err.message));
+  gmailHub.init().catch((err) => console.warn('⚠️ [GmailHub] Init background:', err.message));
+  deliveryBillingParser.init({ gmailHub, notifier, telegramBot }).catch((err) => console.warn('⚠️ [MailParser] Init background:', err.message));
   pantumPrinter.init().catch((err) => console.warn('⚠️ [Pantum] Init background:', err.message));
   lgThinq.init().catch((err) => console.warn('⚠️ [LG ThinQ] Init background:', err.message));
   dysonPurifier.init().catch((err) => console.warn('⚠️ [Dyson HP11] Init background:', err.message));

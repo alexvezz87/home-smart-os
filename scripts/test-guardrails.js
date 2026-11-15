@@ -647,3 +647,81 @@ test('ThermalAnalytics (#60): campionamento, inerzia termica, guadagni passivi e
   const series = ta.getZoneSeries('zn1', { days: 7, nowMs: t0 + 9 * 30 * 60 * 1000 });
   assert.ok(series.points.length >= 8);
 });
+
+test('GmailHub & DeliveryBillingParser (#36): query privacy, filtro Dolomiti, unwrap { data } e reminder 3 giorni', async () => {
+  const { GMAIL_PRIVACY_QUERY, isDolomitiEmail, base64UrlToStdBase64 } = require('../src/gmail-hub');
+  const { DeliveryBillingParser, unwrapAiJson } = require('../src/delivery-billing-parser');
+
+  // 1. Query allowlist privacy
+  assert.ok(GMAIL_PRIVACY_QUERY.includes('from:(amazon OR iliad'));
+  assert.ok(GMAIL_PRIVACY_QUERY.includes('subject:(fattura OR bolletta'));
+
+  // 2. Filtro esclusione Dolomiti Energia
+  assert.equal(isDolomitiEmail({ from: 'noreply@dolomitienergia.it', subject: 'Fattura Luce' }), true);
+  assert.equal(isDolomitiEmail({ from: 'servizi@iliad.it', subject: 'Fattura Fibra' }), false);
+
+  // 3. Conversione base64url -> base64 standard
+  assert.equal(base64UrlToStdBase64('ab-cd_ef'), 'ab+cd/ef');
+
+  // 4. Unwrap contratto aiGateway.generateJSON ({ data })
+  const unwrapped = unwrapAiJson({
+    text: '{}',
+    model: 'gemini-3.8-flash',
+    role: 'fast',
+    data: { type: 'bill', provider: 'Iliad', amountEur: 19.99, dueDate: '2026-11-17', status: 'pending' }
+  });
+  assert.equal(unwrapped.type, 'bill');
+  assert.equal(unwrapped.provider, 'Iliad');
+
+  // 5. Promemoria scadenza a <= 3 giorni + deduplicazione giornaliera + riconciliazione corriere
+  const sentNotifs = [];
+  const sentTg = [];
+  const parser = new DeliveryBillingParser({
+    notifier: { send: async (p) => { sentNotifs.push(p); return { sent: true }; } },
+    telegramBot: { token: 'fake', sendMessage: async (m, opts) => { sentTg.push({ m, opts }); return { sent: 1 }; } }
+  });
+
+  const nowMs = Date.parse('2026-11-14T09:00:00Z');
+  parser.bills = [
+    { id: 'bill:iliad:2026-11-16', provider: 'Iliad', amountEur: 19.99, dueDate: '2026-11-16', status: 'pending' },
+    { id: 'bill:tari:2026-11-28', provider: 'Comune TARI', amountEur: 120.00, dueDate: '2026-11-28', status: 'pending' }
+  ];
+
+  const reminded = await parser.checkDueReminders({ nowMs });
+  assert.deepEqual(reminded, ['bill:iliad:2026-11-16']);
+  assert.equal(sentNotifs.length, 1);
+  assert.equal(sentTg.length, 1);
+  assert.equal(sentTg[0].opts.silent, true);
+
+  // Seconda chiamata nello stesso giorno -> deduplicata
+  const remindedAgain = await parser.checkDueReminders({ nowMs });
+  assert.equal(remindedAgain.length, 0);
+
+  // Riconciliazione visiva corriere
+  const { dateStr: todayStr } = parser._getRomeDateAndHour();
+  parser.deliveries = [
+    { id: 'trk:1', store: 'Amazon', courier: 'Amazon Logistics', recipient: 'Cinzia', status: 'out_for_delivery', expectedDate: todayStr }
+  ];
+  const rec = await parser.reconcileCourierArrival({ camera: 'Ingresso', summary: 'Corriere Amazon alla porta con un pacco' });
+  assert.equal(rec.matched, true);
+  assert.equal(sentNotifs.some((n) => n.level === 'critical' && n.category === 'security'), true);
+
+  // Guard Gemini mancante: syncAll non marca email come processate senza API key
+  const aiGateway = require('../src/ai-gateway');
+  const prevGetKey = aiGateway.getApiKey;
+  try {
+    let marked = false;
+    parser.gmailHub = {
+      getStatus: () => ({ accounts: { alex: { connected: true }, cinzia: { connected: false } } }),
+      fetchCandidateMessages: async () => [{ id: 'm-1' }],
+      markProcessed: async () => { marked = true; }
+    };
+    aiGateway.getApiKey = () => '';
+    const skipRes = await parser.syncAll();
+    assert.equal(skipRes.synced, false);
+    assert.equal(skipRes.reason, 'gemini_not_configured');
+    assert.equal(marked, false);
+  } finally {
+    aiGateway.getApiKey = prevGetKey;
+  }
+});

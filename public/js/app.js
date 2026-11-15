@@ -24,15 +24,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (reqArea === 'mobility' && reqTab && window.mobilityManager) {
       window.mobilityManager.activeTab = reqTab;
     }
+    if (reqArea === 'admin' && reqTab && window.adminManager) {
+      window.adminManager.activeTab = reqTab;
+    }
     switchArea(reqArea);
     if (urlParams.get('drive_connected') === '1') {
       showToast('Google Drive collegato! Sincronizzazione viaggi avviata.', 'success');
       if (window.mobilityManager) window.mobilityManager.loadTripsData();
     } else if (urlParams.get('drive_error')) {
       showToast('Errore Google Drive: ' + urlParams.get('drive_error'), 'error');
+    } else if (urlParams.get('gmail_connected')) {
+      showToast('Gmail (' + urlParams.get('gmail_connected') + ') collegato!', 'success');
+    } else if (urlParams.get('gmail_error')) {
+      showToast('Errore Gmail OAuth: ' + urlParams.get('gmail_error'), 'error');
     }
     window.history.replaceState({}, document.title, window.location.pathname);
   }
+
+  loadHomeDeliveriesWidget('all');
 
   // Polling automatico ogni 30 secondi
   setInterval(loadDashboard, 30000);
@@ -86,6 +95,76 @@ window.subscribeWebPush = async function subscribeWebPush() {
     throw new Error(subData.error || 'Errore salvataggio sottoscrizione');
   }
   return subData;
+};
+
+function escapeMailHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+window.loadHomeDeliveriesWidget = async function loadHomeDeliveriesWidget(recipient = 'all') {
+  const container = document.getElementById('home-deliveries-widget');
+  if (!container) return;
+  try {
+    const res = await fetch(`/api/mail/deliveries?recipient=${encodeURIComponent(recipient)}`);
+    const json = await res.json();
+    if (!res.ok || !json.success) return;
+    const items = Array.isArray(json.items) ? json.items : [];
+    const active = items.filter((d) => d.status !== 'delivered').slice(0, 6);
+
+    if (items.length === 0 && (!recipient || recipient === 'all')) {
+      container.innerHTML = '';
+      return;
+    }
+
+    const statusBadge = (st) => {
+      if (st === 'out_for_delivery') return '<span class="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-bold">In consegna oggi</span>';
+      if (st === 'delivered') return '<span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">Consegnato</span>';
+      return '<span class="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30 text-[10px] font-bold">In transito</span>';
+    };
+
+    const listToRender = active.length > 0 ? active : items.slice(0, 4);
+
+    container.innerHTML = `
+      <div class="glass-card rounded-2xl p-4 border border-slate-800 space-y-3">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-bold text-white">📦 Consegne di Casa</span>
+            <span class="text-[11px] text-slate-400">(${listToRender.length})</span>
+          </div>
+          <div class="inline-flex rounded-xl bg-slate-900 border border-slate-800 p-0.5 text-[11px]">
+            ${['all', 'Alex', 'Cinzia'].map((f) => `
+              <button onclick="window.loadHomeDeliveriesWidget('${f}')" class="px-2.5 py-1 rounded-lg ${recipient === f ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400 hover:text-white'}">
+                ${f === 'all' ? 'Tutti' : f}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+          ${listToRender.length === 0
+            ? `<div class="col-span-full py-3 text-center text-xs text-slate-500">Nessuna consegna trovata per <strong>${escapeMailHtml(recipient)}</strong>.</div>`
+            : listToRender.map((d) => `
+            <div class="p-3 rounded-xl bg-slate-950/70 border border-slate-800 space-y-1 text-xs">
+              <div class="flex items-center justify-between gap-2">
+                <span class="font-bold text-white truncate">${escapeMailHtml(d.store || 'Negozio')}</span>
+                ${statusBadge(d.status)}
+              </div>
+              <div class="text-[11px] text-slate-300 truncate">${escapeMailHtml(d.itemsDescription || 'Spedizione')}</div>
+              <div class="flex items-center justify-between text-[10px] text-slate-400 pt-1">
+                <span>${escapeMailHtml(d.courier || 'Corriere')} · <strong>${escapeMailHtml(d.recipient || 'Casa')}</strong></span>
+                <span class="font-mono">${escapeMailHtml(d.expectedDate || '--')}</span>
+              </div>
+              ${d.trackingNumber ? `<div class="text-[10px] font-mono text-slate-500 truncate">Trk: ${escapeMailHtml(d.trackingNumber)}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  } catch (_) {}
 };
 
 /**

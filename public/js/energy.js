@@ -422,11 +422,36 @@ class EnergyManager {
           </div>
         </div>
 
+        <!-- 7. Scadenzario Utenze Extra (Gmail Alex & Cinzia, extra-Dolomiti #36) -->
+        <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-4">
+          <div class="flex items-center justify-between flex-wrap gap-3 border-b border-slate-800 pb-3">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-sky-500/15 text-sky-400 border border-sky-500/30 flex items-center justify-center text-lg">
+                <i class="fa-solid fa-calendar-check"></i>
+              </div>
+              <div>
+                <h3 class="text-base font-bold text-white">📅 Scadenzario Utenze Extra</h3>
+                <p class="text-xs text-slate-400">Iliad Fibra, TARI, Acqua, Assicurazione/Bollo Auto &amp; Manutenzioni (esclusa Dolomiti Energia Drive)</p>
+              </div>
+            </div>
+            <div class="inline-flex rounded-xl bg-slate-900 border border-slate-800 p-0.5 text-xs">
+              <button onclick="window.energyManager.loadExtraBills('all')" class="extra-bill-filter-btn px-2.5 py-1 rounded-lg bg-sky-600 text-white font-bold" data-bill-filter="all">Tutte</button>
+              <button onclick="window.energyManager.loadExtraBills('pending')" class="extra-bill-filter-btn px-2.5 py-1 rounded-lg text-slate-400 hover:text-white" data-bill-filter="pending">Da Pagare</button>
+              <button onclick="window.energyManager.loadExtraBills('paid')" class="extra-bill-filter-btn px-2.5 py-1 rounded-lg text-slate-400 hover:text-white" data-bill-filter="paid">Pagate</button>
+            </div>
+          </div>
+
+          <div id="extra-bills-list" class="text-xs text-slate-400">
+            Caricamento scadenzario utenze extra...
+          </div>
+        </div>
+
       </div>
     `;
 
     this.renderBoschGasChart();
     this.loadThermalAnalytics();
+    this.loadExtraBills('all');
   }
 
   toggleHeatmapOnHome() {
@@ -1046,6 +1071,93 @@ class EnergyManager {
         }
       });
     } catch (_) {}
+  }
+
+  async loadExtraBills(statusFilter = 'all') {
+    const container = document.getElementById('extra-bills-list');
+    if (!container) return;
+
+    document.querySelectorAll('.extra-bill-filter-btn').forEach((btn) => {
+      const active = btn.getAttribute('data-bill-filter') === statusFilter;
+      btn.className = `extra-bill-filter-btn px-2.5 py-1 rounded-lg ${active ? 'bg-sky-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`;
+    });
+
+    try {
+      const res = await fetch(`/api/mail/bills?status=${encodeURIComponent(statusFilter)}`);
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'Errore API');
+      const items = Array.isArray(json.items) ? json.items : [];
+
+      if (items.length === 0) {
+        container.innerHTML = '<div class="text-slate-500">Nessuna scadenza extra-Dolomiti presente per questo filtro.</div>';
+        return;
+      }
+
+      const nowMs = Date.now();
+      const dueBadge = (bill) => {
+        if (bill.status === 'paid') {
+          return '<span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">Pagata</span>';
+        }
+        const dueMs = bill.dueDate ? Date.parse(`${bill.dueDate}T12:00:00Z`) : NaN;
+        if (!Number.isFinite(dueMs)) {
+          return '<span class="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-bold">In attesa</span>';
+        }
+        const daysLeft = Math.ceil((dueMs - nowMs) / 86400000);
+        if (daysLeft <= 3) {
+          return `<span class="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[10px] font-bold">${daysLeft <= 0 ? 'Scaduta' : `Tra ${daysLeft}g`}</span>`;
+        }
+        if (daysLeft <= 7) {
+          return `<span class="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-bold">Tra ${daysLeft}g</span>`;
+        }
+        return `<span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">Tra ${daysLeft}g</span>`;
+      };
+
+      container.innerHTML = `
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          ${items.map((b) => {
+            const nextStatus = b.status === 'paid' ? 'pending' : 'paid';
+            return `
+              <div class="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 flex items-center justify-between gap-3">
+                <div class="space-y-1 min-w-0">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-bold text-white truncate">${this._escapeHtml(b.provider || 'Fornitore')}</span>
+                    ${dueBadge(b)}
+                  </div>
+                  <div class="text-[11px] text-slate-400">
+                    Scadenza: <span class="font-mono text-slate-200">${this._escapeHtml(b.dueDate || '--')}</span> · Intestato: <strong>${this._escapeHtml(b.recipient || 'Casa')}</strong>
+                    ${b.billedUnits ? ` · ${this._escapeHtml(b.billedUnits)}` : ''}
+                  </div>
+                </div>
+                <div class="text-right shrink-0 space-y-1.5">
+                  <div class="text-sm font-black text-white font-mono">${Number(b.amountEur || 0).toFixed(2)} €</div>
+                  <button onclick="window.energyManager.toggleExtraBillStatus('${this._escapeHtml(b.id)}', '${nextStatus}')" class="px-2.5 py-1 rounded-lg text-[10px] font-semibold ${b.status === 'paid' ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-emerald-600/25 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-600/35'}">
+                    ${b.status === 'paid' ? 'Segna da pagare' : 'Segna Pagata'}
+                  </button>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    } catch (err) {
+      container.innerHTML = `<span class="text-rose-400">Errore caricamento scadenzario: ${this._escapeHtml(err.message)}</span>`;
+    }
+  }
+
+  async toggleExtraBillStatus(id, status) {
+    try {
+      const res = await fetch(`/api/mail/bills/${encodeURIComponent(id)}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'Errore aggiornamento');
+      window.showToast?.(`Bolletta aggiornata a "${status}"`, 'success');
+      this.loadExtraBills('all');
+    } catch (err) {
+      window.showToast?.(this._escapeHtml(err.message), 'error');
+    }
   }
 }
 

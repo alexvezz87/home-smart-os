@@ -109,6 +109,11 @@ CREATE TABLE IF NOT EXISTS activity_logs (
 | `room_temp_history` | *(serie temporale 15m)* | *(solo TiDB)* | 🔓 No | Snapshot termici per le 10 zone Bosch, sensore Corridoio Hue e caldaia (retention 60g) |
 | `kv_store` | `thermal-manual-overrides` | *(solo TiDB)* | 🔓 No | Storico override manuali utente per apprendimento comfort (`#60`) |
 | `kv_store` | `thermal-analytics-report` | *(solo TiDB)* | 🔓 No | Ultimo report di analisi inerzia termica e raccomandazioni (`#60`) |
+| `kv_store` | `gmail_token_alex` | *(solo TiDB)* | 🔒 **Sì** | Token OAuth2 Gmail sola lettura per account Alex (`#36`) |
+| `kv_store` | `gmail_token_cinzia` | *(solo TiDB)* | 🔒 **Sì** | Token OAuth2 Gmail sola lettura per account Cinzia (`#36`) |
+| `kv_store` | `home-active-deliveries` | *(solo TiDB)* | 🔓 No | Metadati strutturati pacchi/consegne corrieri attivi (`#36`) |
+| `kv_store` | `home-active-bills` | *(solo TiDB)* | 🔓 No | Scadenzario bollette/utenze extra-Dolomiti (`#36`) |
+| `kv_store` | `gmail-processed-ids` | *(solo TiDB)* | 🔓 No | Cache ID messaggi Gmail già analizzati (max 500) (`#36`) |
 
 ### 🔄 3.3 Bootstrap Ordinato & Sincronizzazione Bidirezionale
 Il ciclo di avvio di Home Smart OS in [`server.js`](../server.js) rispetta rigorosamente una sequenza asincrona ordinata in tre fasi:
