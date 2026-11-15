@@ -43,6 +43,7 @@ class SecuritySystem {
     this._tapoCams = {};
     this._patrolIntervals = {};
     this._eventPollingStarted = false;
+    this._rollingFrameBuffers = {};
     this.snapshots = []; // { id, cameraId, cameraName, room, url, filename, presetName, reason, timestamp }
     this.activeCast = {
       client: null,
@@ -143,11 +144,14 @@ class SecuritySystem {
     this.loadConfig();
     this.loadExistingSnapshots();
 
-    // Avvia go2rtc per WebRTC / MSE e Snapshot HD
-    setTimeout(() => {
-      go2rtc.start(this.cameras);
-      this.startOnvifEventListeners();
-    }, 800);
+    // Avvia go2rtc per WebRTC / MSE e Snapshot HD (saltato in ambiente test offline)
+    const isTestRun = process.env.NODE_ENV === 'test' || process.argv.some((a) => a.includes('test-guardrails'));
+    if (!isTestRun) {
+      setTimeout(() => {
+        go2rtc.start(this.cameras);
+        this.startOnvifEventListeners();
+      }, 800);
+    }
   }
 
   loadConfig() {
@@ -504,6 +508,21 @@ class SecuritySystem {
                 // Se siamo in modalità Fuori Casa, scatta automaticamente una foto HD
                 if (this.mode === 'away' && !cam.privacyMode) {
                   this.captureSnapshot(cam.id, 'Sensore Movimento ONVIF').catch(() => {});
+                }
+
+                // Rolling Memory Buffer + Analisi Temporale Ibrida (#34)
+                if (!cam.privacyMode) {
+                  this.captureRollingFrame(cam.id).catch(() => {});
+                  if (name === 'IsPeople' || name === 'IsTPSmartEvent' || this.mode === 'away') {
+                    try {
+                      const geminiVision = require('./gemini-vision');
+                      geminiVision.analyzeTemporalSequence(cam.id, '', this, {
+                        triggerSource: `onvif:${name}`,
+                        frameCount: 3,
+                        intervalMs: 1200
+                      }).catch(() => {});
+                    } catch (_) {}
+                  }
                 }
               }
             }
@@ -1345,6 +1364,7 @@ class SecuritySystem {
    * Aggancio Sentinella istantaneo a latenza zero su movimento Sensore Corridoio Hue SSE.
    */
   initHueSentinel(hueLocal, iliadboxClient) {
+    this._bindRollingMotionListener();
     if (!hueLocal || typeof hueLocal.on !== 'function' || this._hueSentinelBound) return;
     this._hueSentinelBound = true;
 
@@ -1634,6 +1654,65 @@ class SecuritySystem {
     }
 
     return { ok: true, reason, checkedCameras: results.length, results };
+  }
+
+  /**
+   * Rolling Memory Buffer in RAM per analisi temporale multi-frame (#34)
+   */
+  _bindRollingMotionListener() {
+    if (!eventBus || this._rollingMotionBound) return;
+    this._rollingMotionBound = true;
+    eventBus.on('sensor:motion', (evt = {}) => {
+      if (!evt || (!evt.active && !evt.motion)) return;
+      const cams = Array.isArray(this.cameras) ? this.cameras : [];
+      for (const cam of cams) {
+        if (cam && !cam.privacyMode) {
+          this.captureRollingFrame(cam.id).catch(() => {});
+        }
+      }
+    });
+  }
+
+  pushRollingFrame(cameraId, frame) {
+    if (!cameraId || !frame || !Buffer.isBuffer(frame.buffer)) return [];
+    const key = String(cameraId);
+    const now = Date.now();
+    const ttlMs = 30 * 1000;
+    const prev = Array.isArray(this._rollingFrameBuffers[key]) ? this._rollingFrameBuffers[key] : [];
+    const filtered = prev.filter((f) => now - new Date(f.capturedAt || 0).getTime() <= ttlMs);
+
+    const normalized = {
+      buffer: frame.buffer,
+      mimeType: frame.mimeType || 'image/jpeg',
+      capturedAt: frame.capturedAt || new Date(now).toISOString(),
+      base64Thumb: frame.base64Thumb || `data:${frame.mimeType || 'image/jpeg'};base64,${frame.buffer.toString('base64')}`
+    };
+
+    filtered.push(normalized);
+    this._rollingFrameBuffers[key] = filtered.slice(-6);
+    return this._rollingFrameBuffers[key];
+  }
+
+  getRollingFrames(cameraId, maxAgeMs = 20000) {
+    const key = String(cameraId);
+    const now = Date.now();
+    const list = Array.isArray(this._rollingFrameBuffers[key]) ? this._rollingFrameBuffers[key] : [];
+    return list.filter((f) => now - new Date(f.capturedAt || 0).getTime() <= maxAgeMs);
+  }
+
+  async captureRollingFrame(cameraId) {
+    const cam = typeof this.resolveCamera === 'function' ? this.resolveCamera(cameraId) : null;
+    if (!cam || cam.privacyMode) return null;
+    const buffer = await go2rtc.captureSnapshotBuffer(cam.id, cam.name);
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0) return null;
+    const frame = {
+      buffer,
+      mimeType: 'image/jpeg',
+      capturedAt: new Date().toISOString(),
+      base64Thumb: `data:image/jpeg;base64,${buffer.toString('base64')}`
+    };
+    this.pushRollingFrame(cam.id, frame);
+    return frame;
   }
 }
 

@@ -163,4 +163,11 @@ Riorganizzata con un'architettura **modulare responsive**: su desktop/tablet ori
 - **Riconciliazione Visiva & Notifiche**: ascolto `camera:vision_alert` per allerta immediata corriere alla porta (`mail:courier_arrived`), riepilogo mattutino pacchi in arrivo e promemoria discreto a `<= 3 giorni` dalla scadenza bollette.
 - **UI & Status**: widget *"📦 Consegne di Casa"* in `#area-home` (`public/js/app.js`), sezione *"📅 Scadenzario Utenze Extra"* in *Consumi & Energia* (`public/js/energy.js`), box **Gmail Alex** / **Gmail Cinzia** in *Amministrazione* (`public/js/admin.js`) e card `gmail_hub` in Statuspage (`src/service-status.js`).
 
+---
+
+## 🎬 9. Temporal Scene Understanding Multi-Frame con Gemini Vision (`#34`)
+- **Burst Temporale & Rolling Memory Buffer (`src/go2rtc-manager.js`, `src/security-system.js`)**: acquisizione burst di 2–6 fotogrammi (`captureTemporalBurst`) e buffer circolare in RAM (`pushRollingFrame`, `getRollingFrames`, `captureRollingFrame`, max 6 frame, TTL 30s) alimentato a zero spreco API da eventi ONVIF (`IsMotion`, `IsPeople`, `IsTPSmartEvent`) e dal Sensore Corridoio Hue SSE (`sensor:motion`).
+- **Temporal Reasoning (`src/gemini-vision.js`)**: `analyzeTemporalSequence` combina pre-frame + burst live (fino a 5 frame con offset `[T=+x.xs]`) e foto di riferimento pet (`_buildPetReferenceParts`), invoca `aiGateway.generateJSON({ role: 'fast' })` con guardrail `camera:vision` per trigger automatici, restituisce JSON strutturato (`summary`, `francescoState`, `posture`, `trajectory`, `nightWalkingOutOfBed`, `petsDetected`, `anomaly`) ed emette `camera:temporal_analysis` su `eventBus`.
+- **Maxi-Player, API & Assistente (`public/js/camera-theater.js`, `server.js`, `src/assistant.js`)**: pulsanti **Fotogramma Singolo** vs **Sequenza Dinamica (Burst 4 Frame)** con strip thumbnail e badge strutturati sanitizzati; endpoint `POST /api/camera/:id/analyze` (`temporal: true`) e `POST /api/camera/:id/analyze-sequence`; instradamento query vocali dinamiche/Baby Monitor in `src/assistant.js`.
+
 

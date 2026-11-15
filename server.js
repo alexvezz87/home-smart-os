@@ -1403,17 +1403,41 @@ app.post('/api/camera/:id/config', (req, res) => {
   }
 });
 
-// 1f. Analisi semantica della scena con Google Gemini Vision Multimodal
+// 1f. Analisi semantica della scena con Google Gemini Vision Multimodal (Singolo o Sequenza Temporale #34)
 app.post('/api/camera/:id/analyze', async (req, res) => {
   try {
     const { id } = req.params;
-    const { prompt } = req.body || {};
-    const result = await geminiVision.analyzeCameraScene(id, prompt, securitySystem);
+    const { prompt, temporal = false, frameCount = 4, intervalMs = 1200 } = req.body || {};
+    const result = temporal
+      ? await geminiVision.analyzeTemporalSequence(id, prompt, securitySystem, {
+          frameCount,
+          intervalMs,
+          triggerSource: 'manual'
+        })
+      : await geminiVision.analyzeCameraScene(id, prompt, securitySystem);
     res.json(result);
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+async function handleTemporalAnalyzeRoute(req, res) {
+  try {
+    const { id } = req.params;
+    const { prompt = '', frameCount = 4, intervalMs = 1200 } = req.body || {};
+    const result = await geminiVision.analyzeTemporalSequence(id, prompt, securitySystem, {
+      frameCount,
+      intervalMs,
+      triggerSource: 'manual'
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+}
+
+app.post('/api/camera/:id/analyze-sequence', handleTemporalAnalyzeRoute);
+app.post('/api/camera/:id/analyze-temporal', handleTemporalAnalyzeRoute);
 
 // 1g. Stato e configurazione Gemini Vision
 app.get('/api/vision/status', (req, res) => {

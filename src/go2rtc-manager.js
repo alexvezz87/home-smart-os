@@ -201,6 +201,39 @@ class Go2RtcManager {
     return Buffer.from(response.data);
   }
 
+  async captureTemporalBurst(cameraId, cameraName = '', { frameCount = 4, intervalMs = 1200 } = {}) {
+    const count = Math.max(2, Math.min(6, Number(frameCount) || 4));
+    const delayMs = Math.max(400, Math.min(3000, Number(intervalMs) || 1200));
+    const frames = [];
+    const startMs = Date.now();
+    let lastError = null;
+
+    for (let i = 0; i < count; i++) {
+      try {
+        const buffer = await this.captureSnapshotBuffer(cameraId, cameraName);
+        if (Buffer.isBuffer(buffer) && buffer.length > 0) {
+          frames.push({
+            buffer,
+            mimeType: 'image/jpeg',
+            timestampOffsetSec: +((Date.now() - startMs) / 1000).toFixed(1),
+            capturedAt: new Date().toISOString(),
+            base64Thumb: `data:image/jpeg;base64,${buffer.toString('base64')}`
+          });
+        }
+      } catch (err) {
+        lastError = err;
+      }
+      if (i < count - 1) {
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+
+    if (frames.length === 0) {
+      throw lastError || new Error(`Impossibile acquisire fotogrammi burst per ${cameraName || cameraId}`);
+    }
+    return frames;
+  }
+
   getStatus() {
     return {
       installed: this.hasBinary(),

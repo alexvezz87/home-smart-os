@@ -725,3 +725,82 @@ test('GmailHub & DeliveryBillingParser (#36): query privacy, filtro Dolomiti, un
     aiGateway.getApiKey = prevGetKey;
   }
 });
+
+test('GeminiVisionEngine (#34): RollingFrameBuffer, analyzeTemporalSequence e camera:temporal_analysis', async () => {
+  const { GeminiVisionEngine } = require('../src/gemini-vision');
+  const securitySystem = require('../src/security-system');
+  const go2rtc = require('../src/go2rtc-manager');
+  const aiGateway = require('../src/ai-gateway');
+  const eventBus = require('../src/event-bus');
+
+  // 1. RollingFrameBuffer: cap max 6 e filtro TTL
+  securitySystem._rollingFrameBuffers = {};
+  const fakeBuf = Buffer.from('fake-jpeg-data');
+  const now = Date.now();
+  for (let i = 0; i < 8; i++) {
+    securitySystem.pushRollingFrame('cam_test', {
+      buffer: fakeBuf,
+      capturedAt: new Date(now - (8 - i) * 1000).toISOString()
+    });
+  }
+  const rolled = securitySystem.getRollingFrames('cam_test', 20000);
+  assert.equal(rolled.length, 6);
+
+  // 2. analyzeTemporalSequence con mock aiGateway.generateJSON e go2rtc.captureTemporalBurst
+  const prevGetKey = aiGateway.getApiKey;
+  const prevGenJson = aiGateway.generateJSON;
+  const prevBurst = go2rtc.captureTemporalBurst;
+  const publishedEvents = [];
+  const onTemporalAnalysis = (p) => publishedEvents.push(p);
+  eventBus.on('camera:temporal_analysis', onTemporalAnalysis);
+
+  try {
+    aiGateway.getApiKey = () => 'fake-key';
+    go2rtc.captureTemporalBurst = async () => ([
+      { buffer: fakeBuf, mimeType: 'image/jpeg', timestampOffsetSec: 0.0, capturedAt: new Date(now).toISOString(), base64Thumb: 'data:image/jpeg;base64,ZmFrZQ==' },
+      { buffer: fakeBuf, mimeType: 'image/jpeg', timestampOffsetSec: 1.2, capturedAt: new Date(now + 1200).toISOString(), base64Thumb: 'data:image/jpeg;base64,ZmFrZQ==' }
+    ]);
+    aiGateway.generateJSON = async ({ parts }) => {
+      assert.ok(Array.isArray(parts) && parts.length >= 5);
+      return {
+        text: '{}',
+        model: 'gemini-3.8-flash',
+        role: 'fast',
+        data: {
+          summary: 'Francesco dorme sereno nella culla.',
+          francescoState: 'sleeping_deep',
+          posture: 'lying_in_bed',
+          trajectory: 'stationary',
+          nightWalkingOutOfBed: false,
+          petsDetected: ['Camilla'],
+          anomaly: false
+        }
+      };
+    };
+
+    const engine = new GeminiVisionEngine();
+    const fakeSec = {
+      resolveCamera: () => ({ id: 'baby', name: 'Baby Monitor', room: 'Camera da letto', privacyMode: false }),
+      getRollingFrames: () => rolled.slice(-2),
+      _buildPetReferenceParts: () => [{ text: 'Ref Camilla' }]
+    };
+
+    const res = await engine.analyzeTemporalSequence('baby', 'Francesco dorme?', fakeSec, {
+      frameCount: 4,
+      intervalMs: 1000,
+      triggerSource: 'manual'
+    });
+
+    assert.equal(res.success, true);
+    assert.equal(res.frameCount, 4);
+    assert.equal(res.structured.francescoState, 'sleeping_deep');
+    assert.deepEqual(res.structured.petsDetected, ['Camilla']);
+    assert.equal(publishedEvents.length, 1);
+    assert.equal(publishedEvents[0].data.cameraId, 'baby');
+  } finally {
+    eventBus.removeListener('camera:temporal_analysis', onTemporalAnalysis);
+    aiGateway.getApiKey = prevGetKey;
+    aiGateway.generateJSON = prevGenJson;
+    go2rtc.captureTemporalBurst = prevBurst;
+  }
+});
