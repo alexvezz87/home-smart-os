@@ -78,7 +78,7 @@ Per garantire scalabilità, pulizia del codice e massima reattività su Smartpho
 - **Confronto Ricarica EV Volvo EX30 / Wallbox ABB**: Calcolo risparmio economico rispetto ai veicoli termici tradizionali (~72% di risparmio medio).
 
 ### C. ⚙️ Amministrazione & Hub (Gestione Modulare per Servizi & Diagnostica)
-Riorganizzata con un'architettura **modulare a schede (Tab Switcher)** con persistenza in `localStorage ('admin_active_tab')`. Ciascun servizio dispone di una scheda dedicata minimale ed intuitiva con impostazioni di login, configurazione hardware e telemetria isolata:
+Riorganizzata con un'architettura **modulare a 2 colonne** (sidebar verticale sticky a sinistra + pannello di dettaglio a destra, con griglia compatta su smartphone per eliminare qualsiasi scroll orizzontale) e persistenza della scheda attiva in `localStorage ('admin_active_tab')`. Ciascun servizio dispone di una scheda dedicata minimale ed intuitiva con impostazioni di login, configurazione hardware e telemetria isolata:
 1. 🔥 **Clima & Caldaia (Bosch EasyControl CT200)**:
    - Diagnostica telemetrica in tempo reale (stato bruciatore/fiamma, pressione circuito riscaldamento in bar con range 1.0-2.0, temperatura mandata, sonda esterna, ACS).
    - Controllo rapido e telemetria delle 9 termovalvole smart (setpoint, apertura %, temperatura letta, stato batteria AA).

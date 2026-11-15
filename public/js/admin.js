@@ -142,57 +142,69 @@ class AdminManager {
           </div>
         </div>
 
-        <!-- 2. Barra di Navigazione a Schede dei Servizi -->
-        <div class="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none border-b border-slate-800/80">
-          ${services.map(s => {
-            const isActive = s.id === this.activeTab;
-            const activeClass = isActive
-              ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-600/30 border-indigo-400 font-bold scale-[1.02]'
-              : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 border-slate-800 font-medium';
+        <!-- 2. Layout a 2 Colonne: Sidebar Verticale a Sinistra + Scheda Dettaglio a Destra -->
+        <div class="flex flex-col md:flex-row gap-5 items-start">
 
-            const badgeBg = isActive
-              ? 'bg-white/20 text-white'
-              : (s.badgeType === 'success' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
-                 s.badgeType === 'warning' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' :
-                 s.badgeType === 'info' ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30' : 'bg-slate-800 text-slate-400');
+          <!-- Sidebar Verticale Servizi (2 colonne compatte su mobile, lista verticale sticky su desktop) -->
+          <aside class="w-full md:w-64 lg:w-72 shrink-0 md:sticky md:top-20">
+            <nav aria-label="Servizi Amministrazione"
+                 class="glass-card rounded-2xl p-2 border border-slate-800 grid grid-cols-2 sm:grid-cols-3 md:flex md:flex-col gap-1.5">
+              ${services.map(s => {
+                const isActive = s.id === this.activeTab;
+                const activeClass = isActive
+                  ? 'bg-indigo-600/20 text-white border-indigo-500/60 shadow-sm font-semibold'
+                  : 'bg-transparent text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 border-transparent font-medium';
 
-            return `
-              <button onclick="window.adminManager.selectTab('${s.id}')"
-                      class="px-3.5 py-2.5 rounded-xl text-xs border transition-all flex items-center gap-2.5 shrink-0 active:scale-95 cursor-pointer ${activeClass}">
-                <div class="w-6 h-6 rounded-lg ${isActive ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-300'} flex items-center justify-center text-xs">
-                  <i class="fa-solid ${s.icon}"></i>
-                </div>
-                <span>${s.name}</span>
-                <span class="text-[9.5px] px-1.5 py-0.5 rounded-full font-mono ${badgeBg}">
-                  ${s.badge}
-                </span>
-              </button>
-            `;
-          }).join('')}
-        </div>
+                const badgeBg = isActive
+                  ? 'bg-indigo-500/30 text-indigo-200 border border-indigo-400/40'
+                  : (s.badgeType === 'success' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
+                     s.badgeType === 'warning' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' :
+                     s.badgeType === 'info' ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30' :
+                     s.badgeType === 'rose' ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30' :
+                     'bg-slate-800 text-slate-400 border border-slate-700/60');
 
-        <!-- 3. Contenuto Dinamico del Servizio Selezionato -->
-        <div id="admin-service-pane" class="space-y-6">
-          ${(() => {
-            switch (this.activeTab) {
-              case 'climate':
-                return this.renderClimatePane(data, ev);
-              case 'lights':
-                return this.renderLightsPane(data);
-              case 'plugs':
-                return this.renderPlugsPane(data);
-              case 'ev':
-                return this.renderEvPane(data, ev);
-              case 'security':
-                return this.renderSecurityPane(data);
-              case 'floorplan':
-                return this.renderFloorplanPane(data);
-              case 'system':
-                return this.renderSystemPane(data, tidbConnected);
-              default:
-                return this.renderClimatePane(data, ev);
-            }
-          })()}
+                return `
+                  <button onclick="window.adminManager.selectTab('${s.id}')"
+                          class="w-full px-3 py-2.5 rounded-xl text-xs border transition-all flex items-center justify-between gap-2 text-left cursor-pointer active:scale-[0.99] ${activeClass}">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                      <div class="w-7 h-7 rounded-lg ${isActive ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-500/30' : 'bg-slate-800/90 text-slate-300'} flex items-center justify-center text-xs shrink-0">
+                        <i class="fa-solid ${s.icon}"></i>
+                      </div>
+                      <span class="truncate">${s.name}</span>
+                    </div>
+                    <span class="hidden sm:inline-block text-[9.5px] px-1.5 py-0.5 rounded-full font-mono shrink-0 ${badgeBg}">
+                      ${s.badge}
+                    </span>
+                  </button>
+                `;
+              }).join('')}
+            </nav>
+          </aside>
+
+          <!-- Contenuto Dinamico del Servizio Selezionato -->
+          <div id="admin-service-pane" class="flex-1 min-w-0 w-full space-y-6 overflow-x-hidden">
+            ${(() => {
+              switch (this.activeTab) {
+                case 'climate':
+                  return this.renderClimatePane(data, ev);
+                case 'lights':
+                  return this.renderLightsPane(data);
+                case 'plugs':
+                  return this.renderPlugsPane(data);
+                case 'ev':
+                  return this.renderEvPane(data, ev);
+                case 'security':
+                  return this.renderSecurityPane(data);
+                case 'floorplan':
+                  return this.renderFloorplanPane(data);
+                case 'system':
+                  return this.renderSystemPane(data, tidbConnected);
+                default:
+                  return this.renderClimatePane(data, ev);
+              }
+            })()}
+          </div>
+
         </div>
 
       </div>
@@ -279,7 +291,7 @@ class AdminManager {
         <!-- Banner di avviso se disconnesso -->
         ${!ev.bosch?.connected ? `
           <div class="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-start justify-between flex-wrap gap-3 text-xs">
-            <div class="flex items-start gap-3 flex-1 min-w-[260px]">
+            <div class="flex items-start gap-3 flex-1 min-w-0 sm:min-w-[260px]">
               <i class="fa-solid fa-triangle-exclamation text-amber-400 text-base mt-0.5 shrink-0"></i>
               <div class="space-y-1">
                 <div class="font-bold text-amber-300">Autenticazione Cloud Richiesta</div>
@@ -330,7 +342,7 @@ class AdminManager {
 
                   return `
                     <div class="p-3.5 rounded-xl border ${borderCls} flex items-start justify-between flex-wrap gap-3 text-xs">
-                      <div class="flex items-start gap-3 flex-1 min-w-[260px]">
+                      <div class="flex items-start gap-3 flex-1 min-w-0 sm:min-w-[260px]">
                         <i class="fa-solid ${a.icon || 'fa-triangle-exclamation'} ${iconColor} text-base mt-0.5 shrink-0"></i>
                         <div class="space-y-0.5">
                           <div class="font-bold text-white flex items-center gap-2">
