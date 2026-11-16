@@ -1134,10 +1134,9 @@ class FloorplanEngine {
 
     // Canvas-First Minimal HUD (Planimetria Full-Width con Chip Flottanti e Zoom Preset)
     container.innerHTML = `
-      <div id="floorplan-touch-viewport" class="relative w-full h-[calc(100vh-76px)] min-h-[540px] rounded-2xl sm:rounded-3xl overflow-hidden border border-slate-800/90 bg-slate-950 shadow-2xl flex items-center justify-center select-none cursor-default">
-        
-        <!-- HUD Superiore Flottante: Chip Filtri Rapidi (Sinistra) + Vista Zoom (Destra) -->
-        <div class="absolute top-2.5 left-2.5 right-2.5 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+      <div class="relative w-full flex flex-col gap-2">
+        <!-- Su mobile (< sm): barra esterna sopra la piantina (zero sovrapposizioni!). Su sm+: HUD flottante in alto -->
+        <div class="sm:absolute sm:top-2.5 sm:left-2.5 sm:right-2.5 sm:z-20 flex flex-wrap items-center justify-between gap-1.5 sm:gap-2 sm:pointer-events-none">
           
           <!-- Chip Layer Rapidi (Wrap pulito, zero scroll orizzontale) -->
           <div class="pointer-events-auto flex flex-wrap items-center gap-1.5">
@@ -1215,6 +1214,8 @@ class FloorplanEngine {
             </div>
           </div>
         </div>
+
+        <div id="floorplan-touch-viewport" class="relative w-full h-[calc(100vh-145px)] sm:h-[calc(100vh-76px)] min-h-[480px] sm:min-h-[540px] rounded-2xl sm:rounded-3xl overflow-hidden border border-slate-800/90 bg-slate-950 shadow-2xl flex items-center justify-center select-none cursor-default">
 
         <!-- Live Drag HUD se in modalità modifica -->
         <div id="drag-pin-live-hud" class="hidden absolute top-14 left-4 right-4 z-20 p-2.5 rounded-xl bg-slate-900/90 border border-amber-500/50 text-xs text-amber-200 text-center shadow-lg backdrop-blur-md"></div>
@@ -1337,6 +1338,7 @@ class FloorplanEngine {
 
           </svg>
         </div>
+      </div>
       </div>
     `;
 
