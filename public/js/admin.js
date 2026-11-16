@@ -1897,6 +1897,11 @@ class AdminManager {
               <input id="admin-nest-voice-style" type="text" value="${this.escapeHtml(cfg.voiceStyle || '')}" placeholder="Parla in italiano con voce femminile calda e naturale..." class="w-full mt-0.5 px-2 py-1.5 rounded bg-slate-900 border border-slate-700 text-xs text-white" />
             </label>
           </div>
+          <div class="flex items-center justify-end pt-2 border-t border-slate-800/80">
+            <button type="button" onclick="window.adminManager.saveNestFulfillmentConfig()" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm">
+              💾 Salva Impostazioni Voce &amp; Rientro
+            </button>
+          </div>
         </div>
       `;
     } catch (err) {
