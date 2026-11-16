@@ -120,3 +120,6 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 
 ### Centro Notifiche Intelligente (`#78`)
 - **Endpoint**: `GET /api/notifications/feed` (`filter=unread|attention|mail|automation|archive|all`), `POST /api/notifications/read-all`, `POST /api/notifications/:id/read`, `DELETE /api/notifications/:id`, `POST /api/notifications/:id/package-received` e `POST /api/mail/deliveries/:id/received`.
+
+### Annunci Rientro Google Nest (`#80`)
+- **Chime HTTPS & Config**: `POST /api/nest/speak` supporta `chimePreset`; `GET/POST /api/nest/config` gestisce `welcomeAnnouncementsEnabled`, `welcomeRoom` e `welcomeChimePreset`. In produzione dietro Caddy, `APP_URL` viene usato per servire `/sounds/*.wav` in HTTPS al Nest LAN.

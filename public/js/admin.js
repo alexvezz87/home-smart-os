@@ -1803,6 +1803,46 @@ class AdminManager {
             </div>
           </div>
         </div>
+
+        <div class="mt-4 p-3.5 rounded-xl bg-slate-950/70 border border-emerald-500/30 space-y-3">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div class="text-xs font-bold text-white">🏠 Annuncio Vocale Rientro a Casa</div>
+            <label class="inline-flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
+              <input id="admin-nest-welcome-enabled" type="checkbox" ${cfg.welcomeAnnouncementsEnabled !== false ? 'checked' : ''} class="rounded border-slate-600 bg-slate-900" />
+              <span>Abilita annuncio vocale al rientro (<code>Bentornato/a a casa</code>)</span>
+            </label>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label class="block">
+              <span class="text-[10px] text-slate-400">Speaker Target Rientro</span>
+              <select id="admin-nest-welcome-room" class="w-full mt-0.5 px-2 py-1.5 rounded bg-slate-900 border border-slate-700 text-xs text-white">
+                ${Array.from(new Set(['Salone', 'Camera da letto', 'Cucina', ...Object.keys(ips)])).map((room) => {
+                  const sel = (cfg.welcomeRoom || 'Salone') === room ? 'selected' : '';
+                  return `<option value="${this.escapeHtml(room)}" ${sel}>${this.escapeHtml(room)}</option>`;
+                }).join('')}
+              </select>
+            </label>
+            <label class="block">
+              <span class="text-[10px] text-slate-400">Suono Neutro Pre-Roll Rientro</span>
+              <select id="admin-nest-welcome-chime" class="w-full mt-0.5 px-2 py-1.5 rounded bg-slate-900 border border-slate-700 text-xs text-white">
+                ${chimes.map((c) => {
+                  const base = c.replace(/\.(wav|mp3)$/i, '');
+                  const cur = cfg.welcomeChimePreset || 'welcome_chime';
+                  const sel = cur === base || cur === c ? 'selected' : '';
+                  return `<option value="${this.escapeHtml(base)}" ${sel}>${this.escapeHtml(c)}</option>`;
+                }).join('')}
+              </select>
+            </label>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 pt-1">
+            <button type="button" onclick="window.adminManager.testWelcomeAnnouncement('Alex')" class="px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-semibold">
+              🔊 Test Bentornato Alex
+            </button>
+            <button type="button" onclick="window.adminManager.testWelcomeAnnouncement('Cinzia')" class="px-3 py-1.5 rounded-lg bg-pink-600/20 hover:bg-pink-600/30 text-pink-300 border border-pink-500/40 text-xs font-semibold">
+              🔊 Test Bentornata Cinzia
+            </button>
+          </div>
+        </div>
       `;
     } catch (err) {
       container.innerHTML = `<span class="text-rose-400">Errore Nest: ${this.escapeHtml(err.message)}</span>`;
@@ -1822,7 +1862,10 @@ class AdminManager {
       nestIps,
       chimePreset: document.getElementById('admin-nest-chime')?.value || 'chime',
       followMeEnabled: Boolean(document.getElementById('admin-nest-followme')?.checked),
-      respectBabySleep: Boolean(document.getElementById('admin-nest-babysleep')?.checked)
+      respectBabySleep: Boolean(document.getElementById('admin-nest-babysleep')?.checked),
+      welcomeAnnouncementsEnabled: Boolean(document.getElementById('admin-nest-welcome-enabled')?.checked),
+      welcomeRoom: document.getElementById('admin-nest-welcome-room')?.value || 'Salone',
+      welcomeChimePreset: document.getElementById('admin-nest-welcome-chime')?.value || 'welcome_chime'
     };
 
     const fileInput = document.getElementById('admin-nest-chime-file');
@@ -1864,6 +1907,31 @@ class AdminManager {
       window.showToast?.(`Annuncio inviato a ${json.data?.targetRoom || 'Nest'}`, 'success');
     } catch (err) {
       window.showToast?.('Errore test vocale: ' + err.message, 'error');
+    }
+  }
+
+  async testWelcomeAnnouncement(personName) {
+    const isFemale = String(personName || '').trim().toLowerCase() === 'cinzia';
+    const text = isFemale ? `Bentornata a casa ${personName}` : `Bentornato a casa ${personName}`;
+    const roomName = document.getElementById('admin-nest-welcome-room')?.value || 'Salone';
+    const chimePreset = document.getElementById('admin-nest-welcome-chime')?.value || 'welcome_chime';
+    try {
+      const res = await fetch('/api/nest/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          roomName,
+          followMe: false,
+          playChime: true,
+          chimePreset
+        })
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || json.reason || 'Errore test rientro');
+      window.showToast?.(`Annuncio "${text}" inviato a ${roomName}`, 'success');
+    } catch (err) {
+      window.showToast?.('Errore test rientro: ' + err.message, 'error');
     }
   }
 
