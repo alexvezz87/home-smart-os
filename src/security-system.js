@@ -380,6 +380,38 @@ class SecuritySystem {
     return this.nestHubIp;
   }
 
+  _estimateWavDelayMs(chimeUrl) {
+    const DEFAULT_MS = 1400;
+    try {
+      const cleanName = path.basename(String(chimeUrl || '').split('?')[0]);
+      if (!cleanName || !cleanName.toLowerCase().endsWith('.wav')) return DEFAULT_MS;
+      const filePath = path.join(__dirname, '..', 'public', 'sounds', cleanName);
+      if (!fs.existsSync(filePath)) return DEFAULT_MS;
+      const buf = fs.readFileSync(filePath);
+      if (buf.length < 44 || buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') {
+        return DEFAULT_MS;
+      }
+      const byteRate = buf.readUInt32LE(28);
+      if (!byteRate) return DEFAULT_MS;
+      let offset = 12;
+      let dataSize = 0;
+      while (offset + 8 <= buf.length) {
+        const chunkId = buf.toString('ascii', offset, offset + 4);
+        const chunkSize = buf.readUInt32LE(offset + 4);
+        if (chunkId === 'data') {
+          dataSize = chunkSize;
+          break;
+        }
+        offset += 8 + chunkSize + (chunkSize % 2);
+      }
+      if (!dataSize) return DEFAULT_MS;
+      const durationMs = Math.round((dataSize / byteRate) * 1000) + 350;
+      return Math.max(900, Math.min(4500, durationMs));
+    } catch (_) {
+      return DEFAULT_MS;
+    }
+  }
+
   async announceToNest(text, { roomName = null, lang = 'it', skipGuardrail = false, chimeUrl = null } = {}) {
     const cleanText = String(text || '').trim().slice(0, 200);
     if (!cleanText) {
@@ -432,8 +464,9 @@ class SecuritySystem {
 
           if (chimeUrl) {
             const chimeMime = String(chimeUrl).toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/mp3';
+            const preTtsDelayMs = this._estimateWavDelayMs(chimeUrl);
             player.load({ contentId: chimeUrl, contentType: chimeMime, streamType: 'BUFFERED' }, { autoplay: true }, () => {
-              setTimeout(loadTts, 750);
+              setTimeout(loadTts, preTtsDelayMs);
             });
           } else {
             loadTts();

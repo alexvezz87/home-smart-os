@@ -1937,8 +1937,8 @@ app.post('/api/nest/config', async (req, res) => {
 
 app.post('/api/nest/speak', async (req, res) => {
   try {
-    const { text, roomName, followMe, playChime, lang } = req.body || {};
-    const result = await nestCaster.speak(text, { roomName, followMe, playChime, lang });
+    const { text, roomName, followMe, playChime, chimePreset, lang } = req.body || {};
+    const result = await nestCaster.speak(text, { roomName, followMe, playChime, chimePreset, lang });
     if (result && result.blocked) {
       return res.status(429).json({ success: false, ...result });
     }
@@ -2354,6 +2354,7 @@ async function bootstrap() {
     go2rtc: require('./src/go2rtc-manager')
   }).catch((err) => console.warn('⚠️ [Sandbox] Init background:', err.message));
   notifier.init({ telegramBot, webPushManager, deliveryBillingParser }).catch((err) => console.warn('⚠️ [Notifier] Init background:', err.message));
+  nestCaster.init().catch((err) => console.warn('⚠️ [NestCaster] Init background:', err.message));
   securitySystem.initSentinel({ notifier, iliadboxClient }).catch((err) => console.warn('⚠️ [Sentinel] Init background:', err.message));
   gmailHub.init().catch((err) => console.warn('⚠️ [GmailHub] Init background:', err.message));
   deliveryBillingParser.init({ gmailHub, notifier, telegramBot }).catch((err) => console.warn('⚠️ [MailParser] Init background:', err.message));

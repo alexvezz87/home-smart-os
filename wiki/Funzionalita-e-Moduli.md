@@ -198,6 +198,14 @@ Riorganizzata con un'architettura **modulare responsive**: su desktop/tablet ori
 - **Integrazione Mail & Pacchi (`src/delivery-billing-parser.js`)**: conservazione metadati email (`mailSubject`, `mailFrom`, `mailDate`, `mailSnippet`), metodo `markDeliveryReceived(id)` (`status: 'delivered'`) e sincronizzazione automatica verso il feed `notifier`.
 - **Interfaccia Dedicata & Header Popover (`public/index.html`, `public/js/notifications.js`, `public/js/app.js`)**: rimozione widget consegne dalla Home (piantina pulita), icona notifiche in alto a destra con badge contatore non lette e popover rapido, nuova macro-area `#area-notifications` con filtri (`Da leggere`, `Attenzione Alta`, `Mail & Pacchi`, `Voce della Casa`, `Archivio`), modale dettagli sanitizzata anti-XSS e azioni *Pacco ricevuto*, *Segna come letta* ed *Elimina*.
 
+---
+
+## 🔊 14. Annuncio Vocale di Rientro su Google Nest Salone (`#80`)
+- **Benvenuto Contestuale & Pre-Roll (`src/nest-caster.js`, `public/sounds/welcome_chime.wav`)**: all'arrivo di un residente (`presence:changed` con transizione `away -> home`, escluso `Casa` e riavvii `unknown -> home`), riproduce il suono pre-roll `welcome_chime.wav` seguito dal saluto accordato al genere (*"Bentornato a casa [nome]"* / *"Bentornata a casa [nome]"*) con cooldown anti-rimbalzo Wi-Fi di 10 minuti.
+- **Ritardo Adattivo Pre-TTS & URL HTTPS (`src/security-system.js`, `src/nest-caster.js`)**: `_estimateWavDelayMs` calcola la durata reale dall'header `RIFF/WAVE` (+350ms, range `900–4500ms`) per non troncare il jingle prima del TTS; `_resolveChimeUrl` usa `APP_URL/sounds/...` in produzione HTTPS dietro Caddy e fallback LAN in locale.
+- **Controllo Amministrativo (`public/js/admin.js`, `server.js`)**: toggle ON/OFF (`welcomeAnnouncementsEnabled`), selettore speaker target (`Salone` di default), selettore suono pre-roll e pulsanti rapidi *"🔊 Test Bentornato Alex"* / *"🔊 Test Bentornata Cinzia"* verso `POST /api/nest/speak` (con supporto `chimePreset`).
+
+
 
 
 
