@@ -136,6 +136,19 @@ class DatabaseManager {
     }
   }
 
+  encryptSecret(plainText) {
+    if (plainText === null || plainText === undefined || plainText === '') return plainText;
+    try {
+      return this.encrypt(plainText);
+    } catch (_) {
+      return plainText;
+    }
+  }
+
+  decryptSecret(cipherText) {
+    return this.decrypt(cipherText);
+  }
+
   /**
    * Inizializza il pool MySQL/TiDB, crea le tabelle ed esegue il seed/idratazione
    */
@@ -485,6 +498,14 @@ class DatabaseManager {
     } catch (err) {
       console.warn(`[TiDB DB] Errore salvataggio kv_store '${key}':`, err.message);
     }
+  }
+
+  async getSetting(key, defaultValue = null) {
+    return this.get(key, defaultValue);
+  }
+
+  async saveSetting(key, value, isEncrypted = false) {
+    return this.set(key, value, isEncrypted);
   }
 
   /**
