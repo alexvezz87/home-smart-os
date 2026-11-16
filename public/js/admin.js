@@ -1841,6 +1841,32 @@ class AdminManager {
             <button type="button" onclick="window.adminManager.testWelcomeAnnouncement('Cinzia')" class="px-3 py-1.5 rounded-lg bg-pink-600/20 hover:bg-pink-600/30 text-pink-300 border border-pink-500/40 text-xs font-semibold">
               🔊 Test Bentornata Cinzia
             </button>
+            <button type="button" onclick="window.adminManager.previewNestVoice()" class="px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 text-xs font-semibold">
+              🎧 Anteprima Browser
+            </button>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-800/80">
+            <label class="block">
+              <span class="text-[10px] text-slate-400">Motore &amp; Voce Annunci</span>
+              <select id="admin-nest-voice-mode" class="w-full mt-0.5 px-2 py-1.5 rounded bg-slate-900 border border-slate-700 text-xs text-white">
+                ${[
+                  { val: 'gemini:Aoede', label: 'Gemini: Aoede (Femminile calda & naturale — Consigliata)' },
+                  { val: 'gemini:Kore', label: 'Gemini: Kore (Femminile chiara & equilibrata)' },
+                  { val: 'gemini:Leda', label: 'Gemini: Leda (Femminile giovane & leggera)' },
+                  { val: 'gemini:Zephyr', label: 'Gemini: Zephyr (Femminile brillante & amichevole)' },
+                  { val: 'google_classic:', label: 'Google Classic (Voce standard)' }
+                ].map((opt) => {
+                  const curMode = cfg.ttsEngine === 'google_classic'
+                    ? 'google_classic:'
+                    : `gemini:${cfg.voiceName || 'Aoede'}`;
+                  return `<option value="${opt.val}" ${curMode === opt.val ? 'selected' : ''}>${opt.label}</option>`;
+                }).join('')}
+              </select>
+            </label>
+            <label class="block">
+              <span class="text-[10px] text-slate-400">Intonazione / Stile Voce Gemini</span>
+              <input id="admin-nest-voice-style" type="text" value="${this.escapeHtml(cfg.voiceStyle || '')}" placeholder="Parla in italiano con voce femminile calda e naturale..." class="w-full mt-0.5 px-2 py-1.5 rounded bg-slate-900 border border-slate-700 text-xs text-white" />
+            </label>
           </div>
         </div>
       `;
@@ -1858,6 +1884,10 @@ class AdminManager {
     if (caIp) nestIps['Camera da letto'] = caIp;
     if (cuIp) nestIps['Cucina'] = cuIp;
 
+    const voiceRaw = document.getElementById('admin-nest-voice-mode')?.value || 'gemini:Aoede';
+    const [ttsEngine, voiceName] = voiceRaw.split(':');
+    const voiceStyle = document.getElementById('admin-nest-voice-style')?.value.trim() || '';
+
     const payload = {
       nestIps,
       chimePreset: document.getElementById('admin-nest-chime')?.value || 'chime',
@@ -1865,7 +1895,10 @@ class AdminManager {
       respectBabySleep: Boolean(document.getElementById('admin-nest-babysleep')?.checked),
       welcomeAnnouncementsEnabled: Boolean(document.getElementById('admin-nest-welcome-enabled')?.checked),
       welcomeRoom: document.getElementById('admin-nest-welcome-room')?.value || 'Salone',
-      welcomeChimePreset: document.getElementById('admin-nest-welcome-chime')?.value || 'welcome_chime'
+      welcomeChimePreset: document.getElementById('admin-nest-welcome-chime')?.value || 'welcome_chime',
+      ttsEngine: ttsEngine === 'google_classic' ? 'google_classic' : 'gemini',
+      ...(voiceName ? { voiceName } : {}),
+      voiceStyle
     };
 
     const fileInput = document.getElementById('admin-nest-chime-file');
@@ -1915,6 +1948,9 @@ class AdminManager {
     const text = isFemale ? `Bentornata a casa ${personName}` : `Bentornato a casa ${personName}`;
     const roomName = document.getElementById('admin-nest-welcome-room')?.value || 'Salone';
     const chimePreset = document.getElementById('admin-nest-welcome-chime')?.value || 'welcome_chime';
+    const voiceRaw = document.getElementById('admin-nest-voice-mode')?.value || 'gemini:Aoede';
+    const [ttsEngine, voiceName] = voiceRaw.split(':');
+    const styleInstruction = document.getElementById('admin-nest-voice-style')?.value.trim() || '';
     try {
       const res = await fetch('/api/nest/speak', {
         method: 'POST',
@@ -1924,14 +1960,43 @@ class AdminManager {
           roomName,
           followMe: false,
           playChime: true,
-          chimePreset
+          chimePreset,
+          ttsEngine: ttsEngine === 'google_classic' ? 'google_classic' : 'gemini',
+          voiceName: voiceName || 'Aoede',
+          styleInstruction
         })
       });
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.error || json.reason || 'Errore test rientro');
-      window.showToast?.(`Annuncio "${text}" inviato a ${roomName}`, 'success');
+      window.showToast?.(`Annuncio "${text}" inviato a ${roomName} (${json.data?.ttsEngine || 'gemini'})`, 'success');
     } catch (err) {
       window.showToast?.('Errore test rientro: ' + err.message, 'error');
+    }
+  }
+
+  async previewNestVoice() {
+    const voiceRaw = document.getElementById('admin-nest-voice-mode')?.value || 'gemini:Aoede';
+    const [, voiceName] = voiceRaw.split(':');
+    const styleInstruction = document.getElementById('admin-nest-voice-style')?.value.trim() || '';
+    try {
+      window.showToast?.(`Sintesi anteprima voce ${voiceName || 'Aoede'}...`, 'info');
+      const res = await fetch('/api/ai/tts/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Bentornato a casa Alex!',
+          voiceName: voiceName || 'Aoede',
+          styleInstruction
+        })
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'Errore anteprima TTS');
+      const src = json.data?.audioUrl || (json.data?.audioBase64 ? `data:${json.data.mimeType || 'audio/wav'};base64,${json.data.audioBase64}` : '');
+      if (!src) throw new Error('Audio non ricevuto');
+      const audio = new Audio(src);
+      await audio.play();
+    } catch (err) {
+      window.showToast?.('Errore anteprima voce: ' + err.message, 'error');
     }
   }
 

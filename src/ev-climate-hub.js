@@ -397,33 +397,50 @@ class EvClimateHub {
   }
 
   startPolling() {
-    setTimeout(() => this.syncAll().catch(() => {}), 1500);
-    setInterval(() => this.syncAll().catch(() => {}), 60000);
+    if (this._pollingTimer) return;
+    this._bootSyncTimer = setTimeout(() => this.syncAll().catch(() => {}), 1500);
+    this._pollingTimer = setInterval(() => this.syncAll().catch(() => {}), 60000);
+  }
+
+  _runSingleFlight(lockKey, fn) {
+    if (!this._inflightLocks) this._inflightLocks = new Map();
+    if (this._inflightLocks.has(lockKey)) {
+      return this._inflightLocks.get(lockKey);
+    }
+    const promise = Promise.resolve()
+      .then(() => fn())
+      .finally(() => {
+        this._inflightLocks.delete(lockKey);
+      });
+    this._inflightLocks.set(lockKey, promise);
+    return promise;
   }
 
   async syncAll(options = {}) {
-    await Promise.allSettled([
-      this.syncAbbChargerSync(),
-      this.syncVolvoEx30({ force: Boolean(options.forceVolvo) }),
-      this.syncBoschEasyControl()
-    ]);
+    return this._runSingleFlight('syncAll', async () => {
+      await Promise.allSettled([
+        this.syncAbbChargerSync(),
+        this.syncVolvoEx30({ force: Boolean(options.forceVolvo) }),
+        this.syncBoschEasyControl()
+      ]);
 
-    // Automazione continua: esegue il vecchio profilo orario statico SOLO se esplicitamente attivo
-    // e il nuovo motore Riscaldamento Intelligente (ClimateOptimizer) non è abilitato.
-    if (this.config.bosch?.babyComfortProfileActive && this.boschState.connected) {
-      let optimizerEnabled = false;
-      try {
-        const opt = require('./climate-optimizer');
-        optimizerEnabled = Boolean(opt?.config?.enabled);
-      } catch (_) {}
-      if (!optimizerEnabled) {
-        const currentHour = new Date().getHours();
-        if (this._lastBabyProfileHour !== currentHour) {
-          this._lastBabyProfileHour = currentHour;
-          this.applyBabyComfortProfile().catch(() => {});
+      // Automazione continua: esegue il vecchio profilo orario statico SOLO se esplicitamente attivo
+      // e il nuovo motore Riscaldamento Intelligente (ClimateOptimizer) non è abilitato.
+      if (this.config.bosch?.babyComfortProfileActive && this.boschState.connected) {
+        let optimizerEnabled = false;
+        try {
+          const opt = require('./climate-optimizer');
+          optimizerEnabled = Boolean(opt?.config?.enabled);
+        } catch (_) {}
+        if (!optimizerEnabled) {
+          const currentHour = new Date().getHours();
+          if (this._lastBabyProfileHour !== currentHour) {
+            this._lastBabyProfileHour = currentHour;
+            this.applyBabyComfortProfile().catch(() => {});
+          }
         }
       }
-    }
+    });
   }
 
   // =========================================================================
@@ -740,59 +757,71 @@ class EvClimateHub {
   // 2. VOLVO EX30 ELETTRICA (Volvo Cars Energy API v2 + Connected Vehicle v2)
   // =========================================================================
   async _volvoGetToken(forceRefresh = false) {
-    const { clientId, clientSecret, accessToken, refreshToken } = this.config.volvo;
+    const isFreshJwt = (tok) => {
+      try {
+        const parts = String(tok || '').split('.');
+        if (parts.length === 3) {
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+          if (payload.exp && Date.now() < (payload.exp * 1000) - 120000) return true;
+        }
+      } catch (_) {}
+      return false;
+    };
+
+    const { accessToken, refreshToken } = this.config.volvo;
     if (!refreshToken) {
       if (accessToken && !forceRefresh) return accessToken;
       throw new Error('Access Token Volvo mancante o scaduto e nessun refresh_token disponibile.');
     }
-    if (accessToken && !forceRefresh) {
-      try {
-        const parts = accessToken.split('.');
-        if (parts.length === 3) {
-          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
-          // Rinnova proattivamente 2 minuti prima della scadenza
-          if (payload.exp && Date.now() < (payload.exp * 1000) - 120000) {
-            return accessToken;
-          }
-        }
-      } catch (_) {}
+    if (accessToken && !forceRefresh && isFreshJwt(accessToken)) {
+      return accessToken;
     }
 
-    if (!clientId || !clientSecret) {
-      throw new Error('Client ID o Client Secret Volvo non configurati.');
-    }
-
-    const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-    const body = new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken
-    }).toString();
-
-    const res = await axios.post(VOLVO_OAUTH_TOKEN_URL, body, {
-      headers: {
-        Authorization: `Basic ${basicAuth}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Accept: 'application/json'
-      },
-      timeout: 12000,
-      validateStatus: () => true
-    });
-
-    if (res.status !== 200 || !res.data || !res.data.access_token) {
-      if (res.data?.error_description?.includes('not active') || res.status === 400) {
-        this.config.volvo.refreshToken = null;
-        this._persistConfig();
+    return this._runSingleFlight('volvo:refresh', async () => {
+      const { clientId, clientSecret, accessToken: latestAcc, refreshToken: latestRef } = this.config.volvo;
+      if (!forceRefresh && latestAcc && isFreshJwt(latestAcc)) {
+        return latestAcc;
       }
-      throw new Error(`Refresh token Volvo fallito (HTTP ${res.status}): ${res.data?.error_description || res.data?.error || 'Errore di rinnovo'}`);
-    }
+      if (!latestRef) {
+        if (latestAcc && !forceRefresh) return latestAcc;
+        throw new Error('Access Token Volvo mancante o scaduto e nessun refresh_token disponibile.');
+      }
+      if (!clientId || !clientSecret) {
+        throw new Error('Client ID o Client Secret Volvo non configurati.');
+      }
 
-    this.config.volvo.accessToken = res.data.access_token;
-    if (res.data.refresh_token) {
-      this.config.volvo.refreshToken = res.data.refresh_token;
-    }
-    this._persistConfig();
+      const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+      const body = new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: latestRef
+      }).toString();
 
-    return this.config.volvo.accessToken;
+      const res = await axios.post(VOLVO_OAUTH_TOKEN_URL, body, {
+        headers: {
+          Authorization: `Basic ${basicAuth}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Accept: 'application/json'
+        },
+        timeout: 12000,
+        validateStatus: () => true
+      });
+
+      if (res.status !== 200 || !res.data || !res.data.access_token) {
+        if (res.data?.error_description?.includes('not active') || res.status === 400) {
+          this.config.volvo.refreshToken = null;
+          this._persistConfig();
+        }
+        throw new Error(`Refresh token Volvo fallito (HTTP ${res.status}): ${res.data?.error_description || res.data?.error || 'Errore di rinnovo'}`);
+      }
+
+      this.config.volvo.accessToken = res.data.access_token;
+      if (res.data.refresh_token) {
+        this.config.volvo.refreshToken = res.data.refresh_token;
+      }
+      this._persistConfig();
+
+      return this.config.volvo.accessToken;
+    });
   }
 
   getVolvoPollingIntervalMs() {
@@ -1510,36 +1539,47 @@ class EvClimateHub {
       throw new Error('Token Bosch PointT scaduto e nessun refresh_token disponibile. Effettua nuovamente il login SingleKey ID.');
     }
 
-    const body = new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: pointtRefreshToken,
-      scope: BOSCH_OAUTH_SCOPES,
-      client_id: BOSCH_OAUTH_CLIENT_ID
-    }).toString();
+    return this._runSingleFlight('bosch:refresh', async () => {
+      const { pointtAccessToken: latestAcc, pointtRefreshToken: latestRef, pointtExpiresAt: latestExp } = this.config.bosch;
+      if (!forceRefresh && latestAcc && latestExp && Date.now() < latestExp - 120000) {
+        return latestAcc;
+      }
+      if (!latestRef) {
+        if (latestAcc && !forceRefresh) return latestAcc;
+        throw new Error('Token Bosch PointT scaduto e nessun refresh_token disponibile. Effettua nuovamente il login SingleKey ID.');
+      }
 
-    const res = await axios.post(BOSCH_OAUTH_TOKEN_URL, body, {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-        'User-Agent': 'EasyControl/3.4.0 (iOS)'
-      },
-      timeout: 12000,
-      validateStatus: () => true
+      const body = new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: latestRef,
+        scope: BOSCH_OAUTH_SCOPES,
+        client_id: BOSCH_OAUTH_CLIENT_ID
+      }).toString();
+
+      const res = await axios.post(BOSCH_OAUTH_TOKEN_URL, body, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'User-Agent': 'EasyControl/3.4.0 (iOS)'
+        },
+        timeout: 12000,
+        validateStatus: () => true
+      });
+
+      if (res.status !== 200 || !res.data || !res.data.access_token) {
+        const errDesc = res.data?.error_description || res.data?.error || `HTTP ${res.status}`;
+        throw new Error(`Rinnovo token Bosch SingleKey ID fallito: ${errDesc}`);
+      }
+
+      this.config.bosch.pointtAccessToken = res.data.access_token;
+      if (res.data.refresh_token) {
+        this.config.bosch.pointtRefreshToken = res.data.refresh_token;
+      }
+      this.config.bosch.pointtExpiresAt = Date.now() + Number(res.data.expires_in || 3600) * 1000;
+
+      this._persistConfig();
+
+      return this.config.bosch.pointtAccessToken;
     });
-
-    if (res.status !== 200 || !res.data || !res.data.access_token) {
-      const errDesc = res.data?.error_description || res.data?.error || `HTTP ${res.status}`;
-      throw new Error(`Rinnovo token Bosch SingleKey ID fallito: ${errDesc}`);
-    }
-
-    this.config.bosch.pointtAccessToken = res.data.access_token;
-    if (res.data.refresh_token) {
-      this.config.bosch.pointtRefreshToken = res.data.refresh_token;
-    }
-    this.config.bosch.pointtExpiresAt = Date.now() + Number(res.data.expires_in || 3600) * 1000;
-
-    this._persistConfig();
-
-    return this.config.bosch.pointtAccessToken;
   }
 
   async _boschPointtGet(uri, forceRefresh = false) {

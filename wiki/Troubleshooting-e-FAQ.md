@@ -79,6 +79,8 @@
    - `syncAndSeed()` in `src/db.js` in modalità `cloud` sovrascrive sempre i file JSON locali del container (`ev-climate-config.json`, ecc.) con il payload cifrato più recente di `db_home_os`, evitando che `docker restart` ricarichi `refresh_token` già ruotati dal layer disco del container.
 4. **Errore Volvo `Vehicle does not belong to allowed markets` da VPS US (`#73`)**:
    - `api.volvocars.com` risolve su Azure Front Door (`150.171.0.0/16`): instradare l'intera sottorete `150.171.0.0/16` tramite `wg0` verso la Iliadbox domestica in Italia in `/etc/wireguard/wg0.conf`.
+5. **Disconnessioni improvvise `invalid_grant` al rinnovo orario Bosch/Volvo (`#83`)**:
+   - Risolto con `startPolling()` idempotente (rimosso il doppio `setInterval` tra `server.js` e `src/ev-climate-hub.js`) e single-flight mutex `_runSingleFlight` su `syncAll()`, `_ensureBoschPointtToken()` e `_volvoGetToken()`, impedendo invii concorrenti dello stesso `refresh_token` a rotazione.
 
 
 

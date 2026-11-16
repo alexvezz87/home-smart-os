@@ -1937,8 +1937,17 @@ app.post('/api/nest/config', async (req, res) => {
 
 app.post('/api/nest/speak', async (req, res) => {
   try {
-    const { text, roomName, followMe, playChime, chimePreset, lang } = req.body || {};
-    const result = await nestCaster.speak(text, { roomName, followMe, playChime, chimePreset, lang });
+    const { text, roomName, followMe, playChime, chimePreset, lang, ttsEngine, voiceName, styleInstruction } = req.body || {};
+    const result = await nestCaster.speak(text, {
+      roomName,
+      followMe,
+      playChime,
+      chimePreset,
+      lang,
+      ttsEngine,
+      voiceName,
+      styleInstruction
+    });
     if (result && result.blocked) {
       return res.status(429).json({ success: false, ...result });
     }
@@ -2364,10 +2373,9 @@ async function bootstrap() {
   dolomitiBillsSync.init().catch((err) => console.warn('⚠️ [Dolomiti Bollette] Init background:', err.message));
   volvoTripsSync.init().catch((err) => console.warn('⚠️ [Volvo Drive] Init background:', err.message));
   wallboxSync.init().catch((err) => console.warn('⚠️ [Wallbox Drive] Init background:', err.message));
-  evClimateHub.syncAll().catch((err) => console.warn('⚠️ [EV-Climate Hub] Primo sync background:', err.message));
+  evClimateHub.startPolling();
   climateOptimizer.init({ evClimateHub, securitySystem }).catch((err) => console.warn('⚠️ [ClimateOptimizer] Init background:', err.message));
   thermalAnalytics.init({ evClimateHub, climateOptimizer }).catch((err) => console.warn('⚠️ [ThermalAnalytics] Init background:', err.message));
-  setInterval(() => evClimateHub.syncAll().catch(() => {}), 60000);
 
   // Avvia il server TCP solo a bootstrap completato con successo
   tcpServer.listen(PORT, () => {

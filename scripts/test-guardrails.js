@@ -1645,3 +1645,182 @@ test('Welcome Announcement Nest Salone (#80): genere, away -> home, cooldown, AP
     fs.rmSync(tmpSounds, { recursive: true, force: true });
   }
 });
+
+test('Gemini TTS Voice Nest (#82): caching deterministico useCache, URL HTTPS _buildPublicMediaUrl, fallback google_classic e NestCaster voice config', async () => {
+  const fs = require('fs');
+  const path = require('path');
+  const crypto = require('crypto');
+  const aiGateway = require('../src/ai-gateway');
+  const securitySystem = require('../src/security-system');
+  const { NestCaster } = require('../src/nest-caster');
+
+  // 1. synthesizeSpeech caching deterministico (seconda chiamata zero HTTP)
+  const testText = 'Test cache deterministica Gemini TTS';
+  const testVoice = 'Aoede';
+  const testStyle = 'Calda e naturale';
+  const expectedHash = crypto.createHash('sha1').update(`${testVoice}::${testStyle}::${testText}`).digest('hex').slice(0, 16);
+  const expectedFile = path.join(__dirname, '..', 'public', 'audio', 'tts', `tts-${expectedHash}.wav`);
+
+  const prevHttpPost = aiGateway.httpClient.post;
+  const prevApiKey = aiGateway.getApiKey;
+  const prevAcquire = aiGateway.acquireQuota;
+  let postCalls = 0;
+
+  try {
+    if (fs.existsSync(expectedFile)) fs.unlinkSync(expectedFile);
+    aiGateway.getApiKey = () => 'fake-key';
+    aiGateway.acquireQuota = () => ({ allowed: true, model: 'gemini-3.8-flash-tts' });
+    aiGateway.httpClient.post = async () => {
+      postCalls++;
+      return {
+        data: {
+          candidates: [{
+            content: {
+              parts: [{
+                inlineData: {
+                  mimeType: 'audio/wav',
+                  data: Buffer.alloc(1400, 1).toString('base64')
+                }
+              }]
+            }
+          }]
+        }
+      };
+    };
+
+    const res1 = await aiGateway.synthesizeSpeech({
+      text: testText,
+      voiceName: testVoice,
+      styleInstruction: testStyle,
+      saveToFile: true,
+      useCache: true
+    });
+    assert.equal(res1.success, true);
+    assert.equal(res1.audioUrl, `/audio/tts/tts-${expectedHash}.wav`);
+    assert.equal(postCalls, 1);
+
+    const res2 = await aiGateway.synthesizeSpeech({
+      text: testText,
+      voiceName: testVoice,
+      styleInstruction: testStyle,
+      saveToFile: true,
+      useCache: true
+    });
+    assert.equal(res2.success, true);
+    assert.equal(res2.cached, true);
+    assert.equal(res2.audioUrl, `/audio/tts/tts-${expectedHash}.wav`);
+    assert.equal(postCalls, 1);
+  } finally {
+    aiGateway.httpClient.post = prevHttpPost;
+    aiGateway.getApiKey = prevApiKey;
+    aiGateway.acquireQuota = prevAcquire;
+    if (fs.existsSync(expectedFile)) fs.unlinkSync(expectedFile);
+  }
+
+  // 2. _buildPublicMediaUrl con APP_URL HTTPS
+  const prevAppUrl = process.env.APP_URL;
+  try {
+    process.env.APP_URL = 'https://home.example.com/';
+    assert.equal(securitySystem._buildPublicMediaUrl('/audio/tts/demo.wav'), 'https://home.example.com/audio/tts/demo.wav');
+  } finally {
+    if (prevAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = prevAppUrl;
+  }
+
+  // 3. NestCaster persistenza voice config & passaggio ttsEngine/voiceName/styleInstruction
+  const capturedCast = [];
+  const fakeSec = {
+    getLocalHostIp: () => '127.0.0.1',
+    resolveNestIp: () => '192.168.1.50',
+    getNestIps: () => ({ Salone: '192.168.1.50' }),
+    _buildPublicMediaUrl: (p) => `https://home.example.com${p}`,
+    announceToNest: async (text, opts) => {
+      capturedCast.push({ text, opts });
+      return { success: true, ttsEngine: opts.ttsEngine };
+    }
+  };
+  const fakeDb = { get: async () => null, set: async () => true };
+  const fakeGf = { buildSsmlResponse: (t) => `<speak>${t}</speak>` };
+  const fakeAi = { validateHardwareAction: () => ({ allowed: true }) };
+
+  const caster = new NestCaster({ db: fakeDb, aiGateway: fakeAi, securitySystem: fakeSec, googleFulfillment: fakeGf });
+  const cfg = await caster.updateConfig({ ttsEngine: 'gemini', voiceName: 'Kore', voiceStyle: 'Voce squillante' });
+  assert.equal(cfg.ttsEngine, 'gemini');
+  assert.equal(cfg.voiceName, 'Kore');
+  assert.equal(cfg.voiceStyle, 'Voce squillante');
+  assert.ok(Array.isArray(cfg.availableVoices) && cfg.availableVoices.some((v) => v.id === 'Aoede'));
+
+  const speakRes = await caster.speak('Ciao Salone', { roomName: 'Salone', followMe: false, playChime: false });
+  assert.equal(speakRes.success, true);
+  assert.equal(capturedCast[0].opts.ttsEngine, 'gemini');
+  assert.equal(capturedCast[0].opts.voiceName, 'Kore');
+  assert.equal(capturedCast[0].opts.styleInstruction, 'Voce squillante');
+});
+
+test('OAuth Single-Flight Lock & Idempotent Polling (#83): nessun doppio refresh concorrente su Bosch e Volvo', async () => {
+  const axios = require('axios');
+  const hub = require('../src/ev-climate-hub');
+  const prevAxiosPost = axios.post;
+  const prevPersist = hub._persistConfig;
+  const prevBosch = { ...hub.config.bosch };
+  const prevVolvo = { ...hub.config.volvo };
+  const prevSyncAllFns = [hub.syncAbbChargerSync, hub.syncVolvoEx30, hub.syncBoschEasyControl];
+
+  let postCalls = 0;
+  axios.post = async (url) => {
+    postCalls += 1;
+    await new Promise((r) => setTimeout(r, 25));
+    if (String(url).includes('singlekey-id.com')) {
+      return {
+        status: 200,
+        data: { access_token: 'bosch-new-acc', refresh_token: 'bosch-new-ref', expires_in: 3600 }
+      };
+    }
+    return {
+      status: 200,
+      data: { access_token: 'volvo-new-acc', refresh_token: 'volvo-new-ref', expires_in: 300 }
+    };
+  };
+  hub._persistConfig = () => {};
+
+  try {
+    // 1. Due refresh concorrenti Bosch inviano 1 sola POST /token
+    hub.config.bosch.pointtAccessToken = 'bosch-old';
+    hub.config.bosch.pointtRefreshToken = 'bosch-ref-1';
+    hub.config.bosch.pointtExpiresAt = Date.now() - 10000;
+    const [b1, b2] = await Promise.all([
+      hub._ensureBoschPointtToken(true),
+      hub._ensureBoschPointtToken(true)
+    ]);
+    assert.equal(b1, 'bosch-new-acc');
+    assert.equal(b2, 'bosch-new-acc');
+    assert.equal(postCalls, 1);
+
+    // 2. Due refresh concorrenti Volvo inviano 1 sola POST /token
+    hub.config.volvo.clientId = 'cid';
+    hub.config.volvo.clientSecret = 'csec';
+    hub.config.volvo.accessToken = 'volvo-old';
+    hub.config.volvo.refreshToken = 'volvo-ref-1';
+    const [v1, v2] = await Promise.all([
+      hub._volvoGetToken(true),
+      hub._volvoGetToken(true)
+    ]);
+    assert.equal(v1, 'volvo-new-acc');
+    assert.equal(v2, 'volvo-new-acc');
+    assert.equal(postCalls, 2);
+
+    // 3. Due syncAll concorrenti eseguono 1 solo ciclo
+    let syncCycles = 0;
+    hub.syncAbbChargerSync = async () => { syncCycles += 1; await new Promise((r) => setTimeout(r, 20)); };
+    hub.syncVolvoEx30 = async () => {};
+    hub.syncBoschEasyControl = async () => {};
+    await Promise.all([hub.syncAll(), hub.syncAll()]);
+    assert.equal(syncCycles, 1);
+  } finally {
+    axios.post = prevAxiosPost;
+    hub._persistConfig = prevPersist;
+    hub.config.bosch = prevBosch;
+    hub.config.volvo = prevVolvo;
+    [hub.syncAbbChargerSync, hub.syncVolvoEx30, hub.syncBoschEasyControl] = prevSyncAllFns;
+  }
+});
