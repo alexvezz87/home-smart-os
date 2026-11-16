@@ -757,6 +757,23 @@ class SecuritySystem {
             const val = item?.$?.Value === true || item?.$?.Value === 'true';
             if ((name === 'IsMotion' || name === 'IsPeople' || name === 'IsTPSmartEvent') && val) {
               const now = Date.now();
+              this._lastCameraBusEmit = this._lastCameraBusEmit || {};
+              const busKey = `${cam.id}:${name}`;
+              if (now - (this._lastCameraBusEmit[busKey] || 0) > 3000) {
+                this._lastCameraBusEmit[busKey] = now;
+                if (eventBus && typeof eventBus.publish === 'function') {
+                  eventBus.publish('security:camera_motion', {
+                    cameraId: cam.id,
+                    cameraName: cam.name,
+                    room: cam.room,
+                    eventName: name,
+                    isPeople: name === 'IsPeople',
+                    privacyMode: Boolean(cam.privacyMode),
+                    timestamp: new Date(now).toISOString()
+                  });
+                }
+              }
+
               const lastTs = cam.lastMotion ? new Date(cam.lastMotion).getTime() : 0;
               // Cooldown di 30 secondi per evitare flood di notifiche
               if (now - lastTs > 30000) {

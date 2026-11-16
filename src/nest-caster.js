@@ -46,9 +46,13 @@ class NestCaster {
     this.hueLocal = deps.hueLocal || hueLocal;
     this.googleFulfillment = deps.googleFulfillment || googleFulfillment;
     this.eventBus = deps.eventBus || require('./event-bus');
+    this._nowFn = typeof deps.nowFn === 'function' ? deps.nowFn : () => Date.now();
     this.soundsDir = deps.soundsDir || path.join(__dirname, '..', 'public', 'sounds');
     this.welcomeLastAt = new Map();
+    this.pendingWelcomeArrivals = new Map();
     this.presenceAttached = false;
+    this.cameraAttached = false;
+    this._welcomeFlushTimer = null;
 
     this.config = {
       chimePreset: 'chime',
@@ -58,6 +62,16 @@ class NestCaster {
       welcomeRoom: 'Salone',
       welcomeChimePreset: 'welcome_chime',
       welcomeCooldownMs: 10 * 60 * 1000,
+      welcomeRequireCamera: true,
+      welcomeCameraRoom: 'Salone',
+      welcomeRequirePeopleOnly: true,
+      welcomeFallbackOnPrivacy: false,
+      welcomePendingTtlMs: 15 * 60 * 1000,
+      welcomeDualWindowMs: 2000,
+      welcomeQuietHoursEnabled: true,
+      welcomeActiveStartHour: 8,
+      welcomeActiveEndHour: 20,
+      welcomeTimeZone: 'Europe/Rome',
       personGenders: { alex: 'male', cinzia: 'female' },
       ttsEngine: 'gemini',
       voiceName: 'Aoede',
@@ -75,6 +89,7 @@ class NestCaster {
     this.ensureDefaultChimes();
     await this._loadConfig().catch(() => {});
     this._attachPresenceListener();
+    this._attachCameraListener();
   }
 
   _attachPresenceListener() {
@@ -83,6 +98,102 @@ class NestCaster {
     this.eventBus.on('presence:changed', (evt) => {
       this.handlePresenceChanged(evt).catch(() => {});
     });
+  }
+
+  _attachCameraListener() {
+    if (this.cameraAttached || !this.eventBus || typeof this.eventBus.on !== 'function') return;
+    this.cameraAttached = true;
+    this.eventBus.on('security:camera_motion', (evt) => {
+      this.handleCameraMotion(evt).catch(() => {});
+    });
+  }
+
+  isWelcomeWithinActiveHours(date = new Date(this._nowFn())) {
+    if (!this.config.welcomeQuietHoursEnabled) return true;
+    try {
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: this.config.welcomeTimeZone || 'Europe/Rome',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      }).formatToParts(date);
+      const hourPart = parts.find((p) => p.type === 'hour')?.value;
+      const hour = Number(hourPart) % 24;
+      const startH = Number(this.config.welcomeActiveStartHour ?? 8);
+      const endH = Number(this.config.welcomeActiveEndHour ?? 20);
+      if (startH === endH) return true;
+      if (startH < endH) {
+        return hour >= startH && hour < endH;
+      }
+      return hour >= startH || hour < endH;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  buildCombinedWelcomeGreeting(peopleList = []) {
+    const unique = [];
+    const seen = new Set();
+    for (const entry of Array.isArray(peopleList) ? peopleList : []) {
+      const person = typeof entry === 'string' ? entry : entry?.person;
+      const gender = typeof entry === 'object' ? entry?.gender : null;
+      const clean = String(person || '').trim();
+      const key = clean.toLowerCase();
+      if (!clean || seen.has(key)) continue;
+      seen.add(key);
+      unique.push({
+        person: clean,
+        gender: gender === 'female' || gender === 'male' ? gender : this.resolvePersonGender(clean)
+      });
+    }
+    if (unique.length === 0) return '';
+    if (unique.length === 1) {
+      return this.buildWelcomeGreeting(unique[0].person, unique[0].gender);
+    }
+    const allFemale = unique.every((p) => p.gender === 'female');
+    const prefix = allFemale ? 'Bentornate a casa' : 'Bentornati a casa';
+    const names = unique.map((p) => p.person);
+    const formatted = names.length === 2
+      ? `${names[0]} e ${names[1]}`
+      : `${names.slice(0, -1).join(', ')} e ${names[names.length - 1]}`;
+    return `${prefix} ${formatted}`;
+  }
+
+  _isWelcomeCameraInPrivacyMode() {
+    const targetRoom = String(this.config.welcomeCameraRoom || 'Salone').trim().toLowerCase();
+    const cams = Object.values(this.securitySystem?.cameras || {});
+    const cam = cams.find((c) => {
+      const r = String(c.room || '').trim().toLowerCase();
+      const n = String(c.name || '').trim().toLowerCase();
+      return r === targetRoom || n === targetRoom || r.includes(targetRoom) || n.includes(targetRoom);
+    });
+    if (!cam) return { found: false, camera: null, privacyMode: false };
+    return { found: true, camera: cam, privacyMode: Boolean(cam.privacyMode) };
+  }
+
+  async _speakWelcomeForPeople(peopleList = []) {
+    const greeting = this.buildCombinedWelcomeGreeting(peopleList);
+    if (!greeting) return { skipped: true, reason: 'empty_greeting' };
+    const roomName = this.config.welcomeRoom || 'Salone';
+    const chimePreset = this.config.welcomeChimePreset || 'welcome_chime';
+    const now = this._nowFn();
+    for (const entry of peopleList) {
+      const key = String(entry?.person || entry || '').trim().toLowerCase();
+      if (key) this.welcomeLastAt.set(key, now);
+    }
+    try {
+      const res = await this.speak(greeting, {
+        roomName,
+        followMe: false,
+        playChime: true,
+        chimePreset,
+        lang: 'it'
+      });
+      return { announced: Boolean(res?.success), greeting, roomName, ...res };
+    } catch (err) {
+      console.warn(`⚠️ [NestCaster] Errore annuncio rientro "${greeting}":`, err.message);
+      return { announced: false, greeting, roomName, error: err.message };
+    }
   }
 
   resolvePersonGender(personName) {
@@ -138,38 +249,119 @@ class NestCaster {
     if (!this.config.welcomeAnnouncementsEnabled) {
       return { skipped: true, reason: 'disabled' };
     }
-    if (payload.status !== 'home' || !payload.person || payload.person === 'Casa') {
+    if (!payload.person || payload.person === 'Casa') {
       return { skipped: true, reason: 'not_resident_arrival' };
     }
-    if (payload.previous !== 'away') {
+    const key = String(payload.person).trim().toLowerCase();
+    if (payload.status === 'away') {
+      this.pendingWelcomeArrivals.delete(key);
+      return { skipped: true, reason: 'status_away' };
+    }
+    if (payload.status !== 'home' || payload.previous !== 'away') {
       return { skipped: true, reason: 'previous_not_away' };
     }
+    if (!this.isWelcomeWithinActiveHours()) {
+      this.pendingWelcomeArrivals.delete(key);
+      return { skipped: true, reason: 'quiet_hours' };
+    }
 
-    const key = String(payload.person).trim().toLowerCase();
+    const now = this._nowFn();
     const cooldownMs = Number(this.config.welcomeCooldownMs || 10 * 60 * 1000);
     const lastAt = this.welcomeLastAt.get(key) || 0;
-    if (Date.now() - lastAt < cooldownMs) {
+    if (now - lastAt < cooldownMs) {
       return { skipped: true, reason: 'cooldown' };
     }
 
-    this.welcomeLastAt.set(key, Date.now());
-    const greeting = this.buildWelcomeGreeting(payload.person, payload.gender || null);
-    const roomName = this.config.welcomeRoom || 'Salone';
-    const chimePreset = this.config.welcomeChimePreset || 'welcome_chime';
+    const gender = payload.gender || this.resolvePersonGender(payload.person);
+    const camState = this._isWelcomeCameraInPrivacyMode();
 
-    try {
-      const res = await this.speak(greeting, {
-        roomName,
-        followMe: false,
-        playChime: true,
-        chimePreset,
-        lang: 'it'
+    if (this.config.welcomeRequireCamera !== false && camState.found) {
+      if (camState.privacyMode) {
+        if (!this.config.welcomeFallbackOnPrivacy) {
+          return { skipped: true, reason: 'camera_privacy_mode' };
+        }
+        return this._speakWelcomeForPeople([{ person: payload.person, gender }]);
+      }
+      const ttlMs = Number(this.config.welcomePendingTtlMs || 15 * 60 * 1000);
+      this.pendingWelcomeArrivals.set(key, {
+        person: payload.person,
+        gender,
+        arrivedAt: now,
+        expiresAt: now + ttlMs
       });
-      return { announced: Boolean(res?.success), greeting, roomName, ...res };
-    } catch (err) {
-      console.warn(`⚠️ [NestCaster] Errore annuncio rientro "${greeting}":`, err.message);
-      return { announced: false, greeting, roomName, error: err.message };
+      return { queued: true, person: payload.person, pendingCount: this.pendingWelcomeArrivals.size };
     }
+
+    return this._speakWelcomeForPeople([{ person: payload.person, gender }]);
+  }
+
+  async flushPendingWelcomeArrivals() {
+    if (this._welcomeFlushTimer) {
+      clearTimeout(this._welcomeFlushTimer);
+      this._welcomeFlushTimer = null;
+    }
+    const now = this._nowFn();
+    for (const [k, item] of this.pendingWelcomeArrivals.entries()) {
+      if (item.expiresAt <= now) {
+        this.pendingWelcomeArrivals.delete(k);
+      }
+    }
+    const people = Array.from(this.pendingWelcomeArrivals.values());
+    this.pendingWelcomeArrivals.clear();
+    if (people.length === 0) {
+      return { skipped: true, reason: 'no_pending_arrivals' };
+    }
+    return this._speakWelcomeForPeople(people);
+  }
+
+  async handleCameraMotion(evt = {}) {
+    const payload = (evt && evt.data && typeof evt.data === 'object') ? evt.data : (evt || {});
+    if (!this.config.welcomeAnnouncementsEnabled) {
+      return { skipped: true, reason: 'disabled' };
+    }
+    if (!this.isWelcomeWithinActiveHours()) {
+      this.pendingWelcomeArrivals.clear();
+      return { skipped: true, reason: 'quiet_hours' };
+    }
+    const expectedRoom = String(this.config.welcomeCameraRoom || 'Salone').trim().toLowerCase();
+    const evtTarget = String(payload.room || payload.cameraName || '').trim().toLowerCase();
+    if (!evtTarget || (!evtTarget.includes(expectedRoom) && !expectedRoom.includes(evtTarget))) {
+      return { skipped: true, reason: 'wrong_room' };
+    }
+
+    const camState = this._isWelcomeCameraInPrivacyMode();
+    if (payload.privacyMode === true || camState.privacyMode === true) {
+      return { skipped: true, reason: 'camera_privacy_mode' };
+    }
+    if (this.config.welcomeRequirePeopleOnly !== false) {
+      if (payload.isPeople !== true && payload.eventName !== 'IsPeople') {
+        return { skipped: true, reason: 'not_person_event' };
+      }
+    }
+
+    const now = this._nowFn();
+    for (const [k, item] of this.pendingWelcomeArrivals.entries()) {
+      if (item.expiresAt <= now) {
+        this.pendingWelcomeArrivals.delete(k);
+      }
+    }
+    if (this.pendingWelcomeArrivals.size === 0) {
+      return { skipped: true, reason: 'no_pending_arrivals' };
+    }
+
+    const dualWindow = Number(this.config.welcomeDualWindowMs ?? 2000);
+    if (dualWindow <= 0) {
+      return this.flushPendingWelcomeArrivals();
+    }
+
+    return new Promise((resolve) => {
+      if (this._welcomeFlushTimer) {
+        clearTimeout(this._welcomeFlushTimer);
+      }
+      this._welcomeFlushTimer = setTimeout(() => {
+        this.flushPendingWelcomeArrivals().then(resolve).catch((err) => resolve({ announced: false, error: err.message }));
+      }, dualWindow);
+    });
   }
 
   async _loadConfig() {
@@ -231,6 +423,9 @@ class NestCaster {
         { id: 'Leda', label: 'Leda — Femminile giovane & leggera' },
         { id: 'Zephyr', label: 'Zephyr — Femminile brillante & amichevole' }
       ],
+      pendingWelcomeArrivals: Array.from(this.pendingWelcomeArrivals.values()).map((x) => x.person),
+      welcomeCameraPrivacyMode: this._isWelcomeCameraInPrivacyMode().privacyMode,
+      welcomeWithinActiveHours: this.isWelcomeWithinActiveHours(),
       webhookUrl: '/api/google/fulfillment'
     };
   }
@@ -270,6 +465,33 @@ class NestCaster {
     }
     if (typeof payload.voiceStyle === 'string') {
       this.config.voiceStyle = payload.voiceStyle.trim().slice(0, 220);
+    }
+    if (payload.welcomeRequireCamera !== undefined) {
+      this.config.welcomeRequireCamera = Boolean(payload.welcomeRequireCamera);
+    }
+    if (typeof payload.welcomeCameraRoom === 'string' && payload.welcomeCameraRoom.trim()) {
+      this.config.welcomeCameraRoom = payload.welcomeCameraRoom.trim();
+    }
+    if (payload.welcomeRequirePeopleOnly !== undefined) {
+      this.config.welcomeRequirePeopleOnly = Boolean(payload.welcomeRequirePeopleOnly);
+    }
+    if (payload.welcomeFallbackOnPrivacy !== undefined) {
+      this.config.welcomeFallbackOnPrivacy = Boolean(payload.welcomeFallbackOnPrivacy);
+    }
+    if (payload.welcomePendingTtlMs !== undefined && Number.isFinite(Number(payload.welcomePendingTtlMs))) {
+      this.config.welcomePendingTtlMs = Math.max(60000, Math.min(3600000, Number(payload.welcomePendingTtlMs)));
+    }
+    if (payload.welcomeDualWindowMs !== undefined && Number.isFinite(Number(payload.welcomeDualWindowMs))) {
+      this.config.welcomeDualWindowMs = Math.max(0, Math.min(10000, Number(payload.welcomeDualWindowMs)));
+    }
+    if (payload.welcomeQuietHoursEnabled !== undefined) {
+      this.config.welcomeQuietHoursEnabled = Boolean(payload.welcomeQuietHoursEnabled);
+    }
+    if (payload.welcomeActiveStartHour !== undefined && Number.isFinite(Number(payload.welcomeActiveStartHour))) {
+      this.config.welcomeActiveStartHour = Math.max(0, Math.min(23, Math.floor(Number(payload.welcomeActiveStartHour))));
+    }
+    if (payload.welcomeActiveEndHour !== undefined && Number.isFinite(Number(payload.welcomeActiveEndHour))) {
+      this.config.welcomeActiveEndHour = Math.max(0, Math.min(23, Math.floor(Number(payload.welcomeActiveEndHour))));
     }
     if (payload.customChimeBase64) {
       const savedName = this.saveCustomChime(payload.customChimeName || 'custom_chime.wav', payload.customChimeBase64);

@@ -84,6 +84,9 @@
 6. **Voce Gemini TTS (`Aoede`) muta su Google Nest Cast dopo il chime (`#86`)**:
    - Gemini TTS produce WAV a `24 kHz` mono con metadati `C2PA` in coda, che `DefaultMediaReceiver` su Chromecast/Nest spesso scarta dopo il chime (`44.1 kHz` stereo).
    - Risolto in `src/ai-gateway.js` (`_stripExtraWavChunks` + `_transcodeWavFileToMp3` via `ffmpeg` -> MP3 `44.1 kHz` stereo `128 kbps` `audio/mpeg`) e in `src/security-system.js` (`announceToNest` usa `player.queueLoad([chimeItem, speechItem])` con `REPEAT_OFF` anziché due `load()` separati).
+7. **L'annuncio di benvenuto non parte al rientro (`#87`)**:
+   - Verifica in Amministrazione (*Google Nest & Smart Home Fulfillment*): se è attivo **"Attendi rilevamento persona su Telecamera Salone"**, la casa attende che la telecamera del Salone rilevi una persona (`IsPeople`) entro 15 minuti dall'aggancio Wi-Fi, e **sospende** l'annuncio se la telecamera è in **Privacy Mode** oppure se si è nella **fascia silenziosa (`20:00 – 08:00`)**. I pulsanti di test in Amministrazione restano sempre utilizzabili a qualsiasi ora.
+
 
 
 
