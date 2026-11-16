@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { execFileSync } = require('child_process');
 const axios = require('axios');
 const db = require('./db');
 const eventBus = require('./event-bus');
@@ -498,6 +499,53 @@ class AIGateway {
     };
   }
 
+  _stripExtraWavChunks(buf) {
+    try {
+      if (!Buffer.isBuffer(buf) || buf.length < 44) return buf;
+      if (buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') return buf;
+      let offset = 12;
+      let fmtChunk = null;
+      let dataChunk = null;
+      while (offset + 8 <= buf.length) {
+        const id = buf.toString('ascii', offset, offset + 4);
+        const sz = buf.readUInt32LE(offset + 4);
+        const end = Math.min(buf.length, offset + 8 + sz);
+        if (id === 'fmt ' && !fmtChunk) fmtChunk = buf.subarray(offset, end);
+        else if (id === 'data' && !dataChunk) dataChunk = buf.subarray(offset, end);
+        offset += 8 + sz + (sz % 2);
+      }
+      if (!fmtChunk || !dataChunk) return buf;
+      const bodyLen = 4 + fmtChunk.length + dataChunk.length;
+      const out = Buffer.alloc(8 + bodyLen);
+      out.write('RIFF', 0);
+      out.writeUInt32LE(bodyLen, 4);
+      out.write('WAVE', 8);
+      fmtChunk.copy(out, 12);
+      dataChunk.copy(out, 12 + fmtChunk.length);
+      return out;
+    } catch (_) {
+      return buf;
+    }
+  }
+
+  _transcodeWavFileToMp3(wavPath, mp3Path) {
+    try {
+      execFileSync('ffmpeg', [
+        '-y',
+        '-loglevel', 'error',
+        '-i', wavPath,
+        '-ar', '44100',
+        '-ac', '2',
+        '-c:a', 'libmp3lame',
+        '-b:a', '128k',
+        mp3Path
+      ], { timeout: 10000, stdio: 'ignore' });
+      return fs.existsSync(mp3Path) && fs.statSync(mp3Path).size > 512;
+    } catch (_) {
+      return false;
+    }
+  }
+
   async synthesizeSpeech({ text, voiceName = 'Aoede', styleInstruction = '', saveToFile = false, useCache = true } = {}) {
     const cleanText = String(text || '').trim();
     if (!cleanText) {
@@ -510,26 +558,51 @@ class AIGateway {
       .update(`${voiceName}::${styleInstruction}::${cleanText}`)
       .digest('hex')
       .slice(0, 16);
-    const cachedName = `tts-${cacheHash}.wav`;
-    const cachedPath = path.join(ttsDir, cachedName);
+    const cachedMp3Name = `tts-${cacheHash}.mp3`;
+    const cachedWavName = `tts-${cacheHash}.wav`;
+    const cachedMp3Path = path.join(ttsDir, cachedMp3Name);
+    const cachedWavPath = path.join(ttsDir, cachedWavName);
 
-    if (saveToFile && useCache && fs.existsSync(cachedPath)) {
-      try {
-        const stat = fs.statSync(cachedPath);
-        if (stat.size > 1024) {
-          const cachedBuf = fs.readFileSync(cachedPath);
+    if (saveToFile && useCache) {
+      if (fs.existsSync(cachedMp3Path) && fs.statSync(cachedMp3Path).size > 512) {
+        const cachedBuf = fs.readFileSync(cachedMp3Path);
+        return {
+          success: true,
+          cached: true,
+          model: this.models?.tts || DEFAULT_MODELS.tts,
+          voiceName,
+          mimeType: 'audio/mpeg',
+          bytes: cachedBuf.length,
+          audioUrl: `/audio/tts/${cachedMp3Name}`,
+          audioBase64: cachedBuf.toString('base64')
+        };
+      }
+      if (fs.existsSync(cachedWavPath) && fs.statSync(cachedWavPath).size > 1024) {
+        if (this._transcodeWavFileToMp3(cachedWavPath, cachedMp3Path)) {
+          const mp3Buf = fs.readFileSync(cachedMp3Path);
           return {
             success: true,
             cached: true,
             model: this.models?.tts || DEFAULT_MODELS.tts,
             voiceName,
-            mimeType: 'audio/wav',
-            bytes: cachedBuf.length,
-            audioUrl: `/audio/tts/${cachedName}`,
-            audioBase64: cachedBuf.toString('base64')
+            mimeType: 'audio/mpeg',
+            bytes: mp3Buf.length,
+            audioUrl: `/audio/tts/${cachedMp3Name}`,
+            audioBase64: mp3Buf.toString('base64')
           };
         }
-      } catch (_) {}
+        const cachedBuf = fs.readFileSync(cachedWavPath);
+        return {
+          success: true,
+          cached: true,
+          model: this.models?.tts || DEFAULT_MODELS.tts,
+          voiceName,
+          mimeType: 'audio/wav',
+          bytes: cachedBuf.length,
+          audioUrl: `/audio/tts/${cachedWavName}`,
+          audioBase64: cachedBuf.toString('base64')
+        };
+      }
     }
 
     const apiKey = this.getApiKey();
@@ -579,19 +652,30 @@ class AIGateway {
     if (outMime.toLowerCase().includes('pcm') || outMime.toLowerCase().includes('l16')) {
       audioBuffer = pcmToWavBuffer(audioBuffer, 24000, 1, 16);
       outMime = 'audio/wav';
+    } else if (outMime.toLowerCase().includes('wav')) {
+      audioBuffer = this._stripExtraWavChunks(audioBuffer);
+      outMime = 'audio/wav';
     }
 
     let audioUrl = null;
     if (saveToFile) {
       fs.mkdirSync(ttsDir, { recursive: true });
-      const fileName = useCache ? cachedName : `tts-${Date.now()}.wav`;
-      fs.writeFileSync(path.join(ttsDir, fileName), audioBuffer);
-      audioUrl = `/audio/tts/${fileName}`;
+      const baseStem = useCache ? `tts-${cacheHash}` : `tts-${Date.now()}`;
+      const wavPath = path.join(ttsDir, `${baseStem}.wav`);
+      const mp3Path = path.join(ttsDir, `${baseStem}.mp3`);
+      fs.writeFileSync(wavPath, audioBuffer);
+      if (this._transcodeWavFileToMp3(wavPath, mp3Path)) {
+        audioBuffer = fs.readFileSync(mp3Path);
+        outMime = 'audio/mpeg';
+        audioUrl = `/audio/tts/${baseStem}.mp3`;
+      } else {
+        audioUrl = `/audio/tts/${baseStem}.wav`;
+      }
 
       // Pulizia leggera dei file più vecchi se superano 60
       try {
         const files = fs.readdirSync(ttsDir)
-          .filter((f) => f.endsWith('.wav'))
+          .filter((f) => /\.(wav|mp3)$/i.test(f))
           .map((f) => ({ name: f, mtime: fs.statSync(path.join(ttsDir, f)).mtimeMs }))
           .sort((a, b) => b.mtime - a.mtime);
         for (const old of files.slice(60)) {

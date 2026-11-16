@@ -81,6 +81,9 @@
    - `api.volvocars.com` risolve su Azure Front Door (`150.171.0.0/16`): instradare l'intera sottorete `150.171.0.0/16` tramite `wg0` verso la Iliadbox domestica in Italia in `/etc/wireguard/wg0.conf`.
 5. **Disconnessioni improvvise `invalid_grant` al rinnovo orario Bosch/Volvo (`#83`)**:
    - Risolto con `startPolling()` idempotente (rimosso il doppio `setInterval` tra `server.js` e `src/ev-climate-hub.js`) e single-flight mutex `_runSingleFlight` su `syncAll()`, `_ensureBoschPointtToken()` e `_volvoGetToken()`, impedendo invii concorrenti dello stesso `refresh_token` a rotazione.
+6. **Voce Gemini TTS (`Aoede`) muta su Google Nest Cast dopo il chime (`#86`)**:
+   - Gemini TTS produce WAV a `24 kHz` mono con metadati `C2PA` in coda, che `DefaultMediaReceiver` su Chromecast/Nest spesso scarta dopo il chime (`44.1 kHz` stereo).
+   - Risolto in `src/ai-gateway.js` (`_stripExtraWavChunks` + `_transcodeWavFileToMp3` via `ffmpeg` -> MP3 `44.1 kHz` stereo `128 kbps` `audio/mpeg`) e in `src/security-system.js` (`announceToNest` usa `player.queueLoad([chimeItem, speechItem])` con `REPEAT_OFF` anziché due `load()` separati).
 
 
 
