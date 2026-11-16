@@ -26,7 +26,7 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 ## 3. Volvo EX30 (`src/ev-climate-hub.js`)
 - **Protocollo**: **Volvo Cars Energy API v2** (`/energy/v2/vehicles/{vin}/state`) + **Connected Vehicle API v2** (`/connected-vehicle/v2/vehicles/{vin}/...`) + **Location API v1**.
 - **Autenticazione**: OAuth2 PKCE su `https://auth.volvocars.com/realms/volvocars/protocol/openid-connect/token` + header `vcc-api-key`.
-- **Gestione Scadenza Breve**: I token Volvo hanno una durata molto breve (~5 minuti) e la sessione scade se non viene rinnovata entro 30 minuti. L'esecuzione 24/7 del server su Google Cloud mantiene vivo il loop di refresh automatico ogni 3 minuti senza interruzioni.
+- **Gestione Scadenza Breve & Quota 10k/giorno (`#76`)**: I token Volvo hanno durata breve (~5 minuti) e senza `offline_access` sul Developer Portal il `refresh_token` di sessione ha durata massima 1 ora. Il polling automatico usa cadenza adattiva (**3 minuti** a riposo / **2 minuti** in carica) con cache di 6 ore sugli endpoint statici (`capabilities`, `vehicleDetails`) restando intorno a ~4.320 req/giorno (< 10.000/giorno).
 
 ---
 

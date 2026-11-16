@@ -1246,7 +1246,7 @@ app.post('/api/ev-climate/bosch/browser-capture', async (req, res) => {
 
 app.post('/api/ev-climate/sync', async (req, res) => {
   try {
-    await evClimateHub.syncAll();
+    await evClimateHub.syncAll({ forceVolvo: true });
     const snapshot = await mcp.getHomeSnapshot().catch(() => null);
     res.json({ success: true, data: evClimateHub.getUnifiedStatus(snapshot) });
   } catch (error) {

@@ -401,10 +401,10 @@ class EvClimateHub {
     setInterval(() => this.syncAll().catch(() => {}), 60000);
   }
 
-  async syncAll() {
+  async syncAll(options = {}) {
     await Promise.allSettled([
       this.syncAbbChargerSync(),
-      this.syncVolvoEx30(),
+      this.syncVolvoEx30({ force: Boolean(options.forceVolvo) }),
       this.syncBoschEasyControl()
     ]);
 
@@ -795,12 +795,25 @@ class EvClimateHub {
     return this.config.volvo.accessToken;
   }
 
-  async syncVolvoEx30() {
+  getVolvoPollingIntervalMs() {
+    const isCharging = String(this.volvoState?.chargingStatus || '').toUpperCase() === 'CHARGING';
+    return isCharging ? 120000 : 180000; // 2 min in carica, 3 min a riposo (~4.320 req/giorno < 10.000)
+  }
+
+  async syncVolvoEx30(options = {}) {
+    const force = options.force !== false;
+    const now = Date.now();
+    if (!force && this._volvoLastPollAt && (now - this._volvoLastPollAt) < this.getVolvoPollingIntervalMs()) {
+      return this.volvoState;
+    }
+
     const { vin, vccApiKey } = this.config.volvo;
     let token = this.config.volvo.accessToken;
     try {
       token = await this._volvoGetToken();
-    } catch (_) {}
+    } catch (tokenErr) {
+      console.warn('⚠️ [Volvo OAuth] Rinnovo token fallito:', tokenErr.message);
+    }
 
     let tokenExp = null;
     if (token) {
@@ -876,6 +889,10 @@ class EvClimateHub {
         return false;
       };
 
+      this._volvoLastPollAt = Date.now();
+      const shouldFetchStatic = force || !vehicleDetails || !capabilities ||
+        !this._volvoStaticFetchedAt || (Date.now() - this._volvoStaticFetchedAt) >= 6 * 3600 * 1000;
+
       try {
         const [
           odoRes, statRes, doorRes, locRes,
@@ -885,8 +902,8 @@ class EvClimateHub {
           getVolvo(`/connected-vehicle/v2/vehicles/${encodedVin}/statistics`),
           getVolvo(`/connected-vehicle/v2/vehicles/${encodedVin}/doors`),
           getVolvo(`/location/v1/vehicles/${encodedVin}/location`),
-          getVolvo(`/energy/v2/vehicles/${encodedVin}/capabilities`),
-          getVolvo(`/connected-vehicle/v2/vehicles/${encodedVin}`),
+          shouldFetchStatic ? getVolvo(`/energy/v2/vehicles/${encodedVin}/capabilities`) : Promise.resolve(null),
+          shouldFetchStatic ? getVolvo(`/connected-vehicle/v2/vehicles/${encodedVin}`) : Promise.resolve(null),
           getVolvo(`/connected-vehicle/v2/vehicles/${encodedVin}/windows`),
           getVolvo(`/connected-vehicle/v2/vehicles/${encodedVin}/tyres`),
           getVolvo(`/connected-vehicle/v2/vehicles/${encodedVin}/diagnostics`),
@@ -988,11 +1005,15 @@ class EvClimateHub {
           };
         }
 
-        if (trackScope('capabilities', capRes) && capRes.data) {
+        if (!shouldFetchStatic && capabilities) {
+          scopeStatus.capabilities = 'ok';
+        } else if (trackScope('capabilities', capRes) && capRes.data) {
           capabilities = capRes.data;
         }
 
-        if (trackScope('vehicleDetails', detailsRes) && detailsRes.data?.data) {
+        if (!shouldFetchStatic && vehicleDetails) {
+          scopeStatus.vehicleDetails = 'ok';
+        } else if (trackScope('vehicleDetails', detailsRes) && detailsRes.data?.data) {
           const vd = detailsRes.data.data;
           vehicleDetails = {
             modelYear: vd.modelYear || null,
@@ -1004,6 +1025,9 @@ class EvClimateHub {
             steering: vd.steering || null,
             descriptions: vd.descriptions || null
           };
+        }
+        if (shouldFetchStatic && capabilities && vehicleDetails) {
+          this._volvoStaticFetchedAt = Date.now();
         }
 
         if (trackScope('location', locRes) && locRes.data?.data?.geometry?.coordinates) {

@@ -1426,3 +1426,25 @@ test('Auth Perimeter Hardening (#74): isTrustedHomeNetwork, blocco 403 PIN ester
     else process.env.ENCRYPTION_KEY = prevEnc;
   }
 });
+
+test('Volvo Adaptive Polling (#76): intervallo 3m a riposo / 2m in carica e skip throttling quando force=false', async () => {
+  const hub = require('../src/ev-climate-hub');
+  const prevCharging = hub.volvoState.chargingStatus;
+  const prevPollAt = hub._volvoLastPollAt;
+  const prevErr = hub.volvoState.lastError;
+  try {
+    hub.volvoState.chargingStatus = 'IDLE';
+    assert.equal(hub.getVolvoPollingIntervalMs(), 180000);
+    hub.volvoState.chargingStatus = 'CHARGING';
+    assert.equal(hub.getVolvoPollingIntervalMs(), 120000);
+
+    hub._volvoLastPollAt = Date.now();
+    hub.volvoState.lastError = 'SENTINEL_CACHED';
+    const cached = await hub.syncVolvoEx30({ force: false });
+    assert.equal(cached.lastError, 'SENTINEL_CACHED');
+  } finally {
+    hub.volvoState.chargingStatus = prevCharging;
+    hub._volvoLastPollAt = prevPollAt;
+    hub.volvoState.lastError = prevErr;
+  }
+});
