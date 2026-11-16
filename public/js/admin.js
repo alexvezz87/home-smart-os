@@ -1709,8 +1709,8 @@ class AdminManager {
 
           <div class="flex items-center gap-2 flex-wrap">
             <select id="admin-pet-name" class="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white">
-              <option value="Lucifero">Lucifero (Cane)</option>
-              <option value="Camilla">Camilla (Gatto)</option>
+              <option value="Lucifero">Lucifero (Gatto)</option>
+              <option value="Camilla">Camilla (Cane)</option>
             </select>
             <input id="admin-pet-file" type="file" accept="image/*" class="text-[11px] text-slate-300" />
             <button onclick="window.adminManager.uploadPetRef()" class="px-3 py-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 font-semibold">

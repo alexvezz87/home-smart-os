@@ -909,6 +909,9 @@ app.post('/api/mail/bills/:id/status', async (req, res) => {
 app.post('/api/mail/sync', async (req, res) => {
   try {
     const result = await deliveryBillingParser.syncAll();
+    if (result && result.synced === false) {
+      return res.status(400).json({ success: false, error: result.error || result.reason || 'Sync non eseguito', ...result });
+    }
     res.json({ success: true, ...result });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });

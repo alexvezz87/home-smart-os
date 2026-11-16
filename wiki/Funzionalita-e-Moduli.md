@@ -146,7 +146,7 @@ Riorganizzata con un'architettura **modulare responsive**: su desktop/tablet ori
 - **Dispatcher Centrale (`src/notifier.js`)**: instradamento intelligente per severità (`critical` -> Telegram con foto/pulsanti inline + Web Push, `warning` -> Telegram inline, `info` -> Web Push discreto), deduplicazione con cooldown configurabile, silenziamento per categoria (`security`, `climate`, `energy`, `system`) e integrazione diretta con `eventBus`.
 - **Telegram Bot Interattivo (`src/telegram-bot.js`)**: client REST HTTPS leggero via `axios` con whitelist rigorosa `chat_id` (`TELEGRAM_ALLOWED_USERS` + link di pairing sicuro `t.me/<bot>?start=auth_<token>`), comandi rapidi (`/stato`, `/foto_salone`, `/foto_camera`, `/clima`, `/auto`, `/spegni_tutto`), trascrizione note vocali `.ogg` via `aiGateway` (`gemini-3.8-flash`) e inoltro linguaggio naturale a `src/assistant.js`.
 - **Web Push PWA (`src/web-push-manager.js`, `public/sw.js`)**: gestione chiavi VAPID (auto-generate e salvate su TiDB `kv_store`), sottoscrizioni browser multiple e deep-link al click sulla notifica.
-- **Sentinella Fuori Casa & Filtro Pet (`src/security-system.js`)**: ronda periodica automatica (5/10/15 min) sulle telecamere quando casa è in modalità Away (e risveglio istantaneo da `sensor:motion`), con analisi multimodale few-shot Gemini Vision per riconoscere **Lucifero (cane)** e **Camilla (gatto)** ed evitare falsi allarmi.
+- **Sentinella Fuori Casa & Filtro Pet (`src/security-system.js`)**: ronda periodica automatica (5/10/15 min) sulle telecamere quando casa è in modalità Away (e risveglio istantaneo da `sensor:motion`), con analisi multimodale few-shot Gemini Vision per riconoscere **Lucifero (gatto)** e **Camilla (cane)** ed evitare falsi allarmi.
 
 ---
 

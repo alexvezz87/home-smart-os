@@ -1768,7 +1768,7 @@ class SecuritySystem {
         const promptText =
           `Sei la Sentinella AI di Home Smart OS (motivo controllo: ${reason}). ` +
           `Analizza questo snapshot LIVE della telecamera "${cam.name}" mentre i proprietari sono FUORI CASA. ` +
-          `Gli animali domestici autorizzati in casa sono il cane Lucifero e il gatto Camilla (vedi eventuali foto di riferimento allegate). ` +
+          `Gli animali domestici autorizzati in casa sono il gatto Lucifero e il cane Camilla (vedi eventuali foto di riferimento allegate). ` +
           `Se nell'immagine compaiono SOLO Lucifero o Camilla o nessun intruso/anomalia, imposta alert=false e petOnly=true (se presenti gli animali). ` +
           `Imposta alert=true SOLO se rilevi una persona sconosciuta, un intrusione, fumo/incendio o un danno evidente. ` +
           `Rispondi ONLY in JSON valido: {"alert": boolean, "petOnly": boolean, "summary": string, "confidence": number, "detected": string[]}`;

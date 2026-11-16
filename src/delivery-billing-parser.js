@@ -243,6 +243,7 @@ Altrimenti: {"type":"ignore"}`;
     let parsedDeliveries = 0;
     let parsedBills = 0;
     const processedIds = [];
+    const accountErrors = [];
 
     for (const account of ['alex', 'cinzia']) {
       const st = this.gmailHub.getStatus().accounts[account];
@@ -267,8 +268,24 @@ Altrimenti: {"type":"ignore"}`;
           }
         }
       } catch (err) {
-        logger.warn(`Errore sync Gmail (${account})`, { error: err.message }, 'mail-parser');
+        const status = err.response?.status;
+        const reason = err.response?.data?.error?.details?.[0]?.reason || '';
+        const errMsg = status === 403 || reason === 'ACCESS_TOKEN_SCOPE_INSUFFICIENT'
+          ? `Permesso lettura Gmail (${account}) non spuntato: clicca su "Ricollega OAuth" e metti la spunta alla casella "Visualizza i messaggi e le impostazioni dell'email" nella schermata Google!`
+          : `Errore sync Gmail (${account}): ${err.message}`;
+        accountErrors.push(errMsg);
+        logger.warn(`Errore sync Gmail (${account})`, { error: err.message, reason }, 'mail-parser');
       }
+    }
+
+    if (accountErrors.length > 0 && processedIds.length === 0) {
+      return {
+        synced: false,
+        error: accountErrors.join(' | '),
+        processedMessages: 0,
+        parsedDeliveries: 0,
+        parsedBills: 0
+      };
     }
 
     if (processedIds.length > 0) {
