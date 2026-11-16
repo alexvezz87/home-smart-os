@@ -53,6 +53,7 @@ class DeliveryBillingParser {
       }
     } catch (_) {}
 
+    await this._syncDeliveriesAndBillsToNotifierFeed();
     this._bindSentinelListener();
 
     if (!this.syncTimer) {
@@ -294,6 +295,10 @@ Rispondi SOLO con JSON valido: {"items":[ ... ]}\n\n${digest}`;
       itemsDescription: item.itemsDescription || msg.subject || 'Pacco',
       expectedDate: item.expectedDate || new Date().toISOString().slice(0, 10),
       status: ['in_transit', 'out_for_delivery', 'delivered'].includes(item.status) ? item.status : 'in_transit',
+      mailSubject: String(msg?.subject || '').slice(0, 180),
+      mailFrom: String(msg?.from || '').slice(0, 140),
+      mailDate: msg?.date || '',
+      mailSnippet: String(msg?.bodyText || msg?.snippet || '').slice(0, 800),
       updatedAt: new Date().toISOString()
     };
 
@@ -324,6 +329,10 @@ Rispondi SOLO con JSON valido: {"items":[ ... ]}\n\n${digest}`;
       status: existing?.status === 'paid'
         ? 'paid'
         : (['pending', 'paid', 'overdue'].includes(item.status) ? item.status : 'pending'),
+      mailSubject: String(msg?.subject || '').slice(0, 180),
+      mailFrom: String(msg?.from || '').slice(0, 140),
+      mailDate: msg?.date || '',
+      mailSnippet: String(msg?.bodyText || msg?.snippet || '').slice(0, 800),
       updatedAt: new Date().toISOString()
     };
 
@@ -391,6 +400,7 @@ Rispondi SOLO con JSON valido: {"items":[ ... ]}\n\n${digest}`;
     await db.set(DELIVERIES_KEY, this.deliveries, false);
     await db.set(BILLS_KEY, this.bills, false);
 
+    await this._syncDeliveriesAndBillsToNotifierFeed();
     await this.checkDueReminders();
     await this.sendMorningDeliveriesSummary();
 
@@ -400,6 +410,82 @@ Rispondi SOLO con JSON valido: {"items":[ ... ]}\n\n${digest}`;
       parsedDeliveries,
       parsedBills
     };
+  }
+
+  async _syncDeliveriesAndBillsToNotifierFeed() {
+    if (!this.notifier || typeof this.notifier.upsertFeedItem !== 'function') return;
+    for (const d of this.deliveries) {
+      await this.notifier.upsertFeedItem({
+        sourceKey: `delivery:${d.id}`,
+        sourceType: 'mail_delivery',
+        level: d.status === 'out_for_delivery' ? 'warning' : 'info',
+        category: 'mail',
+        title: d.status === 'delivered'
+          ? `Pacco consegnato (${d.store || 'Negozio'})`
+          : d.status === 'out_for_delivery'
+            ? `Pacco in consegna oggi (${d.store || 'Negozio'})`
+            : `Spedizione in transito (${d.store || 'Negozio'})`,
+        message: `${d.itemsDescription || 'Pacco'} tramite ${d.courier || 'Corriere'} per ${d.recipient || 'Casa'} (previsto: ${d.expectedDate || '--'}).`,
+        metadata: {
+          deliveryId: d.id,
+          courier: d.courier,
+          store: d.store,
+          trackingNumber: d.trackingNumber,
+          expectedDate: d.expectedDate,
+          recipient: d.recipient,
+          deliveryStatus: d.status,
+          mailSubject: d.mailSubject || '',
+          mailFrom: d.mailFrom || '',
+          mailDate: d.mailDate || '',
+          mailSnippet: d.mailSnippet || ''
+        }
+      }).catch(() => {});
+    }
+    for (const b of this.bills) {
+      if (b.status === 'paid') continue;
+      await this.notifier.upsertFeedItem({
+        sourceKey: `bill:${b.id}`,
+        sourceType: 'mail_bill',
+        level: b.status === 'overdue' ? 'critical' : 'info',
+        category: 'energy',
+        title: `Bolletta ${b.provider || 'Utenza'} (${Number(b.amountEur || 0).toFixed(2)} €)`,
+        message: `Scadenza ${b.dueDate || '--'} per ${b.recipient || 'Casa'}${b.billedUnits ? ` (${b.billedUnits})` : ''}.`,
+        metadata: {
+          billId: b.id,
+          provider: b.provider,
+          serviceType: b.serviceType,
+          amountEur: b.amountEur,
+          dueDate: b.dueDate,
+          billStatus: b.status,
+          recipient: b.recipient,
+          mailSubject: b.mailSubject || '',
+          mailFrom: b.mailFrom || '',
+          mailDate: b.mailDate || '',
+          mailSnippet: b.mailSnippet || ''
+        }
+      }).catch(() => {});
+    }
+  }
+
+  async markDeliveryReceived(id) {
+    const item = this.deliveries.find((d) => d.id === id);
+    if (!item) {
+      throw new Error('Spedizione non trovata');
+    }
+    const now = new Date().toISOString();
+    item.status = 'delivered';
+    item.receivedAt = now;
+    item.updatedAt = now;
+    await db.set(DELIVERIES_KEY, this.deliveries, false);
+    eventBus.publish('mail:delivery_update', {
+      deliveryId: item.id,
+      status: 'delivered',
+      store: item.store,
+      courier: item.courier,
+      recipient: item.recipient,
+      itemsDescription: item.itemsDescription
+    });
+    return item;
   }
 
   async checkDueReminders({ nowMs = Date.now() } = {}) {

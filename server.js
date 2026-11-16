@@ -1656,6 +1656,67 @@ app.post('/api/notifications/test', async (req, res) => {
   }
 });
 
+// Centro Notifiche Intelligente (#78)
+app.get('/api/notifications/feed', (req, res) => {
+  try {
+    const filter = String(req.query.filter || 'unread');
+    const limit = Number(req.query.limit || 60);
+    const data = notifier.getFeed({ filter, limit });
+    res.json({ success: true, ...data });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/notifications/read-all', async (req, res) => {
+  try {
+    const unreadCount = await notifier.markAllAsRead();
+    res.json({ success: true, unreadCount });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/notifications/:id/read', async (req, res) => {
+  try {
+    const item = await notifier.markAsRead(req.params.id);
+    if (!item) return res.status(404).json({ success: false, error: 'Notifica non trovata' });
+    const { unreadCount } = notifier.getFeed({ filter: 'unread', limit: 1 });
+    res.json({ success: true, item, unreadCount });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.delete('/api/notifications/:id', async (req, res) => {
+  try {
+    const deleted = await notifier.deleteNotification(req.params.id);
+    const { unreadCount } = notifier.getFeed({ filter: 'unread', limit: 1 });
+    res.json({ success: true, deleted, unreadCount });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/notifications/:id/package-received', async (req, res) => {
+  try {
+    const item = await notifier.markPackageReceived(req.params.id);
+    const { unreadCount } = notifier.getFeed({ filter: 'unread', limit: 1 });
+    res.json({ success: true, item, unreadCount });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/mail/deliveries/:id/received', async (req, res) => {
+  try {
+    const item = await deliveryBillingParser.markDeliveryReceived(req.params.id);
+    res.json({ success: true, item });
+  } catch (error) {
+    res.status(404).json({ success: false, error: error.message });
+  }
+});
+
 app.post('/api/telegram/pairing-link', async (req, res) => {
   try {
     if (telegramBot.token && !telegramBot.botUsername) {
@@ -2292,7 +2353,7 @@ async function bootstrap() {
     gmailHub,
     go2rtc: require('./src/go2rtc-manager')
   }).catch((err) => console.warn('⚠️ [Sandbox] Init background:', err.message));
-  notifier.init({ telegramBot, webPushManager }).catch((err) => console.warn('⚠️ [Notifier] Init background:', err.message));
+  notifier.init({ telegramBot, webPushManager, deliveryBillingParser }).catch((err) => console.warn('⚠️ [Notifier] Init background:', err.message));
   securitySystem.initSentinel({ notifier, iliadboxClient }).catch((err) => console.warn('⚠️ [Sentinel] Init background:', err.message));
   gmailHub.init().catch((err) => console.warn('⚠️ [GmailHub] Init background:', err.message));
   deliveryBillingParser.init({ gmailHub, notifier, telegramBot }).catch((err) => console.warn('⚠️ [MailParser] Init background:', err.message));
