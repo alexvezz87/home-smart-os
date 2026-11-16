@@ -1,0 +1,320 @@
+/**
+ * Centro Notifiche Intelligente (#78)
+ * Unifica email/spedizioni/bollette e aggiornamenti delle automazioni ("la casa parla").
+ */
+class NotificationsManager {
+  constructor() {
+    this.activeFilter = 'unread';
+    this.feedData = { unreadCount: 0, attentionCount: 0, totalCount: 0, items: [] };
+    this.popoverItems = [];
+    this.popoverOpen = false;
+    this.selectedItem = null;
+
+    document.addEventListener('click', (ev) => {
+      if (!this.popoverOpen) return;
+      const wrapper = document.getElementById('header-notifications-wrapper');
+      if (wrapper && !wrapper.contains(ev.target)) {
+        this.toggleHeaderPopover(false);
+      }
+    });
+  }
+
+  escapeHtml(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  _updateBadges(unreadCount) {
+    const count = Math.max(0, Number(unreadCount) || 0);
+    const headerBadge = document.getElementById('header-notif-badge');
+    const navBadge = document.getElementById('nav-notif-badge');
+    for (const el of [headerBadge, navBadge]) {
+      if (!el) continue;
+      el.textContent = count > 99 ? '99+' : String(count);
+      el.classList.toggle('hidden', count === 0);
+    }
+  }
+
+  async refreshBadgeAndFeed(silent = true) {
+    try {
+      const [unreadRes, viewRes] = await Promise.all([
+        fetch('/api/notifications/feed?filter=unread&limit=5').then((r) => r.json()),
+        window.currentArea === 'notifications' && this.activeFilter !== 'unread'
+          ? fetch(`/api/notifications/feed?filter=${encodeURIComponent(this.activeFilter)}&limit=60`).then((r) => r.json())
+          : Promise.resolve(null)
+      ]);
+
+      if (unreadRes && unreadRes.success) {
+        this.popoverItems = Array.isArray(unreadRes.items) ? unreadRes.items : [];
+        this._updateBadges(unreadRes.unreadCount);
+        if (this.activeFilter === 'unread') {
+          this.feedData = unreadRes;
+        }
+      }
+      if (viewRes && viewRes.success) {
+        this.feedData = viewRes;
+      }
+
+      if (this.popoverOpen) this._renderPopover();
+      if (window.currentArea === 'notifications') this._renderAreaContent();
+    } catch (err) {
+      if (!silent) window.showToast?.('Errore aggiornamento notifiche: ' + err.message, 'error');
+    }
+  }
+
+  async toggleHeaderPopover(force) {
+    const pop = document.getElementById('header-notifications-popover');
+    if (!pop) return;
+    const next = typeof force === 'boolean' ? force : !this.popoverOpen;
+    this.popoverOpen = next;
+    pop.classList.toggle('hidden', !next);
+    if (next) {
+      await this.refreshBadgeAndFeed(true);
+      this._renderPopover();
+    }
+  }
+
+  _renderPopover() {
+    const pop = document.getElementById('header-notifications-popover');
+    if (!pop) return;
+    const items = this.popoverItems.slice(0, 5);
+    const unread = this.feedData.unreadCount || items.length;
+
+    pop.innerHTML = `
+      <div class="px-3.5 py-2.5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+        <span class="text-xs font-bold text-white">📬 Notifiche (${unread})</span>
+        <button type="button" onclick="window.notificationsManager.markAllAsRead()" class="text-[11px] text-indigo-300 hover:text-indigo-200 font-semibold">Segna lette</button>
+      </div>
+      <div class="max-h-80 overflow-y-auto divide-y divide-slate-800/70">
+        ${items.length === 0
+          ? '<div class="p-4 text-center text-xs text-slate-400">Nessuna nuova notifica da leggere.</div>'
+          : items.map((item) => {
+              const isMail = item.sourceType === 'mail_delivery' || item.sourceType === 'mail_bill';
+              const isUrgent = item.attentionTier === 'urgent' || item.attentionTier === 'actionable';
+              const canReceive = item.sourceType === 'mail_delivery' && item.metadata?.deliveryStatus !== 'delivered';
+              return `
+                <div class="p-3 hover:bg-slate-800/40 transition-colors space-y-1.5">
+                  <div class="flex items-start justify-between gap-2">
+                    <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${isMail ? 'bg-amber-500/20 text-amber-300' : 'bg-indigo-500/20 text-indigo-300'}">${isMail ? 'Mail' : 'Casa'}</span>
+                    ${isUrgent ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300">Attenzione</span>' : ''}
+                  </div>
+                  <div class="text-xs font-bold text-white">${this.escapeHtml(item.title)}</div>
+                  <div class="text-[11px] text-slate-300 line-clamp-2">${this.escapeHtml(item.message)}</div>
+                  <div class="flex items-center gap-1.5 pt-1 flex-wrap">
+                    <button type="button" onclick="window.notificationsManager.openDetails('${this.escapeHtml(item.id)}')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-200">Dettagli</button>
+                    ${canReceive ? `<button type="button" onclick="window.notificationsManager.markPackageReceived('${this.escapeHtml(item.id)}')" class="px-2 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-[10px] text-emerald-300">📦 Pacco ricevuto</button>` : ''}
+                    <button type="button" onclick="window.notificationsManager.markAsRead('${this.escapeHtml(item.id)}')" class="px-2 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-[10px] text-indigo-300">✓ Letta</button>
+                  </div>
+                </div>
+              `;
+            }).join('')
+        }
+      </div>
+      <div class="p-2.5 border-t border-slate-800 bg-slate-950/60 text-center">
+        <button type="button" onclick="window.notificationsManager.toggleHeaderPopover(false); window.switchArea('notifications');" class="text-xs font-bold text-indigo-400 hover:text-indigo-300">
+          Apri Centro Notifiche &rarr;
+        </button>
+      </div>
+    `;
+  }
+
+  async renderView() {
+    const container = document.getElementById('area-notifications');
+    if (!container) return;
+    try {
+      const res = await fetch(`/api/notifications/feed?filter=${encodeURIComponent(this.activeFilter)}&limit=60`);
+      const json = await res.json();
+      if (json && json.success) {
+        this.feedData = json;
+        this._updateBadges(json.unreadCount);
+      }
+    } catch (_) {}
+    this._renderAreaContent();
+  }
+
+  setFilter(filter) {
+    this.activeFilter = filter;
+    this.renderView();
+  }
+
+  _renderAreaContent() {
+    const container = document.getElementById('area-notifications');
+    if (!container) return;
+    const items = Array.isArray(this.feedData.items) ? this.feedData.items : [];
+    const filters = [
+      { id: 'unread', label: `Da leggere (${this.feedData.unreadCount || 0})` },
+      { id: 'attention', label: `Attenzione Alta (${this.feedData.attentionCount || 0})` },
+      { id: 'mail', label: 'Mail & Pacchi' },
+      { id: 'automation', label: 'Voce della Casa' },
+      { id: 'archive', label: 'Archivio (Lette)' }
+    ];
+
+    container.innerHTML = `
+      <div class="max-w-5xl mx-auto py-4 space-y-5">
+        <div class="glass-card rounded-2xl p-5 border border-slate-800 flex flex-wrap items-center justify-between gap-4">
+          <div class="flex items-center gap-3">
+            <div class="w-11 h-11 rounded-2xl bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center justify-center text-xl">
+              <i class="fa-solid fa-envelope-open-text"></i>
+            </div>
+            <div>
+              <h2 class="text-lg font-bold text-white">Centro Notifiche Intelligente</h2>
+              <p class="text-xs text-slate-400">Mail, spedizioni, scadenze e voce delle automazioni domestiche</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <button type="button" onclick="window.notificationsManager.syncGmailNow()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold">
+              🔄 Sincronizza Gmail
+            </button>
+            <button type="button" onclick="window.notificationsManager.markAllAsRead()" class="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold">
+              ✓ Segna tutte come lette
+            </button>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          ${filters.map((f) => `
+            <button type="button" onclick="window.notificationsManager.setFilter('${f.id}')" class="px-3.5 py-1.5 rounded-xl text-xs font-semibold border transition-all ${this.activeFilter === f.id ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-slate-900/80 text-slate-300 border-slate-800 hover:bg-slate-800'}">
+              ${this.escapeHtml(f.label)}
+            </button>
+          `).join('')}
+        </div>
+
+        <div class="space-y-3">
+          ${items.length === 0
+            ? '<div class="glass-card rounded-2xl p-8 border border-slate-800 text-center text-sm text-slate-400">Nessuna notifica in questa vista.</div>'
+            : items.map((item) => this._renderCard(item)).join('')
+          }
+        </div>
+      </div>
+      <div id="notif-detail-modal" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4"></div>
+    `;
+
+    if (this.selectedItem) {
+      this._renderModal(this.selectedItem);
+    }
+  }
+
+  _renderCard(item) {
+    const isRich = item.attentionTier === 'urgent' || item.attentionTier === 'actionable';
+    const isUrgent = item.attentionTier === 'urgent';
+    const borderCls = isUrgent
+      ? 'border-rose-500/50 bg-rose-950/20'
+      : isRich
+        ? 'border-amber-500/40 bg-amber-950/15'
+        : 'border-slate-800 bg-slate-900/70';
+    const canReceive = item.sourceType === 'mail_delivery' && item.metadata?.deliveryStatus !== 'delivered';
+    const hints = Array.isArray(item.actionHints) ? item.actionHints : [];
+
+    return `
+      <div class="rounded-2xl p-4 border ${borderCls} space-y-2.5 transition-all">
+        <div class="flex items-start justify-between gap-3 flex-wrap">
+          <div class="space-y-1 min-w-0 flex-1">
+            <div class="flex items-center gap-2 flex-wrap">
+              ${isRich ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${isUrgent ? 'bg-rose-500/20 text-rose-300' : 'bg-amber-500/20 text-amber-300'}">Richiede attenzione</span>` : ''}
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-300">${this.escapeHtml(item.sourceType || 'system')}</span>
+              <span class="text-[11px] text-slate-500 font-mono">${this.escapeHtml(new Date(item.updatedAt || item.createdAt).toLocaleString('it-IT'))}</span>
+            </div>
+            <h3 class="text-sm font-bold text-white cursor-pointer hover:text-indigo-300" onclick="window.notificationsManager.openDetails('${this.escapeHtml(item.id)}')">${this.escapeHtml(item.title)}</h3>
+            <p class="text-xs text-slate-300">${this.escapeHtml(item.message)}</p>
+            ${isRich && item.elaboratedText ? `<p class="text-xs text-slate-200 bg-slate-950/60 border border-slate-800/80 rounded-xl p-2.5 mt-1.5">${this.escapeHtml(item.elaboratedText)}</p>` : ''}
+            ${isRich && hints.length ? `<div class="flex flex-wrap gap-1.5 pt-1">${hints.map((h) => `<span class="px-2 py-0.5 rounded-lg bg-slate-800/90 text-[10px] text-slate-300">💡 ${this.escapeHtml(h)}</span>`).join('')}</div>` : ''}
+          </div>
+          <div class="flex items-center gap-1.5 flex-wrap shrink-0">
+            <button type="button" onclick="window.notificationsManager.openDetails('${this.escapeHtml(item.id)}')" class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold">Dettagli</button>
+            ${canReceive ? `<button type="button" onclick="window.notificationsManager.markPackageReceived('${this.escapeHtml(item.id)}')" class="px-2.5 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold">📦 Pacco ricevuto</button>` : ''}
+            ${!item.read ? `<button type="button" onclick="window.notificationsManager.markAsRead('${this.escapeHtml(item.id)}')" class="px-2.5 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-semibold">✓ Segna come letta</button>` : ''}
+            <button type="button" onclick="window.notificationsManager.deleteNotification('${this.escapeHtml(item.id)}')" class="px-2.5 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 text-xs font-semibold" title="Elimina">🗑️</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  openDetails(id) {
+    const item = this.feedData.items.find((i) => i.id === id) || this.popoverItems.find((i) => i.id === id);
+    if (!item) return;
+    this.selectedItem = item;
+    if (window.currentArea !== 'notifications') {
+      window.switchArea('notifications');
+    } else {
+      this._renderModal(item);
+    }
+  }
+
+  closeDetails() {
+    this.selectedItem = null;
+    const modal = document.getElementById('notif-detail-modal');
+    if (modal) modal.classList.add('hidden');
+  }
+
+  _renderModal(item) {
+    const modal = document.getElementById('notif-detail-modal');
+    if (!modal) return;
+    const m = item.metadata || {};
+    const canReceive = item.sourceType === 'mail_delivery' && m.deliveryStatus !== 'delivered';
+
+    modal.classList.remove('hidden');
+    modal.innerHTML = `
+      <div class="max-w-lg w-full rounded-2xl bg-slate-900 border border-slate-700 p-5 space-y-4 shadow-2xl">
+        <div class="flex items-start justify-between gap-3">
+          <h3 class="text-base font-bold text-white">${this.escapeHtml(item.title)}</h3>
+          <button type="button" onclick="window.notificationsManager.closeDetails()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <p class="text-xs text-slate-200 leading-relaxed">${this.escapeHtml(item.elaboratedText || item.message)}</p>
+        ${m.mailFrom || m.mailSubject || m.trackingNumber || m.dueDate ? `
+          <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-xs space-y-1 text-slate-300">
+            ${m.mailFrom ? `<div><strong>Mittente:</strong> ${this.escapeHtml(m.mailFrom)}</div>` : ''}
+            ${m.mailSubject ? `<div><strong>Oggetto:</strong> ${this.escapeHtml(m.mailSubject)}</div>` : ''}
+            ${m.courier ? `<div><strong>Corriere:</strong> ${this.escapeHtml(m.courier)} (${this.escapeHtml(m.store || '')})</div>` : ''}
+            ${m.trackingNumber ? `<div><strong>Tracking:</strong> <code>${this.escapeHtml(m.trackingNumber)}</code></div>` : ''}
+            ${m.dueDate ? `<div><strong>Scadenza:</strong> ${this.escapeHtml(m.dueDate)} (${Number(m.amountEur || 0).toFixed(2)} €)</div>` : ''}
+            ${m.mailSnippet ? `<div class="pt-1 text-[11px] text-slate-400 border-t border-slate-800 mt-1">${this.escapeHtml(m.mailSnippet)}</div>` : ''}
+          </div>
+        ` : ''}
+        <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800 flex-wrap">
+          ${canReceive ? `<button type="button" onclick="window.notificationsManager.markPackageReceived('${this.escapeHtml(item.id)}'); window.notificationsManager.closeDetails();" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">📦 Pacco ricevuto</button>` : ''}
+          ${!item.read ? `<button type="button" onclick="window.notificationsManager.markAsRead('${this.escapeHtml(item.id)}'); window.notificationsManager.closeDetails();" class="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold">✓ Segna come letta</button>` : ''}
+          <button type="button" onclick="window.notificationsManager.deleteNotification('${this.escapeHtml(item.id)}'); window.notificationsManager.closeDetails();" class="px-3 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 text-xs font-semibold">🗑️ Elimina</button>
+          <button type="button" onclick="window.notificationsManager.closeDetails()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold">Chiudi</button>
+        </div>
+      </div>
+    `;
+  }
+
+  async markAsRead(id) {
+    await fetch(`/api/notifications/${encodeURIComponent(id)}/read`, { method: 'POST' });
+    await this.refreshBadgeAndFeed(true);
+  }
+
+  async markAllAsRead() {
+    await fetch('/api/notifications/read-all', { method: 'POST' });
+    await this.refreshBadgeAndFeed(true);
+    window.showToast?.('Tutte le notifiche segnate come lette', 'success');
+  }
+
+  async deleteNotification(id) {
+    await fetch(`/api/notifications/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await this.refreshBadgeAndFeed(true);
+    window.showToast?.('Notifica eliminata', 'info');
+  }
+
+  async markPackageReceived(id) {
+    const res = await fetch(`/api/notifications/${encodeURIComponent(id)}/package-received`, { method: 'POST' });
+    if (res.ok) {
+      window.showToast?.('📦 Pacco segnato come ricevuto!', 'success');
+    }
+    await this.refreshBadgeAndFeed(true);
+  }
+
+  async syncGmailNow() {
+    window.showToast?.('Sincronizzazione Gmail in corso...', 'info');
+    await fetch('/api/mail/sync', { method: 'POST' }).catch(() => {});
+    await this.refreshBadgeAndFeed(true);
+  }
+}
+
+window.notificationsManager = new NotificationsManager();

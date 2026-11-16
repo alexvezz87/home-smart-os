@@ -1468,3 +1468,100 @@ test('Notifier EventBus Unwrap (#77): legge action e reason dentro event.data su
   assert.ok(last.message.includes('camera:vision'), `Atteso camera:vision in: ${last.message}`);
   assert.ok(last.message.includes('Cooldown anti-spam attivo'), `Atteso reason reale in: ${last.message}`);
 });
+
+test('Intelligent Notifications Center (#78): feed persistito, attenzione differenziata, markAsRead, delete+dismissed e pacco ricevuto', async () => {
+  const notifierMod = require('../src/notifier');
+  const { Notifier } = notifierMod;
+  const { DeliveryBillingParser } = require('../src/delivery-billing-parser');
+  const db = require('../src/db');
+
+  const store = new Map();
+  const prevGet = db.get;
+  const prevSet = db.set;
+  try {
+    db.get = async (k) => (store.has(k) ? store.get(k) : null);
+    db.set = async (k, v) => { store.set(k, v); return true; };
+
+    const parser = new DeliveryBillingParser();
+    const delivery = parser._upsertDelivery(
+      {
+        store: 'Amazon',
+        courier: 'BRT',
+        trackingNumber: 'BRT12345',
+        itemsDescription: 'Cavo USB-C',
+        expectedDate: '2026-11-17',
+        status: 'out_for_delivery',
+        recipient: 'Alex'
+      },
+      { id: 'm1', account: 'alex', subject: 'In consegna', from: 'noreply@example.com', date: '2026-11-16', snippet: 'Consegna prevista oggi' }
+    );
+
+    const n = new Notifier();
+    n.deps = { deliveryBillingParser: parser };
+
+    // 1. Inserimento voci con diversa priorità (attentionTier + elaboratedText)
+    const pkgItem = await n.upsertFeedItem({
+      sourceKey: `delivery:${delivery.id}`,
+      sourceType: 'mail_delivery',
+      level: 'warning',
+      category: 'mail',
+      title: 'Pacco in consegna oggi (Amazon)',
+      message: 'Cavo USB-C tramite BRT',
+      metadata: { deliveryId: delivery.id, store: 'Amazon', courier: 'BRT', trackingNumber: 'BRT12345', deliveryStatus: 'out_for_delivery' }
+    });
+    assert.equal(pkgItem.attentionTier, 'actionable');
+    assert.ok(pkgItem.elaboratedText.includes('BRT12345'));
+    assert.ok(pkgItem.actionHints.length > 0);
+
+    const infoItem = await n.upsertFeedItem({
+      sourceKey: 'climate:salone:19.5',
+      sourceType: 'climate',
+      level: 'info',
+      category: 'climate',
+      title: 'Clima Adattivo Aggiornato',
+      message: 'Ho regolato Salone a 19.5°C',
+      metadata: { room: 'Salone', targetTemp: 19.5 }
+    });
+    assert.equal(infoItem.attentionTier, 'informative');
+
+    // 2. Filtri unread / attention / mail / archive
+    const unreadFeed = n.getFeed({ filter: 'unread' });
+    assert.equal(unreadFeed.unreadCount, 2);
+    assert.equal(unreadFeed.attentionCount, 1);
+
+    const attFeed = n.getFeed({ filter: 'attention' });
+    assert.equal(attFeed.items.length, 1);
+    assert.equal(attFeed.items[0].id, pkgItem.id);
+
+    // 3. markAsRead -> sparisce da unread e va in archive
+    await n.markAsRead(infoItem.id);
+    assert.equal(n.getFeed({ filter: 'unread' }).unreadCount, 1);
+    assert.equal(n.getFeed({ filter: 'archive' }).items.length, 1);
+
+    // 4. markPackageReceived -> aggiorna delivery a 'delivered' e notifica a read
+    const recNotif = await n.markPackageReceived(pkgItem.id);
+    assert.equal(recNotif.metadata.deliveryStatus, 'delivered');
+    assert.equal(recNotif.read, true);
+    assert.equal(parser.deliveries[0].status, 'delivered');
+
+    // 5. deleteNotification -> aggiunge sourceKey a dismissedSourceKeys e impedisce re-inserimento
+    const deleted = await n.deleteNotification(pkgItem.id);
+    assert.equal(deleted, true);
+    const reupserted = await n.upsertFeedItem({
+      sourceKey: `delivery:${delivery.id}`,
+      sourceType: 'mail_delivery',
+      title: 'Dup',
+      message: 'Non deve ricomparire'
+    });
+    assert.equal(reupserted, null);
+
+    // 6. Persistenza su TiDB (store) e ricaricamento
+    const n2 = new Notifier();
+    await n2.loadFeed();
+    assert.equal(n2.feed.length, 1);
+    assert.ok(n2.dismissedSourceKeys.has(`delivery:${delivery.id}`));
+  } finally {
+    db.get = prevGet;
+    db.set = prevSet;
+  }
+});

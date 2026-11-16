@@ -3,6 +3,7 @@ const logger = require('./logger');
 const eventBus = require('./event-bus');
 
 const CONFIG_KEY = 'notifications-config';
+const FEED_KEY = 'notifications-feed';
 
 const DEFAULT_CONFIG = {
   categories: {
@@ -21,6 +22,9 @@ class Notifier {
     this.cooldowns = new Map(); // dedupKey -> timestamp
     this.history = [];
     this.maxHistory = 80;
+    this.feed = [];
+    this.maxFeed = 150;
+    this.dismissedSourceKeys = new Set();
     this.deps = {};
     this.listenersAttached = false;
   }
@@ -28,8 +32,9 @@ class Notifier {
   async init(deps = {}) {
     this.deps = deps;
     await this.loadConfig();
+    await this.loadFeed();
     this._attachEventListeners();
-    logger.info('Notifier Hub inizializzato', { categories: this.config.categories }, 'notifier');
+    logger.info('Notifier Hub inizializzato', { categories: this.config.categories, feedCount: this.feed.length }, 'notifier');
   }
 
   async loadConfig() {
@@ -195,6 +200,18 @@ class Notifier {
     }
 
     this._recordHistory(record);
+    this.upsertFeedItem({
+      sourceKey: dedupKey || `alert:${record.id}`,
+      sourceType: payload.sourceType || (category === 'mail' ? 'mail_delivery' : category),
+      level,
+      category,
+      title,
+      message,
+      elaboratedText: payload.elaboratedText,
+      actionHints: payload.actionHints,
+      metadata: { ...data, targetUrl }
+    }).catch(() => {});
+
     eventBus.publish('alert:triggered', {
       id: record.id,
       level,
@@ -224,14 +241,32 @@ class Notifier {
       const payload = unwrap(evt);
       if (payload.person === 'Casa') {
         const statusLabel = payload.status === 'home' ? 'Rientro a Casa' : 'Casa in modalità Fuori Casa';
+        const warmMsg = payload.status === 'home'
+          ? `Bentornati a casa${payload.reason ? ` (${payload.reason})` : ''}: modalità Comfort attiva.`
+          : `Tutti fuori casa: modalità ECO e Sentinella attiva${payload.reason ? ` (${payload.reason})` : ''}.`;
         this.send({
           level: 'info',
           category: 'security',
+          sourceType: 'automation',
           title: 'Stato Presenza Aggiornato',
           message: `${statusLabel}${payload.reason ? ` (${payload.reason})` : ''}`,
+          elaboratedText: warmMsg,
           dedupKey: `presence:${payload.status}`,
           cooldownMs: 2 * 60 * 1000,
           targetUrl: '/#security'
+        }).catch(() => {});
+      } else if (payload.person) {
+        const msg = payload.status === 'home'
+          ? `${payload.person} è rientrato a casa`
+          : `${payload.person} è uscito di casa`;
+        this.upsertFeedItem({
+          sourceKey: `presence:${payload.person}:${payload.status}:${new Date().toISOString().slice(0, 13)}`,
+          sourceType: 'automation',
+          level: 'info',
+          category: 'security',
+          title: msg,
+          message: `${msg}${payload.reason ? ` (${payload.reason})` : ''}.`,
+          metadata: { person: payload.person, status: payload.status }
         }).catch(() => {});
       }
     });
@@ -294,6 +329,280 @@ class Notifier {
         }).catch(() => {});
       }
     });
+
+    const handleVisionEvt = (evt = {}) => {
+      const payload = unwrap(evt);
+      if (payload.anomaly || payload.severity === 'warning' || payload.severity === 'critical') {
+        this.upsertFeedItem({
+          sourceKey: `vision:${payload.cameraId || 'cam'}:${payload.timestamp || Date.now()}`,
+          sourceType: 'security',
+          level: payload.severity === 'critical' || payload.anomaly ? 'critical' : 'warning',
+          category: 'security',
+          title: `Analisi Telecamera ${payload.cameraName || payload.cameraId || ''}`.trim(),
+          message: payload.summary || payload.analysis || 'Anomalia rilevata dalla visione AI.',
+          elaboratedText: payload.analysis || payload.summary || 'Verifica il feed video dalla sezione Sicurezza.',
+          metadata: payload
+        }).catch(() => {});
+      }
+    };
+    eventBus.on('camera:vision_alert', handleVisionEvt);
+    eventBus.on('camera:temporal_analysis', handleVisionEvt);
+
+    eventBus.on('mail:courier_arrived', (evt = {}) => {
+      const payload = unwrap(evt);
+      this.upsertFeedItem({
+        sourceKey: `courier:${payload.deliveryId || Date.now()}`,
+        sourceType: 'mail_delivery',
+        level: 'warning',
+        category: 'mail',
+        title: `Corriere rilevato (${payload.courier || 'Consegna'})`,
+        message: payload.message || `Possibile arrivo corriere per ${payload.store || 'pacco in consegna'}.`,
+        metadata: { ...payload, deliveryStatus: 'out_for_delivery' }
+      }).catch(() => {});
+    });
+
+    eventBus.on('mail:delivery_update', (evt = {}) => {
+      const payload = unwrap(evt);
+      if (!payload.deliveryId) return;
+      const isDelivered = payload.status === 'delivered';
+      this.upsertFeedItem({
+        sourceKey: `delivery:${payload.deliveryId}`,
+        sourceType: 'mail_delivery',
+        level: payload.status === 'out_for_delivery' ? 'warning' : 'info',
+        category: 'mail',
+        title: isDelivered ? `Pacco ricevuto (${payload.store || 'Negozio'})` : `Aggiornamento spedizione (${payload.store || 'Negozio'})`,
+        message: `${payload.itemsDescription || 'Pacco'} (${payload.courier || 'Corriere'}) — Stato: ${payload.status}.`,
+        metadata: { ...payload, deliveryStatus: payload.status }
+      }).catch(() => {});
+    });
+  }
+
+  async loadFeed() {
+    try {
+      const saved = await db.get(FEED_KEY);
+      if (saved && typeof saved === 'object') {
+        if (Array.isArray(saved.items)) this.feed = saved.items.slice(0, this.maxFeed);
+        if (Array.isArray(saved.dismissedKeys)) {
+          this.dismissedSourceKeys = new Set(saved.dismissedKeys.slice(-300));
+        }
+      }
+    } catch (_) {}
+    return this.feed;
+  }
+
+  async _persistFeed() {
+    try {
+      await db.set(FEED_KEY, {
+        items: this.feed.slice(0, this.maxFeed),
+        dismissedKeys: Array.from(this.dismissedSourceKeys).slice(-300)
+      }, false);
+    } catch (_) {}
+  }
+
+  _enrichIntelligence(entry = {}) {
+    const level = entry.level || 'info';
+    const sourceType = entry.sourceType || 'system';
+    const meta = entry.metadata && typeof entry.metadata === 'object' ? { ...entry.metadata } : {};
+
+    let attentionTier = entry.attentionTier;
+    if (!attentionTier) {
+      let billSoon = false;
+      if (sourceType === 'mail_bill' && meta.dueDate) {
+        const dueMs = Date.parse(`${meta.dueDate}T12:00:00Z`);
+        if (Number.isFinite(dueMs)) {
+          const daysLeft = Math.ceil((dueMs - Date.now()) / 86400000);
+          billSoon = daysLeft <= 3;
+        }
+      }
+      if (level === 'critical' || billSoon || (sourceType === 'security' && level === 'warning')) {
+        attentionTier = 'urgent';
+      } else if (
+        level === 'warning' ||
+        (sourceType === 'mail_delivery' && (meta.deliveryStatus === 'in_transit' || meta.deliveryStatus === 'out_for_delivery'))
+      ) {
+        attentionTier = 'actionable';
+      } else {
+        attentionTier = 'informative';
+      }
+    }
+
+    let elaboratedText = entry.elaboratedText || '';
+    let actionHints = Array.isArray(entry.actionHints) ? [...entry.actionHints] : [];
+
+    if (!elaboratedText) {
+      if (sourceType === 'mail_delivery') {
+        elaboratedText = `Spedizione da ${meta.store || 'negozio'} tramite ${meta.courier || 'corriere'} per ${meta.recipient || 'Casa'}. Tracking: ${meta.trackingNumber || 'n/d'}. Consegna prevista: ${meta.expectedDate || '--'}.`;
+        if (meta.deliveryStatus !== 'delivered' && actionHints.length === 0) {
+          actionHints = ['Conferma con "Pacco ricevuto" alla consegna', 'Verifica tracking dal dettaglio email'];
+        }
+      } else if (sourceType === 'mail_bill') {
+        elaboratedText = `Utenza ${meta.provider || 'Fornitore'} (${Number(meta.amountEur || 0).toFixed(2)} €) con scadenza ${meta.dueDate || '--'}.`;
+        if (actionHints.length === 0) {
+          actionHints = ['Verifica pagamento entro la scadenza'];
+        }
+      } else if (sourceType === 'climate') {
+        elaboratedText = `Ottimizzazione termica su ${meta.room || 'Casa'}: target ${meta.targetTemp ?? '--'}°C (${meta.reason || 'efficienza energetica'}).`;
+      } else if (sourceType === 'security') {
+        elaboratedText = `${entry.message || 'Evento di sicurezza'} — Verifica i dettagli di accesso o lo stato delle telecamere.`;
+        if (actionHints.length === 0) {
+          actionHints = ['Controlla IP/utente nei log sicurezza'];
+        }
+      } else {
+        elaboratedText = entry.message || '';
+      }
+    }
+
+    return {
+      ...entry,
+      level,
+      sourceType,
+      category: entry.category || 'system',
+      attentionTier,
+      elaboratedText,
+      actionHints,
+      metadata: meta
+    };
+  }
+
+  async upsertFeedItem(entry = {}) {
+    const sourceKey = entry.sourceKey || null;
+    if (sourceKey && this.dismissedSourceKeys.has(sourceKey)) {
+      return null;
+    }
+
+    const now = new Date().toISOString();
+    const enriched = this._enrichIntelligence(entry);
+    const existingIdx = sourceKey ? this.feed.findIndex((i) => i.sourceKey === sourceKey) : -1;
+
+    let item;
+    if (existingIdx >= 0) {
+      const prev = this.feed[existingIdx];
+      const escalatedToDeliveryToday =
+        enriched.metadata?.deliveryStatus === 'out_for_delivery' &&
+        prev.metadata?.deliveryStatus !== 'out_for_delivery';
+      const escalatedUrgent = enriched.attentionTier === 'urgent' && prev.attentionTier !== 'urgent';
+
+      item = {
+        ...prev,
+        ...enriched,
+        id: prev.id,
+        metadata: { ...(prev.metadata || {}), ...(enriched.metadata || {}) },
+        read: (escalatedToDeliveryToday || escalatedUrgent) ? false : Boolean(prev.read),
+        updatedAt: now
+      };
+      this.feed.splice(existingIdx, 1);
+      this.feed.unshift(item);
+    } else {
+      item = {
+        id: entry.id || `nf-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        sourceKey,
+        ...enriched,
+        read: Boolean(entry.read),
+        createdAt: entry.createdAt || now,
+        updatedAt: now,
+        readAt: entry.read ? now : null
+      };
+      this.feed.unshift(item);
+    }
+
+    if (this.feed.length > this.maxFeed) {
+      this.feed.length = this.maxFeed;
+    }
+    await this._persistFeed();
+    const unreadCount = this.feed.filter((i) => !i.read).length;
+    eventBus.publish('notifications:updated', { unreadCount });
+    return item;
+  }
+
+  getFeed({ filter = 'unread', limit = 60 } = {}) {
+    const unreadItems = this.feed.filter((i) => !i.read);
+    const unreadCount = unreadItems.length;
+    const attentionCount = unreadItems.filter((i) => i.attentionTier === 'urgent' || i.attentionTier === 'actionable').length;
+
+    let items = this.feed;
+    if (filter === 'unread') {
+      items = unreadItems;
+    } else if (filter === 'mail') {
+      items = unreadItems.filter((i) => i.sourceType === 'mail_delivery' || i.sourceType === 'mail_bill');
+    } else if (filter === 'automation') {
+      items = unreadItems.filter((i) => i.sourceType !== 'mail_delivery' && i.sourceType !== 'mail_bill');
+    } else if (filter === 'attention') {
+      items = unreadItems.filter((i) => i.attentionTier === 'urgent' || i.attentionTier === 'actionable');
+    } else if (filter === 'archive') {
+      items = this.feed.filter((i) => i.read === true);
+    }
+
+    return {
+      unreadCount,
+      attentionCount,
+      totalCount: this.feed.length,
+      items: items.slice(0, Math.max(1, Number(limit) || 60))
+    };
+  }
+
+  async markAsRead(id) {
+    const item = this.feed.find((i) => i.id === id);
+    if (!item) return null;
+    item.read = true;
+    item.readAt = new Date().toISOString();
+    item.updatedAt = item.readAt;
+    await this._persistFeed();
+    const unreadCount = this.feed.filter((i) => !i.read).length;
+    eventBus.publish('notifications:updated', { unreadCount });
+    return item;
+  }
+
+  async markAllAsRead() {
+    const now = new Date().toISOString();
+    for (const item of this.feed) {
+      if (!item.read) {
+        item.read = true;
+        item.readAt = now;
+        item.updatedAt = now;
+      }
+    }
+    await this._persistFeed();
+    eventBus.publish('notifications:updated', { unreadCount: 0 });
+    return 0;
+  }
+
+  async deleteNotification(id) {
+    const idx = this.feed.findIndex((i) => i.id === id);
+    if (idx < 0) return false;
+    const [removed] = this.feed.splice(idx, 1);
+    if (removed && removed.sourceKey) {
+      this.dismissedSourceKeys.add(removed.sourceKey);
+    }
+    await this._persistFeed();
+    const unreadCount = this.feed.filter((i) => !i.read).length;
+    eventBus.publish('notifications:updated', { unreadCount });
+    return true;
+  }
+
+  async markPackageReceived(idOrDeliveryId) {
+    const item = this.feed.find(
+      (i) => i.id === idOrDeliveryId || i.metadata?.deliveryId === idOrDeliveryId
+    );
+    const deliveryId = item?.metadata?.deliveryId || (String(idOrDeliveryId).startsWith('trk:') || String(idOrDeliveryId).startsWith('msg:') ? idOrDeliveryId : null);
+
+    if (deliveryId && this.deps.deliveryBillingParser && typeof this.deps.deliveryBillingParser.markDeliveryReceived === 'function') {
+      await this.deps.deliveryBillingParser.markDeliveryReceived(deliveryId).catch(() => {});
+    }
+
+    if (item) {
+      const now = new Date().toISOString();
+      item.metadata = { ...(item.metadata || {}), deliveryStatus: 'delivered', receivedAt: now };
+      item.attentionTier = 'informative';
+      item.level = 'info';
+      item.read = true;
+      item.readAt = now;
+      item.updatedAt = now;
+      await this._persistFeed();
+    }
+
+    const unreadCount = this.feed.filter((i) => !i.read).length;
+    eventBus.publish('notifications:updated', { unreadCount });
+    return item || null;
   }
 
   getConfig() {
