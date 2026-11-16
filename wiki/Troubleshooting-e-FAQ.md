@@ -64,5 +64,10 @@
    - In locale attiva `SANDBOX_MODE=dry_run` oppure spunta **"Disattiva Polling Telegram Locale (Anti-409)"** nella card *"🧪 Ambiente Duale Staging / WAMP Locale (`db_home_os_dev`) & Sandbox (#71)"* in Amministrazione.
 2. **Allineamento rapido WAMP `db_home_os_dev` con i dati di produzione**:
    - Avvia WAMP MySQL (`127.0.0.1:3306`) e lancia `npm run db:clone-wamp` (oppure premi **"🔄 Clona Ora da TiDB Cloud a WAMP"** in Amministrazione).
+3. **Token OAuth2 stantii al riavvio del container Docker in `DB_MODE=cloud` (`#73`)**:
+   - `syncAndSeed()` in `src/db.js` in modalità `cloud` sovrascrive sempre i file JSON locali del container (`ev-climate-config.json`, ecc.) con il payload cifrato più recente di `db_home_os`, evitando che `docker restart` ricarichi `refresh_token` già ruotati dal layer disco del container.
+4. **Errore Volvo `Vehicle does not belong to allowed markets` da VPS US (`#73`)**:
+   - `api.volvocars.com` risolve su Azure Front Door (`150.171.0.0/16`): instradare l'intera sottorete `150.171.0.0/16` tramite `wg0` verso la Iliadbox domestica in Italia in `/etc/wireguard/wg0.conf`.
+
 
 
