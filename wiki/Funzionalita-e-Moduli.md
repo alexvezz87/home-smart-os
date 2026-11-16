@@ -205,6 +205,14 @@ Riorganizzata con un'architettura **modulare responsive**: su desktop/tablet ori
 - **Ritardo Adattivo Pre-TTS & URL HTTPS (`src/security-system.js`, `src/nest-caster.js`)**: `_estimateWavDelayMs` calcola la durata reale dall'header `RIFF/WAVE` (+350ms, range `900–4500ms`) per non troncare il jingle prima del TTS; `_resolveChimeUrl` usa `APP_URL/sounds/...` in produzione HTTPS dietro Caddy e fallback LAN in locale.
 - **Controllo Amministrativo (`public/js/admin.js`, `server.js`)**: toggle ON/OFF (`welcomeAnnouncementsEnabled`), selettore speaker target (`Salone` di default), selettore suono pre-roll e pulsanti rapidi *"🔊 Test Bentornato Alex"* / *"🔊 Test Bentornata Cinzia"* verso `POST /api/nest/speak` (con supporto `chimePreset`).
 
+---
+
+## 🎙️ 15. Voce Femminile Naturale Gemini TTS per Google Nest (`#82`)
+- **Cache Deterministica TTS (`src/ai-gateway.js`)**: `synthesizeSpeech` genera nomi file deterministici (`tts-<sha1>.wav` in `public/audio/tts/`) quando `useCache: true`, evitando chiamate ripetute e consumo quota RPD per frasi ricorrenti (con pulizia automatica oltre i 60 file).
+- **Motore Vocale & Fallback (`src/security-system.js`, `src/nest-caster.js`)**: `announceToNest` sintetizza via Gemini TTS (`gemini-3.8-flash-tts`, voce predefinita **`Aoede`**, alternative `Kore`, `Leda`, `Zephyr`) servendo i `.wav` tramite `_buildPublicMediaUrl` (`APP_URL` HTTPS dietro Caddy o fallback LAN) con fallback trasparente a Google Translate TTS in caso di quota esaurita o assenza chiave.
+- **Pannello Amministrazione (`public/js/admin.js`, `server.js`)**: selettore motore/voce (`gemini:Aoede|Kore|Leda|Zephyr` / `google_classic`), campo intonazione `voiceStyle`, pulsante **"🎧 Anteprima Browser"** (`POST /api/ai/tts/test`) e test su speaker Salone tramite `POST /api/nest/speak`.
+
+
 
 
 

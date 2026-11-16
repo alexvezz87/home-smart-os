@@ -412,7 +412,24 @@ class SecuritySystem {
     }
   }
 
-  async announceToNest(text, { roomName = null, lang = 'it', skipGuardrail = false, chimeUrl = null } = {}) {
+  _buildPublicMediaUrl(relativePath = '') {
+    const cleanRel = String(relativePath || '').startsWith('/') ? String(relativePath) : `/${String(relativePath || '')}`;
+    const appUrl = String(process.env.APP_URL || '').trim();
+    if (/^https?:\/\//i.test(appUrl)) {
+      return `${appUrl.replace(/\/+$/, '')}${cleanRel}`;
+    }
+    return `http://${this.getLocalHostIp()}:${process.env.PORT || 3000}${cleanRel}`;
+  }
+
+  async announceToNest(text, {
+    roomName = null,
+    lang = 'it',
+    skipGuardrail = false,
+    chimeUrl = null,
+    ttsEngine = 'gemini',
+    voiceName = 'Aoede',
+    styleInstruction = ''
+  } = {}) {
     const cleanText = String(text || '').trim().slice(0, 200);
     if (!cleanText) {
       throw new Error('Testo annuncio vuoto');
@@ -426,8 +443,31 @@ class SecuritySystem {
       }
     }
 
+    let speechUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${encodeURIComponent(lang)}&client=tw-ob&q=${encodeURIComponent(cleanText)}`;
+    let speechMime = 'audio/mp3';
+    let engineUsed = 'google_classic';
+
+    if (ttsEngine === 'gemini') {
+      try {
+        const aiGatewayInstance = require('./ai-gateway');
+        const ttsRes = await aiGatewayInstance.synthesizeSpeech({
+          text: cleanText,
+          voiceName: voiceName || 'Aoede',
+          styleInstruction: styleInstruction || 'Parla in italiano con voce femminile calda, naturale, accogliente e sorridente, stile Gemini',
+          saveToFile: true,
+          useCache: true
+        });
+        if (ttsRes && ttsRes.audioUrl) {
+          speechUrl = this._buildPublicMediaUrl(ttsRes.audioUrl);
+          speechMime = ttsRes.mimeType || 'audio/wav';
+          engineUsed = ttsRes.cached ? 'gemini_cached' : 'gemini_tts';
+        }
+      } catch (ttsErr) {
+        console.warn('⚠️ [Nest TTS] Fallback a voce Google standard:', ttsErr.message);
+      }
+    }
+
     const targetIp = this.resolveNestIp(roomName);
-    const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${encodeURIComponent(lang)}&client=tw-ob&q=${encodeURIComponent(cleanText)}`;
 
     const { Client, DefaultMediaReceiver } = require('castv2-client');
     await new Promise((resolve, reject) => {
@@ -451,13 +491,13 @@ class SecuritySystem {
             return reject(launchErr);
           }
           const loadTts = () => {
-            player.load({ contentId: ttsUrl, contentType: 'audio/mp3', streamType: 'BUFFERED' }, { autoplay: true }, (loadErr) => {
+            player.load({ contentId: speechUrl, contentType: speechMime, streamType: 'BUFFERED' }, { autoplay: true }, (loadErr) => {
               clearTimeout(timeout);
               if (loadErr) {
                 try { client.close(); } catch (_) {}
                 return reject(loadErr);
               }
-              setTimeout(() => { try { client.close(); } catch (_) {} }, 1500);
+              setTimeout(() => { try { client.close(); } catch (_) {} }, 3500);
               resolve();
             });
           };
@@ -475,8 +515,8 @@ class SecuritySystem {
       });
     });
 
-    eventLogger.log('tts_announce', `Annuncio vocale su Nest (${targetIp}): "${cleanText}"`, { roomName, targetIp, chimeUrl });
-    return { success: true, targetIp, roomName, text: cleanText, chimeUrl };
+    eventLogger.log('tts_announce', `Annuncio vocale su Nest (${targetIp}, ${engineUsed}): "${cleanText}"`, { roomName, targetIp, chimeUrl, ttsEngine: engineUsed, voiceName });
+    return { success: true, targetIp, roomName, text: cleanText, chimeUrl, ttsEngine: engineUsed, voiceName, speechUrl };
   }
 
   getLocalHostIp() {

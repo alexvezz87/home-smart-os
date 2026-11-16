@@ -58,7 +58,10 @@ class NestCaster {
       welcomeRoom: 'Salone',
       welcomeChimePreset: 'welcome_chime',
       welcomeCooldownMs: 10 * 60 * 1000,
-      personGenders: { alex: 'male', cinzia: 'female' }
+      personGenders: { alex: 'male', cinzia: 'female' },
+      ttsEngine: 'gemini',
+      voiceName: 'Aoede',
+      voiceStyle: 'Parla in italiano con voce femminile calda, naturale, accogliente e sorridente, evitando toni robotici'
     };
 
     const isTestRun = process.env.NODE_ENV === 'test' || process.argv.some((a) => a.includes('test-guardrails'));
@@ -114,6 +117,10 @@ class NestCaster {
         : fs.existsSync(path.join(this.soundsDir, `${preset}.mp3`))
           ? `${preset}.mp3`
           : 'chime.wav';
+
+    if (typeof this.securitySystem._buildPublicMediaUrl === 'function') {
+      return this.securitySystem._buildPublicMediaUrl(`/sounds/${file}`);
+    }
 
     const appUrl = String(process.env.APP_URL || '').trim();
     if (/^https?:\/\//i.test(appUrl)) {
@@ -218,6 +225,12 @@ class NestCaster {
       ...this.config,
       nestIps: this.securitySystem.getNestIps(),
       availableChimes: this.listAvailableChimes(),
+      availableVoices: [
+        { id: 'Aoede', label: 'Aoede — Femminile calda & naturale (stile Gemini)' },
+        { id: 'Kore', label: 'Kore — Femminile chiara & equilibrata' },
+        { id: 'Leda', label: 'Leda — Femminile giovane & leggera' },
+        { id: 'Zephyr', label: 'Zephyr — Femminile brillante & amichevole' }
+      ],
       webhookUrl: '/api/google/fulfillment'
     };
   }
@@ -246,6 +259,17 @@ class NestCaster {
     }
     if (payload.personGenders && typeof payload.personGenders === 'object') {
       this.config.personGenders = { ...(this.config.personGenders || {}), ...payload.personGenders };
+    }
+    if (payload.ttsEngine === 'gemini' || payload.ttsEngine === 'google_classic') {
+      this.config.ttsEngine = payload.ttsEngine;
+    }
+    if (typeof payload.voiceName === 'string' && payload.voiceName.trim()) {
+      const allowed = ['Aoede', 'Kore', 'Leda', 'Zephyr'];
+      const trimmed = payload.voiceName.trim();
+      this.config.voiceName = allowed.includes(trimmed) ? trimmed : trimmed;
+    }
+    if (typeof payload.voiceStyle === 'string') {
+      this.config.voiceStyle = payload.voiceStyle.trim().slice(0, 220);
     }
     if (payload.customChimeBase64) {
       const savedName = this.saveCustomChime(payload.customChimeName || 'custom_chime.wav', payload.customChimeBase64);
@@ -311,7 +335,16 @@ class NestCaster {
     };
   }
 
-  async speak(text, { roomName = null, followMe = true, playChime = true, chimePreset = null, lang = 'it' } = {}) {
+  async speak(text, {
+    roomName = null,
+    followMe = true,
+    playChime = true,
+    chimePreset = null,
+    lang = 'it',
+    ttsEngine = null,
+    voiceName = null,
+    styleInstruction = null
+  } = {}) {
     const cleanText = String(text || '').trim();
     if (!cleanText) {
       throw new Error('Testo da pronunciare mancante');
@@ -331,13 +364,21 @@ class NestCaster {
         };
 
     const chimeUrl = playChime ? this._resolveChimeUrl(chimePreset) : null;
+    const activeEngine = ttsEngine || this.config.ttsEngine || 'gemini';
+    const activeVoice = voiceName || this.config.voiceName || 'Aoede';
+    const activeStyle = styleInstruction !== null && styleInstruction !== undefined
+      ? String(styleInstruction)
+      : (this.config.voiceStyle || '');
 
     const ssml = this.googleFulfillment.buildSsmlResponse(cleanText, { chimeUrl });
     const castRes = await this.securitySystem.announceToNest(cleanText, {
       roomName: targetRoom,
       lang,
       skipGuardrail: true,
-      chimeUrl
+      chimeUrl,
+      ttsEngine: activeEngine,
+      voiceName: activeVoice,
+      styleInstruction: activeStyle
     });
     if (castRes && castRes.blocked) {
       return { success: false, blocked: true, reason: castRes.reason };
@@ -349,7 +390,9 @@ class NestCaster {
       targetIp,
       chimeUrl,
       ssml,
-      text: cleanText
+      text: cleanText,
+      ttsEngine: castRes?.ttsEngine || activeEngine,
+      voiceName: activeVoice
     };
   }
 }
