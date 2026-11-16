@@ -123,3 +123,6 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 
 ### Annunci Rientro Google Nest (`#80`)
 - **Chime HTTPS & Config**: `POST /api/nest/speak` supporta `chimePreset`; `GET/POST /api/nest/config` gestisce `welcomeAnnouncementsEnabled`, `welcomeRoom` e `welcomeChimePreset`. In produzione dietro Caddy, `APP_URL` viene usato per servire `/sounds/*.wav` in HTTPS al Nest LAN.
+
+### Voce Gemini TTS per Google Nest (`#82`)
+- **Synthesize & Cast**: `POST /api/nest/speak` e `GET/POST /api/nest/config` supportano `ttsEngine` (`gemini` | `google_classic`), `voiceName` (`Aoede`, `Kore`, `Leda`, `Zephyr`) e `styleInstruction`/`voiceStyle`, con cache `.wav` in `public/audio/tts/` servita su `APP_URL/audio/tts/...`.

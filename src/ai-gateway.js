@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const axios = require('axios');
 const db = require('./db');
 const eventBus = require('./event-bus');
@@ -497,10 +498,38 @@ class AIGateway {
     };
   }
 
-  async synthesizeSpeech({ text, voiceName = 'Kore', styleInstruction = '', saveToFile = false } = {}) {
+  async synthesizeSpeech({ text, voiceName = 'Aoede', styleInstruction = '', saveToFile = false, useCache = true } = {}) {
     const cleanText = String(text || '').trim();
     if (!cleanText) {
       throw new Error('Testo obbligatorio per la sintesi vocale TTS');
+    }
+
+    const ttsDir = path.join(__dirname, '..', 'public', 'audio', 'tts');
+    const cacheHash = crypto
+      .createHash('sha1')
+      .update(`${voiceName}::${styleInstruction}::${cleanText}`)
+      .digest('hex')
+      .slice(0, 16);
+    const cachedName = `tts-${cacheHash}.wav`;
+    const cachedPath = path.join(ttsDir, cachedName);
+
+    if (saveToFile && useCache && fs.existsSync(cachedPath)) {
+      try {
+        const stat = fs.statSync(cachedPath);
+        if (stat.size > 1024) {
+          const cachedBuf = fs.readFileSync(cachedPath);
+          return {
+            success: true,
+            cached: true,
+            model: this.models?.tts || DEFAULT_MODELS.tts,
+            voiceName,
+            mimeType: 'audio/wav',
+            bytes: cachedBuf.length,
+            audioUrl: `/audio/tts/${cachedName}`,
+            audioBase64: cachedBuf.toString('base64')
+          };
+        }
+      } catch (_) {}
     }
 
     const apiKey = this.getApiKey();
@@ -554,11 +583,21 @@ class AIGateway {
 
     let audioUrl = null;
     if (saveToFile) {
-      const ttsDir = path.join(__dirname, '..', 'public', 'audio', 'tts');
       fs.mkdirSync(ttsDir, { recursive: true });
-      const fileName = `tts-${Date.now()}.wav`;
+      const fileName = useCache ? cachedName : `tts-${Date.now()}.wav`;
       fs.writeFileSync(path.join(ttsDir, fileName), audioBuffer);
       audioUrl = `/audio/tts/${fileName}`;
+
+      // Pulizia leggera dei file più vecchi se superano 60
+      try {
+        const files = fs.readdirSync(ttsDir)
+          .filter((f) => f.endsWith('.wav'))
+          .map((f) => ({ name: f, mtime: fs.statSync(path.join(ttsDir, f)).mtimeMs }))
+          .sort((a, b) => b.mtime - a.mtime);
+        for (const old of files.slice(60)) {
+          fs.unlinkSync(path.join(ttsDir, old.name));
+        }
+      } catch (_) {}
     }
 
     return {

@@ -1937,8 +1937,17 @@ app.post('/api/nest/config', async (req, res) => {
 
 app.post('/api/nest/speak', async (req, res) => {
   try {
-    const { text, roomName, followMe, playChime, chimePreset, lang } = req.body || {};
-    const result = await nestCaster.speak(text, { roomName, followMe, playChime, chimePreset, lang });
+    const { text, roomName, followMe, playChime, chimePreset, lang, ttsEngine, voiceName, styleInstruction } = req.body || {};
+    const result = await nestCaster.speak(text, {
+      roomName,
+      followMe,
+      playChime,
+      chimePreset,
+      lang,
+      ttsEngine,
+      voiceName,
+      styleInstruction
+    });
     if (result && result.blocked) {
       return res.status(429).json({ success: false, ...result });
     }
