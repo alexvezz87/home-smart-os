@@ -1599,7 +1599,8 @@ test('Welcome Announcement Nest Salone (#80): genere, away -> home, cooldown, AP
       aiGateway: fakeAi,
       securitySystem: fakeSec,
       googleFulfillment: fakeGf,
-      soundsDir: tmpSounds
+      soundsDir: tmpSounds,
+      nowFn: () => Date.parse('2026-11-16T14:00:00+01:00')
     });
 
     // 1. Risoluzione genere
@@ -1928,4 +1929,113 @@ test('Gemini TTS strip C2PA & Nest Cast queueLoad per chime + voce (#86)', async
       delete require.cache[castPath];
     }
   }
+});
+
+test('Smart Welcome Wi-Fi + Camera Salone & Quiet Hours (#87)', async () => {
+  const { NestCaster } = require('../src/nest-caster');
+
+  let fakeNow = Date.parse('2026-11-16T14:00:00+01:00');
+  const announced = [];
+  const fakeCam = { id: 'cam_salone', name: 'Salone', room: 'Salone', privacyMode: false };
+  const fakeSec = {
+    cameras: { cam_salone: fakeCam },
+    getLocalHostIp: () => '127.0.0.1',
+    resolveNestIp: () => '192.168.1.50',
+    getNestIps: () => ({ Salone: '192.168.1.50' }),
+    _buildPublicMediaUrl: (p) => `https://home.example.com${p}`,
+    announceToNest: async (text, opts) => {
+      announced.push({ text, opts });
+      return { success: true };
+    }
+  };
+  const fakeDb = { get: async () => null, set: async () => true };
+  const fakeGf = { buildSsmlResponse: (t) => `<speak>${t}</speak>` };
+  const fakeAi = { validateHardwareAction: () => ({ allowed: true }) };
+
+  const caster = new NestCaster({
+    db: fakeDb,
+    aiGateway: fakeAi,
+    securitySystem: fakeSec,
+    googleFulfillment: fakeGf,
+    nowFn: () => fakeNow
+  });
+  await caster.updateConfig({ welcomeDualWindowMs: 0, welcomePendingTtlMs: 15 * 60 * 1000 });
+
+  // 1. away -> home in giardino mette Alex in coda senza parlare subito
+  const q1 = await caster.handlePresenceChanged({ data: { person: 'Alex', status: 'home', previous: 'away' } });
+  assert.equal(q1.queued, true);
+  assert.equal(announced.length, 0);
+
+  // 2. IsMotion non-persona ignorato se welcomeRequirePeopleOnly === true
+  const motIgnored = await caster.handleCameraMotion({ data: { cameraId: 'cam_salone', room: 'Salone', eventName: 'IsMotion', isPeople: false } });
+  assert.equal(motIgnored.skipped, true);
+  assert.equal(motIgnored.reason, 'not_person_event');
+  assert.equal(announced.length, 0);
+
+  // 3. IsPeople su Salone con !privacyMode triggera "Bentornato a casa Alex" e svuota la coda; secondo IsPeople non ri-parla
+  const p1 = await caster.handleCameraMotion({ data: { cameraId: 'cam_salone', room: 'Salone', eventName: 'IsPeople', isPeople: true, privacyMode: false } });
+  assert.equal(p1.announced, true);
+  assert.equal(p1.greeting, 'Bentornato a casa Alex');
+  assert.equal(announced.length, 1);
+
+  const p2 = await caster.handleCameraMotion({ data: { cameraId: 'cam_salone', room: 'Salone', eventName: 'IsPeople', isPeople: true, privacyMode: false } });
+  assert.equal(p2.skipped, true);
+  assert.equal(p2.reason, 'no_pending_arrivals');
+
+  // 4. Doppia connessione Alex + Cinzia in coda -> "Bentornati a casa Alex e Cinzia"
+  fakeNow += 11 * 60 * 1000; // oltre cooldown 10m
+  await caster.handlePresenceChanged({ data: { person: 'Alex', status: 'home', previous: 'away' } });
+  await caster.handlePresenceChanged({ data: { person: 'Cinzia', status: 'home', previous: 'away' } });
+  const dualRes = await caster.handleCameraMotion({ data: { cameraId: 'cam_salone', room: 'Salone', eventName: 'IsPeople', isPeople: true, privacyMode: false } });
+  assert.equal(dualRes.announced, true);
+  assert.equal(dualRes.greeting, 'Bentornati a casa Alex e Cinzia');
+
+  // 5. Privacy mode blocca accodamento e trigger
+  fakeNow += 11 * 60 * 1000;
+  fakeCam.privacyMode = true;
+  const privQ = await caster.handlePresenceChanged({ data: { person: 'Alex', status: 'home', previous: 'away' } });
+  assert.equal(privQ.skipped, true);
+  assert.equal(privQ.reason, 'camera_privacy_mode');
+  const privCam = await caster.handleCameraMotion({ data: { cameraId: 'cam_salone', room: 'Salone', eventName: 'IsPeople', isPeople: true, privacyMode: true } });
+  assert.equal(privCam.skipped, true);
+  assert.equal(privCam.reason, 'camera_privacy_mode');
+  fakeCam.privacyMode = false;
+
+  // 6. Uscita home -> away prima dell'ingresso rimuove dalla coda
+  fakeNow += 11 * 60 * 1000;
+  await caster.handlePresenceChanged({ data: { person: 'Alex', status: 'home', previous: 'away' } });
+  assert.equal(caster.pendingWelcomeArrivals.size, 1);
+  await caster.handlePresenceChanged({ data: { person: 'Alex', status: 'away', previous: 'home' } });
+  assert.equal(caster.pendingWelcomeArrivals.size, 0);
+
+  // 7. Scadenza TTL scarta arrivi vecchi
+  fakeNow += 11 * 60 * 1000;
+  await caster.handlePresenceChanged({ data: { person: 'Cinzia', status: 'home', previous: 'away' } });
+  fakeNow += 16 * 60 * 1000; // > 15m TTL
+  const ttlRes = await caster.handleCameraMotion({ data: { cameraId: 'cam_salone', room: 'Salone', eventName: 'IsPeople', isPeople: true, privacyMode: false } });
+  assert.equal(ttlRes.skipped, true);
+  assert.equal(ttlRes.reason, 'no_pending_arrivals');
+
+  // 8. Fascia oraria silenziosa 20:00 - 08:00 (Europe/Rome)
+  fakeNow = Date.parse('2026-11-16T19:55:00+01:00');
+  const before8pm = await caster.handlePresenceChanged({ data: { person: 'Alex', status: 'home', previous: 'away' } });
+  assert.equal(before8pm.queued, true);
+
+  fakeNow = Date.parse('2026-11-16T20:00:00+01:00');
+  const at8pmCam = await caster.handleCameraMotion({ data: { cameraId: 'cam_salone', room: 'Salone', eventName: 'IsPeople', isPeople: true } });
+  assert.equal(at8pmCam.skipped, true);
+  assert.equal(at8pmCam.reason, 'quiet_hours');
+  assert.equal(caster.pendingWelcomeArrivals.size, 0);
+
+  fakeNow = Date.parse('2026-11-17T07:59:00+01:00');
+  const at759 = await caster.handlePresenceChanged({ data: { person: 'Cinzia', status: 'home', previous: 'away' } });
+  assert.equal(at759.skipped, true);
+  assert.equal(at759.reason, 'quiet_hours');
+
+  fakeNow = Date.parse('2026-11-17T08:00:00+01:00');
+  const at8am = await caster.handlePresenceChanged({ data: { person: 'Cinzia', status: 'home', previous: 'away' } });
+  assert.equal(at8am.queued, true);
+  const at8amCam = await caster.handleCameraMotion({ data: { cameraId: 'cam_salone', room: 'Salone', eventName: 'IsPeople', isPeople: true } });
+  assert.equal(at8amCam.announced, true);
+  assert.equal(at8amCam.greeting, 'Bentornata a casa Cinzia');
 });

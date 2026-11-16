@@ -1841,9 +1841,38 @@ class AdminManager {
             <button type="button" onclick="window.adminManager.testWelcomeAnnouncement('Cinzia')" class="px-3 py-1.5 rounded-lg bg-pink-600/20 hover:bg-pink-600/30 text-pink-300 border border-pink-500/40 text-xs font-semibold">
               🔊 Test Bentornata Cinzia
             </button>
+            <button type="button" onclick="window.adminManager.testWelcomeAnnouncement('Alex,Cinzia')" class="px-3 py-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 text-xs font-semibold">
+              🔊 Test Bentornati Alex e Cinzia
+            </button>
             <button type="button" onclick="window.adminManager.previewNestVoice()" class="px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 text-xs font-semibold">
               🎧 Anteprima Browser
             </button>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-800/80">
+            <label class="inline-flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
+              <input id="admin-nest-welcome-require-camera" type="checkbox" ${cfg.welcomeRequireCamera !== false ? 'checked' : ''} class="rounded border-slate-600 bg-slate-900" />
+              <span>Attendi rilevamento persona su Telecamera Salone</span>
+            </label>
+            <div class="flex items-center gap-2 flex-wrap text-xs text-slate-200">
+              <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                <input id="admin-nest-welcome-quiet-enabled" type="checkbox" ${cfg.welcomeQuietHoursEnabled !== false ? 'checked' : ''} class="rounded border-slate-600 bg-slate-900" />
+                <span>Fascia attiva:</span>
+              </label>
+              <input id="admin-nest-welcome-start-hour" type="number" min="0" max="23" value="${Number(cfg.welcomeActiveStartHour ?? 8)}" class="w-14 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-xs text-white" />
+              <span>–</span>
+              <input id="admin-nest-welcome-end-hour" type="number" min="0" max="23" value="${Number(cfg.welcomeActiveEndHour ?? 20)}" class="w-14 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-xs text-white" />
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 text-[11px]">
+            <span class="px-2 py-0.5 rounded-full ${cfg.welcomeCameraPrivacyMode ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'}">
+              ${cfg.welcomeCameraPrivacyMode ? '🔒 Privacy Mode (saluto sospeso)' : '📷 Telecamera Salone: Attiva'}
+            </span>
+            ${cfg.welcomeWithinActiveHours === false
+              ? `<span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">🌙 Fascia silenziosa (${String(cfg.welcomeActiveEndHour ?? 20).padStart(2, '0')}:00–${String(cfg.welcomeActiveStartHour ?? 8).padStart(2, '0')}:00)</span>`
+              : ''}
+            ${Array.isArray(cfg.pendingWelcomeArrivals) && cfg.pendingWelcomeArrivals.length > 0
+              ? `<span class="px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30">⏳ In attesa alla porta: ${this.escapeHtml(cfg.pendingWelcomeArrivals.join(', '))}</span>`
+              : ''}
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-800/80">
             <label class="block">
@@ -1867,6 +1896,11 @@ class AdminManager {
               <span class="text-[10px] text-slate-400">Intonazione / Stile Voce Gemini</span>
               <input id="admin-nest-voice-style" type="text" value="${this.escapeHtml(cfg.voiceStyle || '')}" placeholder="Parla in italiano con voce femminile calda e naturale..." class="w-full mt-0.5 px-2 py-1.5 rounded bg-slate-900 border border-slate-700 text-xs text-white" />
             </label>
+          </div>
+          <div class="flex items-center justify-end pt-2 border-t border-slate-800/80">
+            <button type="button" onclick="window.adminManager.saveNestFulfillmentConfig()" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm">
+              💾 Salva Impostazioni Voce &amp; Rientro
+            </button>
           </div>
         </div>
       `;
@@ -1896,6 +1930,10 @@ class AdminManager {
       welcomeAnnouncementsEnabled: Boolean(document.getElementById('admin-nest-welcome-enabled')?.checked),
       welcomeRoom: document.getElementById('admin-nest-welcome-room')?.value || 'Salone',
       welcomeChimePreset: document.getElementById('admin-nest-welcome-chime')?.value || 'welcome_chime',
+      welcomeRequireCamera: Boolean(document.getElementById('admin-nest-welcome-require-camera')?.checked),
+      welcomeQuietHoursEnabled: Boolean(document.getElementById('admin-nest-welcome-quiet-enabled')?.checked),
+      welcomeActiveStartHour: Number(document.getElementById('admin-nest-welcome-start-hour')?.value ?? 8),
+      welcomeActiveEndHour: Number(document.getElementById('admin-nest-welcome-end-hour')?.value ?? 20),
       ttsEngine: ttsEngine === 'google_classic' ? 'google_classic' : 'gemini',
       ...(voiceName ? { voiceName } : {}),
       voiceStyle
@@ -1944,8 +1982,21 @@ class AdminManager {
   }
 
   async testWelcomeAnnouncement(personName) {
-    const isFemale = String(personName || '').trim().toLowerCase() === 'cinzia';
-    const text = isFemale ? `Bentornata a casa ${personName}` : `Bentornato a casa ${personName}`;
+    const names = String(personName || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    let text;
+    if (names.length >= 2) {
+      const allFemale = names.every((n) => n.toLowerCase() === 'cinzia');
+      const prefix = allFemale ? 'Bentornate a casa' : 'Bentornati a casa';
+      const joined = names.length === 2 ? `${names[0]} e ${names[1]}` : `${names.slice(0, -1).join(', ')} e ${names[names.length - 1]}`;
+      text = `${prefix} ${joined}`;
+    } else {
+      const single = names[0] || 'Alex';
+      const isFemale = single.toLowerCase() === 'cinzia';
+      text = isFemale ? `Bentornata a casa ${single}` : `Bentornato a casa ${single}`;
+    }
     const roomName = document.getElementById('admin-nest-welcome-room')?.value || 'Salone';
     const chimePreset = document.getElementById('admin-nest-welcome-chime')?.value || 'welcome_chime';
     const voiceRaw = document.getElementById('admin-nest-voice-mode')?.value || 'gemini:Aoede';
