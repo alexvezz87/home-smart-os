@@ -1756,3 +1756,71 @@ test('Gemini TTS Voice Nest (#82): caching deterministico useCache, URL HTTPS _b
   assert.equal(capturedCast[0].opts.voiceName, 'Kore');
   assert.equal(capturedCast[0].opts.styleInstruction, 'Voce squillante');
 });
+
+test('OAuth Single-Flight Lock & Idempotent Polling (#83): nessun doppio refresh concorrente su Bosch e Volvo', async () => {
+  const axios = require('axios');
+  const hub = require('../src/ev-climate-hub');
+  const prevAxiosPost = axios.post;
+  const prevPersist = hub._persistConfig;
+  const prevBosch = { ...hub.config.bosch };
+  const prevVolvo = { ...hub.config.volvo };
+  const prevSyncAllFns = [hub.syncAbbChargerSync, hub.syncVolvoEx30, hub.syncBoschEasyControl];
+
+  let postCalls = 0;
+  axios.post = async (url) => {
+    postCalls += 1;
+    await new Promise((r) => setTimeout(r, 25));
+    if (String(url).includes('singlekey-id.com')) {
+      return {
+        status: 200,
+        data: { access_token: 'bosch-new-acc', refresh_token: 'bosch-new-ref', expires_in: 3600 }
+      };
+    }
+    return {
+      status: 200,
+      data: { access_token: 'volvo-new-acc', refresh_token: 'volvo-new-ref', expires_in: 300 }
+    };
+  };
+  hub._persistConfig = () => {};
+
+  try {
+    // 1. Due refresh concorrenti Bosch inviano 1 sola POST /token
+    hub.config.bosch.pointtAccessToken = 'bosch-old';
+    hub.config.bosch.pointtRefreshToken = 'bosch-ref-1';
+    hub.config.bosch.pointtExpiresAt = Date.now() - 10000;
+    const [b1, b2] = await Promise.all([
+      hub._ensureBoschPointtToken(true),
+      hub._ensureBoschPointtToken(true)
+    ]);
+    assert.equal(b1, 'bosch-new-acc');
+    assert.equal(b2, 'bosch-new-acc');
+    assert.equal(postCalls, 1);
+
+    // 2. Due refresh concorrenti Volvo inviano 1 sola POST /token
+    hub.config.volvo.clientId = 'cid';
+    hub.config.volvo.clientSecret = 'csec';
+    hub.config.volvo.accessToken = 'volvo-old';
+    hub.config.volvo.refreshToken = 'volvo-ref-1';
+    const [v1, v2] = await Promise.all([
+      hub._volvoGetToken(true),
+      hub._volvoGetToken(true)
+    ]);
+    assert.equal(v1, 'volvo-new-acc');
+    assert.equal(v2, 'volvo-new-acc');
+    assert.equal(postCalls, 2);
+
+    // 3. Due syncAll concorrenti eseguono 1 solo ciclo
+    let syncCycles = 0;
+    hub.syncAbbChargerSync = async () => { syncCycles += 1; await new Promise((r) => setTimeout(r, 20)); };
+    hub.syncVolvoEx30 = async () => {};
+    hub.syncBoschEasyControl = async () => {};
+    await Promise.all([hub.syncAll(), hub.syncAll()]);
+    assert.equal(syncCycles, 1);
+  } finally {
+    axios.post = prevAxiosPost;
+    hub._persistConfig = prevPersist;
+    hub.config.bosch = prevBosch;
+    hub.config.volvo = prevVolvo;
+    [hub.syncAbbChargerSync, hub.syncVolvoEx30, hub.syncBoschEasyControl] = prevSyncAllFns;
+  }
+});

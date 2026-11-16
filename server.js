@@ -2373,10 +2373,9 @@ async function bootstrap() {
   dolomitiBillsSync.init().catch((err) => console.warn('⚠️ [Dolomiti Bollette] Init background:', err.message));
   volvoTripsSync.init().catch((err) => console.warn('⚠️ [Volvo Drive] Init background:', err.message));
   wallboxSync.init().catch((err) => console.warn('⚠️ [Wallbox Drive] Init background:', err.message));
-  evClimateHub.syncAll().catch((err) => console.warn('⚠️ [EV-Climate Hub] Primo sync background:', err.message));
+  evClimateHub.startPolling();
   climateOptimizer.init({ evClimateHub, securitySystem }).catch((err) => console.warn('⚠️ [ClimateOptimizer] Init background:', err.message));
   thermalAnalytics.init({ evClimateHub, climateOptimizer }).catch((err) => console.warn('⚠️ [ThermalAnalytics] Init background:', err.message));
-  setInterval(() => evClimateHub.syncAll().catch(() => {}), 60000);
 
   // Avvia il server TCP solo a bootstrap completato con successo
   tcpServer.listen(PORT, () => {
