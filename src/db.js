@@ -332,8 +332,9 @@ class DatabaseManager {
           }
           this.memoryCache.set(item.key, rawData);
 
-          // Se il file locale non esiste (es. avvio su Cloud o primo checkout), ricrealo
-          if (!fs.existsSync(item.file) && rawData) {
+          // In modalità cloud TiDB è la Single Source of Truth: aggiorna sempre il file locale
+          // per evitare che un container riavviato ricarichi token OAuth stantii dal layer disco.
+          if (rawData && (this.activeMode === 'cloud' || !fs.existsSync(item.file))) {
             try {
               fs.writeFileSync(item.file, rawData, 'utf8');
               console.log(`[TiDB DB] Idratato file locale da DB: ${path.basename(item.file)}`);
@@ -385,7 +386,7 @@ class DatabaseManager {
         if (rows.length > 0) {
           const rawData = rows[0].payload;
           this.memoryCache.set(`history:${item.key}`, rawData);
-          if (!fs.existsSync(item.file) && rawData) {
+          if (rawData && (this.activeMode === 'cloud' || !fs.existsSync(item.file))) {
             try {
               fs.writeFileSync(item.file, rawData, 'utf8');
               console.log(`[TiDB DB] Idratato file storico da DB: ${path.basename(item.file)}`);
