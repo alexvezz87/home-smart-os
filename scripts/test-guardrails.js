@@ -1565,3 +1565,83 @@ test('Intelligent Notifications Center (#78): feed persistito, attenzione differ
     db.set = prevSet;
   }
 });
+
+test('Welcome Announcement Nest Salone (#80): genere, away -> home, cooldown, APP_URL HTTPS chime e toggle disabilitato', async () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const { NestCaster } = require('../src/nest-caster');
+  const securitySystem = require('../src/security-system');
+  const aiGateway = require('../src/ai-gateway');
+
+  const tmpSounds = fs.mkdtempSync(path.join(os.tmpdir(), 'nest-welcome-'));
+  fs.writeFileSync(path.join(tmpSounds, 'welcome_chime.wav'), Buffer.from('RIFF0000WAVE'));
+
+  const announced = [];
+  const fakeSec = {
+    getLocalHostIp: () => '10.8.0.2',
+    resolveNestIp: (r) => (r === 'Salone' ? '192.168.1.50' : '192.168.1.66'),
+    getNestIps: () => ({ Salone: '192.168.1.50' }),
+    announceToNest: async (text, opts) => {
+      announced.push({ text, opts });
+      return { success: true };
+    }
+  };
+  const fakeDb = { get: async () => null, set: async () => true };
+  const fakeGf = { buildSsmlResponse: (t, { chimeUrl }) => `<speak><audio src="${chimeUrl}"/>${t}</speak>` };
+  const fakeAi = { validateHardwareAction: () => ({ allowed: true }) };
+
+  const prevAppUrl = process.env.APP_URL;
+  try {
+    process.env.APP_URL = 'https://home.example.com/';
+    const caster = new NestCaster({
+      db: fakeDb,
+      aiGateway: fakeAi,
+      securitySystem: fakeSec,
+      googleFulfillment: fakeGf,
+      soundsDir: tmpSounds
+    });
+
+    // 1. Risoluzione genere
+    assert.equal(caster.buildWelcomeGreeting('Alex'), 'Bentornato a casa Alex');
+    assert.equal(caster.buildWelcomeGreeting('Cinzia'), 'Bentornata a casa Cinzia');
+    assert.equal(caster.buildWelcomeGreeting('Elena'), 'Bentornata a casa Elena');
+    assert.equal(caster.buildWelcomeGreeting('Luca'), 'Bentornato a casa Luca');
+
+    // 2. Ignora unknown -> home (riavvio container) e person === 'Casa'
+    const unkRes = await caster.handlePresenceChanged({ data: { person: 'Alex', status: 'home', previous: 'unknown' } });
+    assert.equal(unkRes.skipped, true);
+    assert.equal(unkRes.reason, 'previous_not_away');
+
+    const casaRes = await caster.handlePresenceChanged({ data: { person: 'Casa', status: 'home', previous: 'away' } });
+    assert.equal(casaRes.skipped, true);
+
+    // 3. away -> home su Salone con HTTPS APP_URL/sounds/welcome_chime.wav
+    const okRes = await caster.handlePresenceChanged({ data: { person: 'Cinzia', status: 'home', previous: 'away' } });
+    assert.equal(okRes.announced, true);
+    assert.equal(okRes.greeting, 'Bentornata a casa Cinzia');
+    assert.equal(announced.length, 1);
+    assert.equal(announced[0].text, 'Bentornata a casa Cinzia');
+    assert.equal(announced[0].opts.roomName, 'Salone');
+    assert.equal(announced[0].opts.chimeUrl, 'https://home.example.com/sounds/welcome_chime.wav');
+
+    // 4. Cooldown anti-rimbalzo
+    const cdRes = await caster.handlePresenceChanged({ data: { person: 'Cinzia', status: 'home', previous: 'away' } });
+    assert.equal(cdRes.skipped, true);
+    assert.equal(cdRes.reason, 'cooldown');
+
+    // 5. Disabilitazione da Amministrazione
+    await caster.updateConfig({ welcomeAnnouncementsEnabled: false });
+    const disRes = await caster.handlePresenceChanged({ data: { person: 'Alex', status: 'home', previous: 'away' } });
+    assert.equal(disRes.skipped, true);
+    assert.equal(disRes.reason, 'disabled');
+
+    // 6. Stima ritardo WAV pre-TTS
+    const delayMs = securitySystem._estimateWavDelayMs('https://home.example.com/sounds/welcome_chime.wav');
+    assert.ok(delayMs >= 900 && delayMs <= 4500);
+  } finally {
+    if (prevAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = prevAppUrl;
+    fs.rmSync(tmpSounds, { recursive: true, force: true });
+  }
+});

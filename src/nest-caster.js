@@ -45,18 +45,123 @@ class NestCaster {
     this.securitySystem = deps.securitySystem || securitySystem;
     this.hueLocal = deps.hueLocal || hueLocal;
     this.googleFulfillment = deps.googleFulfillment || googleFulfillment;
+    this.eventBus = deps.eventBus || require('./event-bus');
     this.soundsDir = deps.soundsDir || path.join(__dirname, '..', 'public', 'sounds');
+    this.welcomeLastAt = new Map();
+    this.presenceAttached = false;
 
     this.config = {
       chimePreset: 'chime',
       followMeEnabled: true,
-      respectBabySleep: true
+      respectBabySleep: true,
+      welcomeAnnouncementsEnabled: true,
+      welcomeRoom: 'Salone',
+      welcomeChimePreset: 'welcome_chime',
+      welcomeCooldownMs: 10 * 60 * 1000,
+      personGenders: { alex: 'male', cinzia: 'female' }
     };
 
     const isTestRun = process.env.NODE_ENV === 'test' || process.argv.some((a) => a.includes('test-guardrails'));
     if (!isTestRun) {
       this.ensureDefaultChimes();
       this._loadConfig().catch(() => {});
+    }
+  }
+
+  async init() {
+    this.ensureDefaultChimes();
+    await this._loadConfig().catch(() => {});
+    this._attachPresenceListener();
+  }
+
+  _attachPresenceListener() {
+    if (this.presenceAttached || !this.eventBus || typeof this.eventBus.on !== 'function') return;
+    this.presenceAttached = true;
+    this.eventBus.on('presence:changed', (evt) => {
+      this.handlePresenceChanged(evt).catch(() => {});
+    });
+  }
+
+  resolvePersonGender(personName) {
+    const key = String(personName || '').trim().toLowerCase();
+    if (!key) return 'male';
+    const mapped = this.config.personGenders?.[key];
+    if (mapped === 'female' || mapped === 'male') return mapped;
+    const maleEndingInA = new Set(['luca', 'andrea', 'mattia', 'nicola', 'elia', 'tobia', 'giona']);
+    if (key.endsWith('a') && !maleEndingInA.has(key)) {
+      return 'female';
+    }
+    return 'male';
+  }
+
+  buildWelcomeGreeting(personName, gender = null) {
+    const cleanName = String(personName || '').trim() || 'casa';
+    const resolvedGender = gender === 'female' || gender === 'male'
+      ? gender
+      : this.resolvePersonGender(cleanName);
+    return resolvedGender === 'female'
+      ? `Bentornata a casa ${cleanName}`
+      : `Bentornato a casa ${cleanName}`;
+  }
+
+  _resolveChimeUrl(presetOverride = null) {
+    this.ensureDefaultChimes();
+    const preset = String(presetOverride || this.config.chimePreset || 'chime').trim();
+    const file = fs.existsSync(path.join(this.soundsDir, preset))
+      ? preset
+      : fs.existsSync(path.join(this.soundsDir, `${preset}.wav`))
+        ? `${preset}.wav`
+        : fs.existsSync(path.join(this.soundsDir, `${preset}.mp3`))
+          ? `${preset}.mp3`
+          : 'chime.wav';
+
+    const appUrl = String(process.env.APP_URL || '').trim();
+    if (/^https?:\/\//i.test(appUrl)) {
+      return `${appUrl.replace(/\/+$/, '')}/sounds/${file}`;
+    }
+
+    const hostIp = typeof this.securitySystem.getLocalHostIp === 'function'
+      ? this.securitySystem.getLocalHostIp()
+      : '127.0.0.1';
+    return `http://${hostIp}:${process.env.PORT || 3000}/sounds/${file}`;
+  }
+
+  async handlePresenceChanged(evt = {}) {
+    const payload = (evt && evt.data && typeof evt.data === 'object') ? evt.data : (evt || {});
+    if (!this.config.welcomeAnnouncementsEnabled) {
+      return { skipped: true, reason: 'disabled' };
+    }
+    if (payload.status !== 'home' || !payload.person || payload.person === 'Casa') {
+      return { skipped: true, reason: 'not_resident_arrival' };
+    }
+    if (payload.previous !== 'away') {
+      return { skipped: true, reason: 'previous_not_away' };
+    }
+
+    const key = String(payload.person).trim().toLowerCase();
+    const cooldownMs = Number(this.config.welcomeCooldownMs || 10 * 60 * 1000);
+    const lastAt = this.welcomeLastAt.get(key) || 0;
+    if (Date.now() - lastAt < cooldownMs) {
+      return { skipped: true, reason: 'cooldown' };
+    }
+
+    this.welcomeLastAt.set(key, Date.now());
+    const greeting = this.buildWelcomeGreeting(payload.person, payload.gender || null);
+    const roomName = this.config.welcomeRoom || 'Salone';
+    const chimePreset = this.config.welcomeChimePreset || 'welcome_chime';
+
+    try {
+      const res = await this.speak(greeting, {
+        roomName,
+        followMe: false,
+        playChime: true,
+        chimePreset,
+        lang: 'it'
+      });
+      return { announced: Boolean(res?.success), greeting, roomName, ...res };
+    } catch (err) {
+      console.warn(`⚠️ [NestCaster] Errore annuncio rientro "${greeting}":`, err.message);
+      return { announced: false, greeting, roomName, error: err.message };
     }
   }
 
@@ -130,6 +235,18 @@ class NestCaster {
     if (payload.respectBabySleep !== undefined) {
       this.config.respectBabySleep = Boolean(payload.respectBabySleep);
     }
+    if (payload.welcomeAnnouncementsEnabled !== undefined) {
+      this.config.welcomeAnnouncementsEnabled = Boolean(payload.welcomeAnnouncementsEnabled);
+    }
+    if (typeof payload.welcomeRoom === 'string' && payload.welcomeRoom.trim()) {
+      this.config.welcomeRoom = payload.welcomeRoom.trim();
+    }
+    if (typeof payload.welcomeChimePreset === 'string' && payload.welcomeChimePreset.trim()) {
+      this.config.welcomeChimePreset = payload.welcomeChimePreset.trim();
+    }
+    if (payload.personGenders && typeof payload.personGenders === 'object') {
+      this.config.personGenders = { ...(this.config.personGenders || {}), ...payload.personGenders };
+    }
     if (payload.customChimeBase64) {
       const savedName = this.saveCustomChime(payload.customChimeName || 'custom_chime.wav', payload.customChimeBase64);
       this.config.chimePreset = savedName.replace(/\.(wav|mp3)$/i, '');
@@ -194,7 +311,7 @@ class NestCaster {
     };
   }
 
-  async speak(text, { roomName = null, followMe = true, playChime = true, lang = 'it' } = {}) {
+  async speak(text, { roomName = null, followMe = true, playChime = true, chimePreset = null, lang = 'it' } = {}) {
     const cleanText = String(text || '').trim();
     if (!cleanText) {
       throw new Error('Testo da pronunciare mancante');
@@ -213,20 +330,7 @@ class NestCaster {
           targetIp: this.securitySystem.resolveNestIp(roomName || 'Camera da letto')
         };
 
-    let chimeUrl = null;
-    if (playChime) {
-      this.ensureDefaultChimes();
-      const preset = this.config.chimePreset || 'chime';
-      const file = fs.existsSync(path.join(this.soundsDir, preset))
-        ? preset
-        : fs.existsSync(path.join(this.soundsDir, `${preset}.wav`))
-          ? `${preset}.wav`
-          : 'chime.wav';
-      const hostIp = typeof this.securitySystem.getLocalHostIp === 'function'
-        ? this.securitySystem.getLocalHostIp()
-        : '127.0.0.1';
-      chimeUrl = `http://${hostIp}:${process.env.PORT || 3000}/sounds/${file}`;
-    }
+    const chimeUrl = playChime ? this._resolveChimeUrl(chimePreset) : null;
 
     const ssml = this.googleFulfillment.buildSsmlResponse(cleanText, { chimeUrl });
     const castRes = await this.securitySystem.announceToNest(cleanText, {
