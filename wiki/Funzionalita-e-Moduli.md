@@ -191,6 +191,14 @@ Riorganizzata con un'architettura **modulare responsive**: su desktop/tablet ori
 - **Nest Caster, Jingle Pre-Roll & Follow-Me (`src/nest-caster.js`)**: generazione automatica asset audio (`chime.wav`, `chime.mp3`, `soft_bell.wav`, `modern_reel.wav` in `public/sounds/`) e upload custom base64; routing intelligente **Follow-Me** su movimenti recenti Sensore Corridoio Hue (`#40`) e telecamere (ultimi 15 min) con protezione sonno Cameretta Francesco; helper SSML `<speak><audio .../><break time="380ms"/>...</speak>` e diffusione via `securitySystem.announceToNest`.
 - **Pannello Amministrazione (`public/js/admin.js`, `server.js`)**: card *"🔊 Google Nest & Smart Home Fulfillment (#14)"* per configurazione IP statici Nest, jingle pre-roll, Follow-Me e test vocale immediato (`GET/POST /api/nest/config`, `POST /api/nest/speak`).
 
+---
+
+## 📬 13. Centro Notifiche Intelligente & Voce della Casa (`#78`)
+- **Feed Persistito & Intelligenza Deterministica (`src/notifier.js`)**: persistenza su TiDB (`notifications-feed`, max 150 voci + 300 `dismissedKeys`), classificazione automatica `attentionTier` (`urgent`, `actionable`, `informative`), generazione `elaboratedText` e `actionHints` contestuali, listener *"La Casa Parla"* su `eventBus` (`presence:changed`, `climate:setpoint_changed`, `camera:vision_alert`, `camera:temporal_analysis`, `mail:courier_arrived`, `mail:delivery_update`) e notifica reattiva `notifications:updated`.
+- **Integrazione Mail & Pacchi (`src/delivery-billing-parser.js`)**: conservazione metadati email (`mailSubject`, `mailFrom`, `mailDate`, `mailSnippet`), metodo `markDeliveryReceived(id)` (`status: 'delivered'`) e sincronizzazione automatica verso il feed `notifier`.
+- **Interfaccia Dedicata & Header Popover (`public/index.html`, `public/js/notifications.js`, `public/js/app.js`)**: rimozione widget consegne dalla Home (piantina pulita), icona notifiche in alto a destra con badge contatore non lette e popover rapido, nuova macro-area `#area-notifications` con filtri (`Da leggere`, `Attenzione Alta`, `Mail & Pacchi`, `Voce della Casa`, `Archivio`), modale dettagli sanitizzata anti-XSS e azioni *Pacco ricevuto*, *Segna come letta* ed *Elimina*.
+
+
 
 
 

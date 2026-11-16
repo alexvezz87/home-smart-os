@@ -117,3 +117,6 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 ### Google Smart Home Actions & Nest Caster (`#14`)
 - **OAuth2 & Webhook**: `GET /api/google/oauth/authorize`, `POST /api/google/oauth/token` (Account Linking TiDB `google-home-oauth`) e `POST /api/google/fulfillment` (`SYNC`, `QUERY`, `EXECUTE`, `DISCONNECT` per Bosch, Volvo EX30, Wallbox ABB, Telecamere e Scene Hue).
 - **Nest Caster**: `GET/POST /api/nest/config` (IP statici, preset jingle, Follow-Me, protezione sonno) e `POST /api/nest/speak` (Pre-Roll + TTS).
+
+### Centro Notifiche Intelligente (`#78`)
+- **Endpoint**: `GET /api/notifications/feed` (`filter=unread|attention|mail|automation|archive|all`), `POST /api/notifications/read-all`, `POST /api/notifications/:id/read`, `DELETE /api/notifications/:id`, `POST /api/notifications/:id/package-received` e `POST /api/mail/deliveries/:id/received`.

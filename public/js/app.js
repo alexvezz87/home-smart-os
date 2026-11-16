@@ -42,10 +42,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.history.replaceState({}, document.title, window.location.pathname);
   }
 
-  loadHomeDeliveriesWidget('all');
-
   // Polling automatico ogni 30 secondi
-  setInterval(loadDashboard, 30000);
+  setInterval(() => {
+    loadDashboard();
+    window.notificationsManager?.refreshBadgeAndFeed(true);
+  }, 30000);
+  window.notificationsManager?.refreshBadgeAndFeed(true);
 
   // Registrazione Service Worker PWA per Web Push
   if ('serviceWorker' in navigator) {
@@ -107,69 +109,8 @@ function escapeMailHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-window.loadHomeDeliveriesWidget = async function loadHomeDeliveriesWidget(recipient = 'all') {
-  const container = document.getElementById('home-deliveries-widget');
-  if (!container) return;
-  try {
-    const res = await fetch(`/api/mail/deliveries?recipient=${encodeURIComponent(recipient)}`);
-    const json = await res.json();
-    if (!res.ok || !json.success) return;
-    const items = Array.isArray(json.items) ? json.items : [];
-    const active = items.filter((d) => d.status !== 'delivered').slice(0, 6);
-
-    if (items.length === 0 && (!recipient || recipient === 'all')) {
-      container.innerHTML = '';
-      return;
-    }
-
-    const statusBadge = (st) => {
-      if (st === 'out_for_delivery') return '<span class="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-bold">In consegna oggi</span>';
-      if (st === 'delivered') return '<span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">Consegnato</span>';
-      return '<span class="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30 text-[10px] font-bold">In transito</span>';
-    };
-
-    const listToRender = active.length > 0 ? active : items.slice(0, 4);
-
-    container.innerHTML = `
-      <div class="glass-card rounded-2xl p-4 border border-slate-800 space-y-3">
-        <div class="flex items-center justify-between flex-wrap gap-2">
-          <div class="flex items-center gap-2">
-            <span class="text-sm font-bold text-white">📦 Consegne di Casa</span>
-            <span class="text-[11px] text-slate-400">(${listToRender.length})</span>
-          </div>
-          <div class="inline-flex rounded-xl bg-slate-900 border border-slate-800 p-0.5 text-[11px]">
-            ${['all', 'Alex', 'Cinzia'].map((f) => `
-              <button onclick="window.loadHomeDeliveriesWidget('${f}')" class="px-2.5 py-1 rounded-lg ${recipient === f ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400 hover:text-white'}">
-                ${f === 'all' ? 'Tutti' : f}
-              </button>
-            `).join('')}
-          </div>
-        </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-          ${listToRender.length === 0
-            ? `<div class="col-span-full py-3 text-center text-xs text-slate-500">Nessuna consegna trovata per <strong>${escapeMailHtml(recipient)}</strong>.</div>`
-            : listToRender.map((d) => `
-            <div class="p-3 rounded-xl bg-slate-950/70 border border-slate-800 space-y-1 text-xs">
-              <div class="flex items-center justify-between gap-2">
-                <span class="font-bold text-white truncate">${escapeMailHtml(d.store || 'Negozio')}</span>
-                ${statusBadge(d.status)}
-              </div>
-              <div class="text-[11px] text-slate-300 truncate">${escapeMailHtml(d.itemsDescription || 'Spedizione')}</div>
-              <div class="flex items-center justify-between text-[10px] text-slate-400 pt-1">
-                <span>${escapeMailHtml(d.courier || 'Corriere')} · <strong>${escapeMailHtml(d.recipient || 'Casa')}</strong></span>
-                <span class="font-mono">${escapeMailHtml(d.expectedDate || '--')}</span>
-              </div>
-              ${d.trackingNumber ? `<div class="text-[10px] font-mono text-slate-500 truncate">Trk: ${escapeMailHtml(d.trackingNumber)}</div>` : ''}
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    `;
-  } catch (_) {}
-};
-
 /**
- * Routing tra le 3 Macro-Aree
+ * Routing tra le Macro-Aree
  */
 function switchArea(area) {
   window.currentArea = area;
@@ -179,6 +120,7 @@ function switchArea(area) {
   const areaMobility = document.getElementById('area-mobility');
   const areaAdmin = document.getElementById('area-admin');
   const areaStatus = document.getElementById('area-status');
+  const areaNotifications = document.getElementById('area-notifications');
 
   // Gestione visibilità sezioni
   if (areaHome) areaHome.classList.toggle('hidden', area !== 'home');
@@ -186,6 +128,7 @@ function switchArea(area) {
   if (areaMobility) areaMobility.classList.toggle('hidden', area !== 'mobility');
   if (areaAdmin) areaAdmin.classList.toggle('hidden', area !== 'admin');
   if (areaStatus) areaStatus.classList.toggle('hidden', area !== 'status');
+  if (areaNotifications) areaNotifications.classList.toggle('hidden', area !== 'notifications');
 
   // Aggiorna pulsanti Navigazione nella Sidebar Sinistra
   document.querySelectorAll('.nav-area-btn').forEach(btn => {
@@ -225,6 +168,8 @@ function switchArea(area) {
     window.adminManager.renderView();
   } else if (area === 'status' && window.statusManager) {
     window.statusManager.renderView();
+  } else if (area === 'notifications' && window.notificationsManager) {
+    window.notificationsManager.renderView();
   }
 }
 
