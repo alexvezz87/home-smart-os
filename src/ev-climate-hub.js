@@ -61,7 +61,8 @@ const VOLVO_API_BASE = 'https://api.volvocars.com';
 const VOLVO_AUTH_BASE = 'https://auth.volvocars.com/realms/volvocars/protocol/openid-connect';
 const VOLVO_OAUTH_AUTH_URL = `${VOLVO_AUTH_BASE}/auth`;
 const VOLVO_OAUTH_TOKEN_URL = `${VOLVO_AUTH_BASE}/token`;
-const VOLVO_DEFAULT_REDIRECT_URI = 'https://localhost:3000/callback';
+const VOLVO_DEFAULT_REDIRECT_URI = process.env.VOLVO_REDIRECT_URI ||
+  (process.env.APP_URL ? `${String(process.env.APP_URL).replace(/\/+$/, '')}/callback` : 'https://home.alexsoluzioniweb.it/callback');
 const VOLVO_OAUTH_CODE_VERIFIER = 'gE1qT9Y2MlF7Tbh1DHKc6S5gK6EQrFSv3i4VblZzPzE';
 const VOLVO_OAUTH_CODE_CHALLENGE = 'S7O74JM8CWDI_MQoRPtOAxz0ADBBBVI-xXDETbfBn5A';
 const VOLVO_OAUTH_SCOPES = [

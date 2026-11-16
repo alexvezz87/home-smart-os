@@ -1323,7 +1323,9 @@ class AdminManager {
     try {
       const isCallbackOrCode = val.includes('code=') || !val.includes('.');
       const endpoint = isCallbackOrCode ? '/api/ev-climate/volvo/oauth-callback' : '/api/ev-climate/volvo/direct-token';
-      const payload = isCallbackOrCode ? { callbackUrl: val } : { accessToken: val };
+      const payload = isCallbackOrCode
+        ? { callbackUrl: val, redirectUri: `${window.location.origin}/callback` }
+        : { accessToken: val };
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -404,7 +404,8 @@ class MobilityManager {
 
   async openVolvoReauth() {
     try {
-      const res = await fetch('/api/ev-climate/volvo/oauth-url');
+      const redirectUri = `${window.location.origin}/callback`;
+      const res = await fetch(`/api/ev-climate/volvo/oauth-url?redirectUri=${encodeURIComponent(redirectUri)}`);
       const json = await res.json();
       if (json.success && json.url) {
         window.open(json.url, '_blank', 'noopener');
@@ -432,7 +433,9 @@ class MobilityManager {
     try {
       const isCallbackOrCode = accessToken.includes('code=') || !accessToken.includes('.');
       const endpoint = isCallbackOrCode ? '/api/ev-climate/volvo/oauth-callback' : '/api/ev-climate/volvo/direct-token';
-      const payload = isCallbackOrCode ? { callbackUrl: accessToken } : { accessToken, refreshToken };
+      const payload = isCallbackOrCode
+        ? { callbackUrl: accessToken, redirectUri: `${window.location.origin}/callback` }
+        : { accessToken, refreshToken };
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

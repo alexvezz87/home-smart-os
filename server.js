@@ -61,9 +61,18 @@ let gmailHub = null;
 let deliveryBillingParser = null;
 
 const app = express();
+app.set('trust proxy', 1);
 const httpServer = http.createServer(app);
 const { proxy, scriptUrl } = require('rtsp-relay')(app, httpServer);
 const PORT = process.env.PORT || 3000;
+
+function getRequestBaseUrl(req) {
+  const rawProto = req?.get?.('x-forwarded-proto') || req?.protocol || 'https';
+  const proto = String(rawProto).split(',')[0].trim() || 'https';
+  const host = req?.get?.('host');
+  if (host) return `${proto}://${host}`;
+  return (process.env.APP_URL || 'https://home.alexsoluzioniweb.it').replace(/\/+$/, '');
+}
 
 // Carica certificati SSL per HTTPS (necessario per callback OAuth2 Volvo ID su https://localhost:3000/callback)
 let httpsServer = null;
@@ -696,9 +705,9 @@ app.post('/api/ev-climate/volvo', async (req, res) => {
 
 app.get('/api/ev-climate/volvo/oauth-url', (req, res) => {
   try {
-    const { redirectUri } = req.query;
+    const redirectUri = req.query.redirectUri || process.env.VOLVO_REDIRECT_URI || `${getRequestBaseUrl(req)}/callback`;
     const url = evClimateHub.getVolvoOAuthUrl(redirectUri);
-    res.json({ success: true, url });
+    res.json({ success: true, url, redirectUri });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
   }
@@ -707,7 +716,8 @@ app.get('/api/ev-climate/volvo/oauth-url', (req, res) => {
 app.post('/api/ev-climate/volvo/oauth-callback', async (req, res) => {
   try {
     const { code, callbackUrl, redirectUri } = req.body || {};
-    const result = await evClimateHub.exchangeVolvoOAuthCode(code || callbackUrl, redirectUri);
+    const resolvedRedirect = redirectUri || process.env.VOLVO_REDIRECT_URI || `${getRequestBaseUrl(req)}/callback`;
+    const result = await evClimateHub.exchangeVolvoOAuthCode(code || callbackUrl, resolvedRedirect);
     const snapshot = await mcp.getHomeSnapshot().catch(() => null);
     res.json({
       success: true,
@@ -918,9 +928,11 @@ app.post('/api/mail/sync', async (req, res) => {
   }
 });
 
-// Endpoint per OAuth Redirect Volvo ID (gestisce sia HTTPS che HTTP su porta 3000 - Strada A)
+// Endpoint per OAuth Redirect Volvo ID (dinamico tra produzione HTTPS e localhost)
 app.get('/callback', async (req, res) => {
   const { code, error, error_description } = req.query;
+  const baseUrl = getRequestBaseUrl(req);
+  const homeUrl = `${baseUrl}/?cat=VOLVO_EX30`;
 
   if (error) {
     return res.status(400).send(`<!DOCTYPE html>
@@ -940,20 +952,20 @@ app.get('/callback', async (req, res) => {
   <div class="card">
     <h2>❌ Errore Autenticazione Volvo ID</h2>
     <p><strong>${error}</strong>: ${error_description || 'Autorizzazione negata'}</p>
-    <a href="http://localhost:${PORT}/?cat=VOLVO_EX30" class="btn">Torna a Casetta OS</a>
+    <a href="${homeUrl}" class="btn">Torna a Casetta OS</a>
   </div>
 </body>
 </html>`);
   }
 
   if (!code) {
-    return res.redirect(`http://localhost:${PORT}/?cat=VOLVO_EX30`);
+    return res.redirect(homeUrl);
   }
 
   try {
-    const redirectUri = `https://localhost:${PORT}/callback`;
+    const redirectUri = process.env.VOLVO_REDIRECT_URI || `${baseUrl}/callback`;
     await evClimateHub.exchangeVolvoOAuthCode(code, redirectUri);
-    eventLogger.log('volvo_ex30', '🎉 [Volvo EX30] Connessione completata con successo tramite 1-Click Callback (Strada A)');
+    eventLogger.log('volvo_ex30', '🎉 [Volvo EX30] Connessione completata con successo tramite 1-Click Callback');
 
     res.send(`<!DOCTYPE html>
 <html lang="it">
@@ -1000,7 +1012,7 @@ app.get('/callback', async (req, res) => {
     <div class="icon">🚗⚡</div>
     <h2>Volvo EX30 Connessa!</h2>
     <p>Token OAuth2 scambiato con successo e telemetria veicolo sincronizzata.<br>Questa finestra si chiuderà automaticamente...</p>
-    <a href="http://localhost:${PORT}/?cat=VOLVO_EX30" class="btn">Torna alla Dashboard</a>
+    <a href="${homeUrl}" class="btn">Torna alla Dashboard</a>
   </div>
   <script>
     try {
@@ -1009,12 +1021,12 @@ app.get('/callback', async (req, res) => {
         setTimeout(() => window.close(), 1200);
       } else {
         setTimeout(() => {
-          window.location.href = 'http://localhost:${PORT}/?cat=VOLVO_EX30';
+          window.location.href = '${homeUrl}';
         }, 1500);
       }
     } catch (_) {
       setTimeout(() => {
-        window.location.href = 'http://localhost:${PORT}/?cat=VOLVO_EX30';
+        window.location.href = '${homeUrl}';
       }, 1500);
     }
   </script>
@@ -1038,7 +1050,7 @@ app.get('/callback', async (req, res) => {
   <div class="card">
     <h2>❌ Errore Scambio Token</h2>
     <p>${err.message}</p>
-    <a href="http://localhost:${PORT}/?cat=VOLVO_EX30" class="btn">Torna a Casetta OS</a>
+    <a href="${homeUrl}" class="btn">Torna a Casetta OS</a>
   </div>
 </body>
 </html>`);

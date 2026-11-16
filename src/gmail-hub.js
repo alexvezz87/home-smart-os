@@ -165,7 +165,8 @@ class GmailHub {
       redirectUri = `${proto}://${req.headers.host}/api/auth/google/callback`;
     }
     if (!redirectUri) {
-      redirectUri = 'http://localhost:3000/api/auth/google/callback';
+      const base = (process.env.APP_URL || 'https://home.alexsoluzioniweb.it').replace(/\/+$/, '');
+      redirectUri = `${base}/api/auth/google/callback`;
     }
 
     return { clientId, clientSecret, redirectUri };
