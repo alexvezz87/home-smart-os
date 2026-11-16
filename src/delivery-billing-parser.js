@@ -170,13 +170,113 @@ Per bollette: {"type":"bill","recipient":"Casa|Alex|Cinzia","provider":"...","se
 Altrimenti: {"type":"ignore"}`;
 
     const res = await aiGateway.generateJSON({
-      role: 'fast',
+      role: 'lite',
       taskName: 'mail_parsing',
       parts: [{ text: textPrompt }]
     });
     const parsed = unwrapAiJson(res);
     if (!parsed || parsed.type === 'ignore') return null;
     return parsed;
+  }
+
+  _heuristicParseMessage(msg) {
+    const ownerName = msg.account === 'cinzia' ? 'Cinzia' : 'Alex';
+    const text = `${msg.from || ''} ${msg.subject || ''} ${msg.snippet || ''} ${msg.bodyText || ''}`;
+    const lower = text.toLowerCase();
+    if (lower.includes('dolomiti energia') || lower.includes('dolomitienergia')) return null;
+
+    // 1. Spedizione / Corriere
+    const isDelivery = /spedito|spedizione|in consegna|consegnato|corriere|tracking|pacco|ordine.*spedito|out for delivery/i.test(text);
+    const courierMatch = text.match(/\b(Amazon|BRT|Bartolini|DHL|GLS|Poste Italiane|SDA|UPS|FedEx)\b/i);
+    const storeMatch = text.match(/\b(Amazon|Zara|Ikea|Zalando|eBay|MediaWorld|Unieuro|Apple|Sephora|Vinted)\b/i);
+    if (isDelivery && (courierMatch || storeMatch)) {
+      let status = 'in_transit';
+      if (/in consegna oggi|out for delivery|in consegna\b/i.test(text)) status = 'out_for_delivery';
+      else if (/consegnato|delivered|consegna effettuata/i.test(text)) status = 'delivered';
+      const trk = (text.match(/\b([A-Z0-9]{10,22})\b/) || [])[1] || '';
+      return {
+        type: 'delivery',
+        recipient: ownerName,
+        store: storeMatch ? storeMatch[1] : (courierMatch ? courierMatch[1] : 'Ordine Online'),
+        courier: courierMatch ? courierMatch[1] : 'Corriere',
+        trackingNumber: trk,
+        itemsDescription: String(msg.subject || 'Spedizione').slice(0, 90),
+        expectedDate: new Date().toISOString().slice(0, 10),
+        status
+      };
+    }
+
+    // 2. Fattura / Bolletta extra-Dolomiti
+    const isBill = /\b(fattura|bolletta|avviso di pagamento|scadenza|tari|assicurazione|rinnovo polizza)\b/i.test(text);
+    const provMatch = text.match(/\b(Iliad|ACDA|Comune|Unipol|UnipolSai|TIM|Vodafone|Fastweb|Eni|Telepass|UnipolMove)\b/i);
+    const amountMatch = text.match(/(?:€|EUR|euro|importo|totale)\s*[:.]?\s*(\d{1,4}[.,]\d{2})/i) || text.match(/(\d{1,4}[.,]\d{2})\s*(?:€|EUR)/i);
+    if (isBill && (provMatch || amountMatch)) {
+      const amt = amountMatch ? Number(amountMatch[1].replace(',', '.')) : 0;
+      if (amt > 0) {
+        const provider = provMatch ? provMatch[1] : (String(msg.from || 'Utenza').split('<')[0].replace(/"/g, '').trim().slice(0, 30) || 'Fornitore');
+        const pLow = provider.toLowerCase();
+        let serviceType = 'other';
+        if (pLow.includes('iliad') || pLow.includes('tim') || pLow.includes('fastweb')) serviceType = 'internet';
+        else if (pLow.includes('acda') || lower.includes('idric') || lower.includes('acqua')) serviceType = 'water';
+        else if (lower.includes('tari') || pLow.includes('comune')) serviceType = 'tax';
+        else if (pLow.includes('unipol') || lower.includes('polizza')) serviceType = 'auto';
+        return {
+          type: 'bill',
+          recipient: 'Casa',
+          provider,
+          serviceType,
+          amountEur: amt,
+          dueDate: new Date().toISOString().slice(0, 10),
+          billedUnits: String(msg.subject || '').slice(0, 60),
+          status: /pagat[oa]|ricevuta di pagamento/i.test(text) ? 'paid' : 'pending'
+        };
+      }
+    }
+    return null;
+  }
+
+  async parseMessagesBatch(candidates = [], account = 'alex') {
+    if (!Array.isArray(candidates) || candidates.length === 0) return new Map();
+    const ownerName = account === 'cinzia' ? 'Cinzia' : 'Alex';
+    const outMap = new Map();
+
+    if (aiGateway.getApiKey()) {
+      try {
+        const digest = candidates.map((m, idx) => (
+          `[${idx}] ID=${m.id} | Da: ${m.from} | Data: ${m.date} | Oggetto: ${m.subject}\nEstratto: ${String(m.bodyText || m.snippet || '').slice(0, 650)}`
+        )).join('\n---\n');
+
+        const batchPrompt = `Analizza queste ${candidates.length} email della casella di ${ownerName}.
+ESCLUDI email promozionali/newsletter e ESCLUDI Dolomiti Energia.
+Per ogni email pertinente a una spedizione/pacco o a una bolletta/fattura/scadenza, restituisci un elemento nell'array "items" con il campo "id" uguale all'ID dell'email:
+- Pacco: {"id":"...","type":"delivery","recipient":"${ownerName}|Casa","store":"...","courier":"...","trackingNumber":"...","itemsDescription":"...","expectedDate":"YYYY-MM-DD","status":"in_transit|out_for_delivery|delivered"}
+- Bolletta: {"id":"...","type":"bill","recipient":"Casa|${ownerName}","provider":"...","serviceType":"internet|water|tax|auto|maintenance|other","amountEur":0.0,"dueDate":"YYYY-MM-DD","billedUnits":"...","status":"pending|paid|overdue"}
+Rispondi SOLO con JSON valido: {"items":[ ... ]}\n\n${digest}`;
+
+        const res = await aiGateway.generateJSON({
+          role: 'lite',
+          taskName: 'mail_batch_parsing',
+          parts: [{ text: batchPrompt }]
+        });
+        const items = Array.isArray(res?.data?.items)
+          ? res.data.items
+          : (Array.isArray(res?.data) ? res.data : []);
+        for (const it of items) {
+          if (it && it.id && (it.type === 'delivery' || it.type === 'bill')) {
+            outMap.set(String(it.id), it);
+          }
+        }
+        return outMap;
+      } catch (err) {
+        logger.warn(`Batch Gemini mail parsing fallback euristico (${account})`, { error: err.message }, 'mail-parser');
+      }
+    }
+
+    for (const msg of candidates) {
+      const h = this._heuristicParseMessage(msg);
+      if (h) outMap.set(String(msg.id), h);
+    }
+    return outMap;
   }
 
   _upsertDelivery(item, msg) {
@@ -250,21 +350,18 @@ Altrimenti: {"type":"ignore"}`;
       if (!st?.connected) continue;
 
       try {
-        const candidates = await this.gmailHub.fetchCandidateMessages(account, 15);
+        const candidates = await this.gmailHub.fetchCandidateMessages(account, 10);
+        const batchResults = await this.parseMessagesBatch(candidates, account);
         for (const msg of candidates) {
-          try {
-            const parsed = await this.parseMessage(msg);
-            processedIds.push(msg.id);
-            if (!parsed) continue;
-            if (parsed.type === 'delivery') {
-              this._upsertDelivery(parsed, msg);
-              parsedDeliveries++;
-            } else if (parsed.type === 'bill') {
-              this._upsertBill(parsed, msg);
-              parsedBills++;
-            }
-          } catch (msgErr) {
-            logger.warn(`Parsing messaggio Gmail ${msg.id} rimandato`, { error: msgErr.message }, 'mail-parser');
+          processedIds.push(msg.id);
+          const parsed = batchResults.get(String(msg.id)) || this._heuristicParseMessage(msg);
+          if (!parsed) continue;
+          if (parsed.type === 'delivery') {
+            this._upsertDelivery(parsed, msg);
+            parsedDeliveries++;
+          } else if (parsed.type === 'bill') {
+            this._upsertBill(parsed, msg);
+            parsedBills++;
           }
         }
       } catch (err) {

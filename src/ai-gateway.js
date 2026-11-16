@@ -442,7 +442,7 @@ class AIGateway {
     }
 
     const candidateModels = [quota.model];
-    if (quota.role === 'lite' && LITE_FALLBACK_MODEL !== quota.model) {
+    if ((quota.role === 'lite' || quota.role === 'fast') && LITE_FALLBACK_MODEL !== quota.model) {
       candidateModels.push(LITE_FALLBACK_MODEL);
     }
 
@@ -452,7 +452,7 @@ class AIGateway {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
         const res = await this.httpClient.post(url, payload, {
           headers: { 'Content-Type': 'application/json' },
-          timeout: 15000
+          timeout: 25000
         });
         const text = res.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
         if (!text) {
