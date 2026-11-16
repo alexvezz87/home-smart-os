@@ -218,7 +218,10 @@ class Notifier {
     if (this.listenersAttached) return;
     this.listenersAttached = true;
 
-    eventBus.on('presence:changed', (payload = {}) => {
+    const unwrap = (evt = {}) => (evt && evt.data && typeof evt.data === 'object' ? evt.data : (evt || {}));
+
+    eventBus.on('presence:changed', (evt = {}) => {
+      const payload = unwrap(evt);
       if (payload.person === 'Casa') {
         const statusLabel = payload.status === 'home' ? 'Rientro a Casa' : 'Casa in modalità Fuori Casa';
         this.send({
@@ -233,7 +236,8 @@ class Notifier {
       }
     });
 
-    eventBus.on('climate:setpoint_changed', (payload = {}) => {
+    eventBus.on('climate:setpoint_changed', (evt = {}) => {
+      const payload = unwrap(evt);
       this.send({
         level: 'info',
         category: 'climate',
@@ -245,7 +249,8 @@ class Notifier {
       }).catch(() => {});
     });
 
-    eventBus.on('ai:guardrail_blocked', (payload = {}) => {
+    eventBus.on('ai:guardrail_blocked', (evt = {}) => {
+      const payload = unwrap(evt);
       this.send({
         level: 'warning',
         category: 'system',
@@ -261,7 +266,7 @@ class Notifier {
     });
 
     eventBus.on('security:auth_alert', (evt = {}) => {
-      const payload = evt?.data || evt || {};
+      const payload = unwrap(evt);
       this.send({
         level: 'critical',
         category: 'security',
@@ -272,7 +277,8 @@ class Notifier {
       }).catch(() => {});
     });
 
-    eventBus.on('sensor:motion', (payload = {}) => {
+    eventBus.on('sensor:motion', (evt = {}) => {
+      const payload = unwrap(evt);
       if (payload && payload.away === true) {
         this.send({
           level: 'warning',

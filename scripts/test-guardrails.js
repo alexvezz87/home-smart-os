@@ -1448,3 +1448,23 @@ test('Volvo Adaptive Polling (#76): intervallo 3m a riposo / 2m in carica e skip
     hub.volvoState.lastError = prevErr;
   }
 });
+
+test('Notifier EventBus Unwrap (#77): legge action e reason dentro event.data su ai:guardrail_blocked', async () => {
+  const { Notifier } = require('../src/notifier');
+  const eventBus = require('../src/event-bus');
+  const n = new Notifier();
+  const sent = [];
+  n.send = async (opts) => { sent.push(opts); return { success: true }; };
+  n._attachEventListeners();
+
+  eventBus.publish('ai:guardrail_blocked', {
+    action: 'camera:vision',
+    reason: 'Cooldown anti-spam attivo',
+    source: 'test'
+  });
+  await new Promise((r) => setTimeout(r, 20));
+  const last = sent.find((s) => s.title === 'AI Guardrail Attivato');
+  assert.ok(last, 'Notifica AI Guardrail Attivato non ricevuta');
+  assert.ok(last.message.includes('camera:vision'), `Atteso camera:vision in: ${last.message}`);
+  assert.ok(last.message.includes('Cooldown anti-spam attivo'), `Atteso reason reale in: ${last.message}`);
+});
