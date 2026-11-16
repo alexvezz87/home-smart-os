@@ -1824,3 +1824,108 @@ test('OAuth Single-Flight Lock & Idempotent Polling (#83): nessun doppio refresh
     [hub.syncAbbChargerSync, hub.syncVolvoEx30, hub.syncBoschEasyControl] = prevSyncAllFns;
   }
 });
+
+test('Gemini TTS strip C2PA & Nest Cast queueLoad per chime + voce (#86)', async () => {
+  const aiGateway = require('../src/ai-gateway');
+  const secSys = require('../src/security-system');
+
+  // 1. Verifica rimozione chunk C2PA da header RIFF WAV
+  const buildChunk = (tag, bodyBuf) => {
+    const pad = bodyBuf.length % 2;
+    const out = Buffer.alloc(8 + bodyBuf.length + pad);
+    out.write(tag, 0);
+    out.writeUInt32LE(bodyBuf.length, 4);
+    bodyBuf.copy(out, 8);
+    return out;
+  };
+  const fmtBody = Buffer.alloc(16);
+  fmtBody.writeUInt16LE(1, 0);
+  fmtBody.writeUInt16LE(1, 2);
+  fmtBody.writeUInt32LE(24000, 4);
+  const dataBody = Buffer.from([1, 2, 3, 4, 5, 6, 7, 8]);
+  const c2paBody = Buffer.from('c2pa-manifest-dummy-payload-bytes');
+  const fmtChunk = buildChunk('fmt ', fmtBody);
+  const dataChunk = buildChunk('data', dataBody);
+  const c2paChunk = buildChunk('C2PA', c2paBody);
+  const riffBodyLen = 4 + fmtChunk.length + dataChunk.length + c2paChunk.length;
+  const dirtyWav = Buffer.concat([
+    Buffer.from('RIFF'),
+    (() => { const b = Buffer.alloc(4); b.writeUInt32LE(riffBodyLen, 0); return b; })(),
+    Buffer.from('WAVE'),
+    fmtChunk,
+    dataChunk,
+    c2paChunk
+  ]);
+
+  const cleanWav = aiGateway._stripExtraWavChunks(dirtyWav);
+  assert.equal(cleanWav.toString('ascii', 0, 4), 'RIFF');
+  assert.equal(cleanWav.toString('ascii', 8, 12), 'WAVE');
+  assert.equal(cleanWav.includes(Buffer.from('C2PA')), false);
+  assert.equal(cleanWav.length, 12 + fmtChunk.length + dataChunk.length);
+  assert.equal(cleanWav.readUInt32LE(4), 4 + fmtChunk.length + dataChunk.length);
+
+  // 2. Verifica che announceToNest usi queueLoad([chime, speech]) con DefaultMediaReceiver
+  const castPath = require.resolve('castv2-client');
+  const prevCastEntry = require.cache[castPath];
+  let queuedItems = null;
+  let queuedOpts = null;
+
+  class FakeCastClient {
+    on() {}
+    connect(_ip, cb) { setImmediate(cb); }
+    launch(_rec, cb) {
+      setImmediate(() => cb(null, {
+        queueLoad(items, opts, qCb) {
+          queuedItems = items;
+          queuedOpts = opts;
+          setImmediate(() => qCb(null));
+        },
+        load(_m, _o, lCb) { setImmediate(() => lCb(null)); }
+      }));
+    }
+    close() {}
+  }
+
+  require.cache[castPath] = {
+    id: castPath,
+    filename: castPath,
+    loaded: true,
+    exports: { Client: FakeCastClient, DefaultMediaReceiver: class {} }
+  };
+
+  const prevSynth = aiGateway.synthesizeSpeech;
+  const prevResolveIp = secSys.resolveNestIp;
+  try {
+    aiGateway.synthesizeSpeech = async () => ({
+      success: true,
+      cached: true,
+      mimeType: 'audio/mpeg',
+      audioUrl: '/audio/tts/tts-test-mock.mp3'
+    });
+    secSys.resolveNestIp = () => '192.168.1.155';
+
+    const res = await secSys.announceToNest('Bentornato a casa Alex', {
+      roomName: 'Salone',
+      skipGuardrail: true,
+      chimeUrl: 'https://home.example.com/sounds/welcome_chime.wav',
+      ttsEngine: 'gemini',
+      voiceName: 'Aoede'
+    });
+
+    assert.equal(res.success, true);
+    assert.ok(Array.isArray(queuedItems) && queuedItems.length === 2);
+    assert.equal(queuedItems[0].media.contentId, 'https://home.example.com/sounds/welcome_chime.wav');
+    assert.equal(queuedItems[0].media.contentType, 'audio/wav');
+    assert.equal(queuedItems[1].media.contentType, 'audio/mpeg');
+    assert.match(queuedItems[1].media.contentId, /\/audio\/tts\/tts-test-mock\.mp3$/);
+    assert.equal(queuedOpts.repeatMode, 'REPEAT_OFF');
+  } finally {
+    aiGateway.synthesizeSpeech = prevSynth;
+    secSys.resolveNestIp = prevResolveIp;
+    if (prevCastEntry) {
+      require.cache[castPath] = prevCastEntry;
+    } else {
+      delete require.cache[castPath];
+    }
+  }
+});

@@ -490,26 +490,51 @@ class SecuritySystem {
             try { client.close(); } catch (_) {}
             return reject(launchErr);
           }
-          const loadTts = () => {
-            player.load({ contentId: speechUrl, contentType: speechMime, streamType: 'BUFFERED' }, { autoplay: true }, (loadErr) => {
+          const playSingle = (url, mime) => {
+            player.load({ contentId: url, contentType: mime, streamType: 'BUFFERED' }, { autoplay: true }, (loadErr) => {
               clearTimeout(timeout);
               if (loadErr) {
                 try { client.close(); } catch (_) {}
                 return reject(loadErr);
               }
-              setTimeout(() => { try { client.close(); } catch (_) {} }, 3500);
+              setTimeout(() => { try { client.close(); } catch (_) {} }, 4500);
               resolve();
             });
           };
 
           if (chimeUrl) {
-            const chimeMime = String(chimeUrl).toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/mp3';
+            const chimeMime = String(chimeUrl).toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/mpeg';
             const preTtsDelayMs = this._estimateWavDelayMs(chimeUrl);
-            player.load({ contentId: chimeUrl, contentType: chimeMime, streamType: 'BUFFERED' }, { autoplay: true }, () => {
-              setTimeout(loadTts, preTtsDelayMs);
-            });
+            if (typeof player.queueLoad === 'function') {
+              const queueItems = [
+                {
+                  media: { contentId: chimeUrl, contentType: chimeMime, streamType: 'BUFFERED' },
+                  autoplay: true,
+                  preloadTime: 1
+                },
+                {
+                  media: { contentId: speechUrl, contentType: speechMime, streamType: 'BUFFERED' },
+                  autoplay: true,
+                  preloadTime: 2
+                }
+              ];
+              player.queueLoad(queueItems, { repeatMode: 'REPEAT_OFF' }, (qErr) => {
+                if (!qErr) {
+                  clearTimeout(timeout);
+                  setTimeout(() => { try { client.close(); } catch (_) {} }, 8500);
+                  return resolve();
+                }
+                player.load({ contentId: chimeUrl, contentType: chimeMime, streamType: 'BUFFERED' }, { autoplay: true }, () => {
+                  setTimeout(() => playSingle(speechUrl, speechMime), preTtsDelayMs);
+                });
+              });
+            } else {
+              player.load({ contentId: chimeUrl, contentType: chimeMime, streamType: 'BUFFERED' }, { autoplay: true }, () => {
+                setTimeout(() => playSingle(speechUrl, speechMime), preTtsDelayMs);
+              });
+            }
           } else {
-            loadTts();
+            playSingle(speechUrl, speechMime);
           }
         });
       });
