@@ -187,4 +187,18 @@ Per isolare completamente lo sviluppo locale (`staging`) dalla produzione H24 su
    - Arresto automatico del polling Telegram (`telegramBot.stopPolling()`) in locale per prevenire `409 Conflict` con la VPS di produzione.
    - Simulatore eventi (`simulateEvent`) per testare su `eventBus` movimento corridoio, finestra aperta, arrivo pacchi e pressione caldaia bassa.
 
+---
+
+## 7. Hardening Sicurezza Perimetrale: PIN Kiosk LAN-Only, JWT Effimero & Alert Telegram (`#74`)
+
+1. **Perimetro Domestico (`isTrustedHomeNetwork` in `src/auth.js`)**:
+   - Il tastierino numerico PIN (`Tablet Kiosk`, `role: 'admin'`) è consentito **esclusivamente** da loopback (`127.0.0.1`, `::1`), LAN domestica (`192.168.1.0/24`), subnet WireGuard (`192.168.27.0/24`) o IP WAN configurati in `process.env.HOME_PUBLIC_IP`.
+   - Da reti esterne, `GET /api/auth/status` restituisce `kioskPinAllowed: false` (nascondendo il tastierino in `public/index.html` / `public/js/app.js`) e `POST /api/auth/kiosk-login` respinge la richiesta con **HTTP `403 Forbidden`** (`KIOSK_LAN_ONLY`), imponendo **Google OAuth 2.0** con whitelist `process.env.ALLOWED_GOOGLE_EMAILS`.
+2. **Hardening Segreto JWT & Porta Container**:
+   - Rimosso il fallback statico per la firma JWT: `getSessionSecret()` usa `SESSION_SECRET`, `ENCRYPTION_KEY` oppure un segreto casuale effimero per processo (`crypto.randomBytes(32)`).
+   - In `docker-compose.yml`, la porta `3000` di Node è isolata su `127.0.0.1:3000:3000`, restando accessibile solo a Caddy HTTPS e in loopback.
+3. **Allerte Real-Time (`security:auth_alert`)**:
+   - Tentativi PIN da rete esterna, PIN errati o login Google fuori whitelist pubblicano `security:auth_alert` su `eventBus`, instradato da `src/notifier.js` come notifica critica su Telegram e Web Push.
+
+
 

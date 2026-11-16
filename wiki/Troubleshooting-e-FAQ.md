@@ -64,6 +64,17 @@
    - In locale attiva `SANDBOX_MODE=dry_run` oppure spunta **"Disattiva Polling Telegram Locale (Anti-409)"** nella card *"🧪 Ambiente Duale Staging / WAMP Locale (`db_home_os_dev`) & Sandbox (#71)"* in Amministrazione.
 2. **Allineamento rapido WAMP `db_home_os_dev` con i dati di produzione**:
    - Avvia WAMP MySQL (`127.0.0.1:3306`) e lancia `npm run db:clone-wamp` (oppure premi **"🔄 Clona Ora da TiDB Cloud a WAMP"** in Amministrazione).
+
+---
+
+## 🛡️ Accesso Kiosk PIN, Rete Esterna & Whitelist Google (`#74`)
+
+1. **Il tastierino PIN non compare da rete esterna (4G/5G) o restituisce `403 KIOSK_LAN_ONLY`**:
+   - Comportamento intenzionale di sicurezza (`#74`): il login con PIN Kiosk è abilitato solo su Wi-Fi/LAN domestica (`192.168.1.*`), tunnel WireGuard (`192.168.27.*`) o IP WAN configurati in `HOME_PUBLIC_IP`. Da fuori casa usa **"Accedi con Google (Whitelist)"**.
+   - Se il browser di casa esce dietro proxy/NAT con IP WAN pubblico, assicurati che `HOME_PUBLIC_IP` in `.env` contenga l'IP WAN domestico aggiornato.
+2. **Dopo un riavvio senza `SESSION_SECRET` / `ENCRYPTION_KEY` le sessioni vengono scollegate**:
+   - `AuthManager` genera un segreto effimero casuale ad ogni avvio in assenza di `SESSION_SECRET` o `ENCRYPTION_KEY` in `.env`. Per sessioni persistenti tra riavvii, imposta `SESSION_SECRET` in `.env`.
+
 3. **Token OAuth2 stantii al riavvio del container Docker in `DB_MODE=cloud` (`#73`)**:
    - `syncAndSeed()` in `src/db.js` in modalità `cloud` sovrascrive sempre i file JSON locali del container (`ev-climate-config.json`, ecc.) con il payload cifrato più recente di `db_home_os`, evitando che `docker restart` ricarichi `refresh_token` già ruotati dal layer disco del container.
 4. **Errore Volvo `Vehicle does not belong to allowed markets` da VPS US (`#73`)**:

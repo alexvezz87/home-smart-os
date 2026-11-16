@@ -125,11 +125,13 @@ app.get(['/api/status/health', '/healthz'], (req, res) => {
 
 // Stato autenticazione sessione corrente
 app.get(['/api/auth/status', '/api/auth/me'], (req, res) => {
+  const kioskPinAllowed = auth.isTrustedHomeNetwork(req);
   if (!auth.isAuthEnabled()) {
     return res.json({
       success: true,
       authEnabled: false,
       authenticated: true,
+      kioskPinAllowed,
       user: { email: 'dev@localhost', role: 'admin', type: 'guest' }
     });
   }
@@ -140,6 +142,7 @@ app.get(['/api/auth/status', '/api/auth/me'], (req, res) => {
       success: true,
       authEnabled: true,
       authenticated: true,
+      kioskPinAllowed,
       user: {
         email: user.email,
         role: user.role,
@@ -152,18 +155,23 @@ app.get(['/api/auth/status', '/api/auth/me'], (req, res) => {
   return res.json({
     success: true,
     authEnabled: true,
-    authenticated: false
+    authenticated: false,
+    kioskPinAllowed
   });
 });
 
 // Login rapido con PIN per Tablet Kiosk di casa
 app.post('/api/auth/kiosk-login', (req, res) => {
-  const { pin } = req.body;
-  const ip = req.ip || req.connection.remoteAddress || 'unknown';
-  const result = auth.verifyKioskPin(pin, ip);
+  const { pin } = req.body || {};
+  const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+  const isHomeNetwork = auth.isTrustedHomeNetwork(req);
+  const result = auth.verifyKioskPin(pin, ip, { isHomeNetwork });
   if (result.success) {
     auth.setSessionCookie(res, result.token, result.maxAge);
     return res.json({ success: true, user: result.user });
+  }
+  if (result.forbidden) {
+    return res.status(403).json({ success: false, code: 'KIOSK_LAN_ONLY', error: result.error });
   }
   const status = result.rateLimited ? 429 : 401;
   return res.status(status).json({ success: false, error: result.error });

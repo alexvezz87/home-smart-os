@@ -260,6 +260,18 @@ class Notifier {
       }).catch(() => {});
     });
 
+    eventBus.on('security:auth_alert', (evt = {}) => {
+      const payload = evt?.data || evt || {};
+      this.send({
+        level: 'critical',
+        category: 'security',
+        title: '🚨 Allerta Sicurezza Accesso',
+        message: payload.message || 'Tentativo di accesso non autorizzato rilevato.',
+        source: 'auth',
+        dedupKey: `auth_alert:${payload.reason || 'generic'}:${payload.ip || payload.email || 'unknown'}`
+      }).catch(() => {});
+    });
+
     eventBus.on('sensor:motion', (payload = {}) => {
       if (payload && payload.away === true) {
         this.send({
