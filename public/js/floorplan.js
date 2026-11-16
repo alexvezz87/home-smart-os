@@ -1177,11 +1177,42 @@ class FloorplanEngine {
             ` : ''}
           </div>
 
-          <!-- Selettore Vista Zoom (Proporzioni SVG fedeli) -->
-          <div class="pointer-events-auto inline-flex items-center rounded-xl bg-slate-900/80 backdrop-blur-md p-0.5 border border-slate-700/60 shadow-lg">
-            <button onclick="window.floorplan.setZoomPreset('all')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${this.zoomPreset === 'all' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Casa</button>
-            <button onclick="window.floorplan.setZoomPreset('night')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${this.zoomPreset === 'night' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Notte</button>
-            <button onclick="window.floorplan.setZoomPreset('day')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${this.zoomPreset === 'day' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Giorno</button>
+          <!-- Destra HUD: Avatar Presenza Casa (Alex & Cinzia) + Selettore Vista Zoom -->
+          <div class="pointer-events-auto flex items-center gap-2">
+            <!-- Avatar Circolari Presenza -->
+            <div class="inline-flex items-center gap-1.5 rounded-xl bg-slate-900/80 backdrop-blur-md px-2 py-1 border border-cyan-500/25 shadow-lg">
+              ${[
+                { key: 'alex', label: 'Alex', initial: 'A', ringHome: 'ring-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.5)]' },
+                { key: 'cinzia', label: 'Cinzia', initial: 'C', ringHome: 'ring-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.5)]' }
+              ].map(p => {
+                const st = window.homeData?.presence?.[p.key] || {};
+                const isHome = st.status === 'home';
+                const avatarUrl = window.homeData?.avatars?.[p.key] || null;
+                const lastSeenStr = st.lastSeen ? new Date(st.lastSeen).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '';
+                const statusTxt = isHome ? 'In casa' : (st.status === 'away' ? `Fuori casa${lastSeenStr ? ` (visto ${lastSeenStr})` : ''}` : 'Stato non rilevato');
+                return `
+                  <button type="button"
+                          onclick="if(typeof showToast==='function') showToast('${isHome ? '🟢' : '⚫'} ${p.label}: ${statusTxt}', '${isHome ? 'success' : 'info'}')"
+                          title="${p.label}: ${statusTxt}"
+                          class="relative w-7 h-7 sm:w-8 sm:h-8 rounded-full transition-all active:scale-95 ${isHome ? `ring-2 ${p.ringHome}` : 'ring-1 ring-slate-600 grayscale opacity-55'} bg-slate-800 flex items-center justify-center overflow-visible">
+                    <span class="w-full h-full rounded-full overflow-hidden flex items-center justify-center">
+                      ${avatarUrl
+                        ? `<img src="${avatarUrl}" alt="${p.label}" class="w-full h-full object-cover" />`
+                        : `<span class="text-[11px] font-black ${isHome ? 'text-cyan-200' : 'text-slate-400'}">${p.initial}</span>`
+                      }
+                    </span>
+                    <span class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-slate-950 ${isHome ? 'bg-emerald-400' : 'bg-slate-500'}"></span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+
+            <!-- Selettore Vista Zoom (Proporzioni SVG fedeli) -->
+            <div class="inline-flex items-center rounded-xl bg-slate-900/80 backdrop-blur-md p-0.5 border border-slate-700/60 shadow-lg">
+              <button onclick="window.floorplan.setZoomPreset('all')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${this.zoomPreset === 'all' ? 'bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Casa</button>
+              <button onclick="window.floorplan.setZoomPreset('night')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${this.zoomPreset === 'night' ? 'bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Notte</button>
+              <button onclick="window.floorplan.setZoomPreset('day')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${this.zoomPreset === 'day' ? 'bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Giorno</button>
+            </div>
           </div>
         </div>
 

@@ -590,6 +590,8 @@ app.get(['/api/home', '/api/dashboard'], async (req, res) => {
     snapshot.dyson = dysonPurifier ? dysonPurifier.getStatus() : null;
     snapshot.spatial = spatialEngine.getEnrichedMapState(snapshot);
     snapshot.evClimate = evClimateHub.getUnifiedStatus(snapshot);
+    snapshot.presence = iliadboxClient ? iliadboxClient.getPresenceState() : null;
+    snapshot.avatars = await getHomeAvatars();
     res.json({ success: true, data: snapshot });
   } catch (error) {
     console.error('[API /api/home Error]:', error.message);
@@ -1814,6 +1816,78 @@ app.get('/api/presence', (req, res) => {
     success: true,
     data: iliadboxClient ? iliadboxClient.getPresenceState() : null
   });
+});
+
+// 1g-bis. Avatar Presenza Casa (Alex & Cinzia) con persistenza su data/ + TiDB Cloud
+const HOME_AVATARS_FILE = path.join(__dirname, 'data', 'home-avatars.json');
+let _homeAvatarsCache = null;
+
+async function getHomeAvatars() {
+  if (_homeAvatarsCache) return _homeAvatarsCache;
+  let avatars = { alex: null, cinzia: null };
+  try {
+    if (fs.existsSync(HOME_AVATARS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(HOME_AVATARS_FILE, 'utf8'));
+      if (parsed && typeof parsed === 'object') {
+        avatars.alex = typeof parsed.alex === 'string' ? parsed.alex : null;
+        avatars.cinzia = typeof parsed.cinzia === 'string' ? parsed.cinzia : null;
+      }
+    } else if (db && typeof db.get === 'function') {
+      const fromDb = await db.get('home-avatars').catch(() => null);
+      if (fromDb && typeof fromDb === 'object') {
+        avatars.alex = typeof fromDb.alex === 'string' ? fromDb.alex : null;
+        avatars.cinzia = typeof fromDb.cinzia === 'string' ? fromDb.cinzia : null;
+        fs.mkdirSync(path.dirname(HOME_AVATARS_FILE), { recursive: true });
+        fs.writeFileSync(HOME_AVATARS_FILE, JSON.stringify(avatars, null, 2), 'utf8');
+      }
+    }
+  } catch (_) {}
+  _homeAvatarsCache = avatars;
+  return _homeAvatarsCache;
+}
+
+async function saveHomeAvatars(avatars) {
+  _homeAvatarsCache = {
+    alex: typeof avatars.alex === 'string' ? avatars.alex : null,
+    cinzia: typeof avatars.cinzia === 'string' ? avatars.cinzia : null
+  };
+  fs.mkdirSync(path.dirname(HOME_AVATARS_FILE), { recursive: true });
+  fs.writeFileSync(HOME_AVATARS_FILE, JSON.stringify(_homeAvatarsCache, null, 2), 'utf8');
+  if (db && typeof db.set === 'function') {
+    await db.set('home-avatars', _homeAvatarsCache, false).catch(() => {});
+  }
+  return _homeAvatarsCache;
+}
+
+app.get('/api/avatars', async (req, res) => {
+  const avatars = await getHomeAvatars();
+  res.json({ success: true, data: avatars });
+});
+
+app.post('/api/avatars/:person', async (req, res) => {
+  try {
+    const person = String(req.params.person || '').toLowerCase();
+    if (!['alex', 'cinzia'].includes(person)) {
+      return res.status(400).json({ success: false, error: 'Persona non valida. Usa alex o cinzia.' });
+    }
+    const { dataUrl, clear } = req.body || {};
+    const current = { ...(await getHomeAvatars()) };
+    if (clear) {
+      current[person] = null;
+    } else {
+      if (typeof dataUrl !== 'string' || !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(dataUrl)) {
+        return res.status(400).json({ success: false, error: 'Formato immagine non valido (atteso PNG/JPEG/WEBP base64).' });
+      }
+      if (dataUrl.length > 900000) {
+        return res.status(400).json({ success: false, error: 'Immagine troppo grande dopo compressione.' });
+      }
+      current[person] = dataUrl;
+    }
+    const saved = await saveHomeAvatars(current);
+    res.json({ success: true, data: saved });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 app.get('/api/admin/iliadbox/devices', async (req, res) => {

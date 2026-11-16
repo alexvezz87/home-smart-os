@@ -2272,6 +2272,56 @@ class AdminManager {
           </div>
         </div>
 
+        <!-- Avatar Presenza Casa (Alex & Cinzia) -->
+        <div class="p-4 rounded-xl bg-slate-900/60 border border-cyan-500/25 space-y-3">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div class="flex items-center gap-2">
+              <i class="fa-solid fa-users text-cyan-400 text-sm"></i>
+              <div>
+                <h4 class="text-xs font-bold text-white uppercase tracking-wider">Avatar Presenza Casa (Alex &amp; Cinzia)</h4>
+                <p class="text-[11px] text-slate-400">Carica una foto dal cellulare o PC: viene ritagliata automaticamente in un cerchio e mostrata nella pagina principale</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            ${[
+              { key: 'alex', label: 'Alex', initial: 'A', ring: 'ring-cyan-400/60' },
+              { key: 'cinzia', label: 'Cinzia', initial: 'C', ring: 'ring-emerald-400/60' }
+            ].map(p => {
+              const avatarUrl = window.homeData?.avatars?.[p.key] || null;
+              return `
+                <div class="p-3 rounded-xl bg-slate-950/70 border border-slate-800 flex items-center justify-between gap-3">
+                  <div class="flex items-center gap-3 min-w-0">
+                    <div id="admin-avatar-preview-${p.key}" class="w-12 h-12 rounded-full ring-2 ${p.ring} bg-slate-800 flex items-center justify-center overflow-hidden shrink-0">
+                      ${avatarUrl
+                        ? `<img src="${avatarUrl}" alt="${p.label}" class="w-full h-full object-cover" />`
+                        : `<span class="text-sm font-black text-cyan-300">${p.initial}</span>`
+                      }
+                    </div>
+                    <div class="min-w-0">
+                      <div class="text-xs font-bold text-white">${p.label}</div>
+                      <div class="text-[10.5px] text-slate-400">${avatarUrl ? 'Avatar attivo' : 'Nessuna foto caricata'}</div>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <label class="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white text-[11px] font-bold cursor-pointer transition-all active:scale-95 flex items-center gap-1">
+                      <i class="fa-solid fa-camera"></i>
+                      <span>Carica</span>
+                      <input type="file" accept="image/*" class="hidden" onchange="window.adminManager.uploadAvatarFile('${p.key}', this)" />
+                    </label>
+                    ${avatarUrl ? `
+                      <button type="button" onclick="window.adminManager.removeAvatar('${p.key}')" class="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 border border-slate-700 text-[11px] transition-colors" title="Rimuovi avatar">
+                        <i class="fa-solid fa-trash-can"></i>
+                      </button>
+                    ` : ''}
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+
         <!-- Spina Dorsale: Presenza Casa (Iliadbox LAN) & AI Gateway / Guardrail -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div id="admin-iliadbox-panel" class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
@@ -3161,6 +3211,79 @@ AdminManager.prototype.syncGmailNow = async function() {
     this.loadGmailHubPanel();
   } catch (err) {
     window.showToast?.(this.escapeHtml(err.message), 'error');
+  }
+};
+
+AdminManager.prototype.uploadAvatarFile = async function(person, inputEl) {
+  const file = inputEl?.files?.[0];
+  if (!file) return;
+  try {
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Errore lettura immagine'));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('Immagine non valida'));
+        img.onload = () => {
+          const size = 256;
+          const canvas = document.createElement('canvas');
+          canvas.width = size;
+          canvas.height = size;
+          const ctx = canvas.getContext('2d');
+          ctx.clearRect(0, 0, size, size);
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+          ctx.closePath();
+          ctx.clip();
+
+          // Ritaglio centrato (cover) per preservare le proporzioni dentro il cerchio
+          const srcSize = Math.min(img.width, img.height);
+          const sx = Math.floor((img.width - srcSize) / 2);
+          const sy = Math.floor((img.height - srcSize) / 2);
+          ctx.drawImage(img, sx, sy, srcSize, srcSize, 0, 0, size, size);
+          ctx.restore();
+          resolve(canvas.toDataURL('image/png'));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    const res = await fetch(`/api/avatars/${encodeURIComponent(person)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dataUrl })
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Errore salvataggio avatar');
+
+    if (window.homeData) window.homeData.avatars = json.data;
+    if (typeof showToast === 'function') showToast(`✅ Avatar ${person === 'alex' ? 'Alex' : 'Cinzia'} aggiornato!`, 'success');
+    this.renderView();
+    if (window.floorplan) window.floorplan.render();
+  } catch (err) {
+    if (typeof showToast === 'function') showToast(`Errore avatar: ${err.message}`, 'error');
+  } finally {
+    if (inputEl) inputEl.value = '';
+  }
+};
+
+AdminManager.prototype.removeAvatar = async function(person) {
+  try {
+    const res = await fetch(`/api/avatars/${encodeURIComponent(person)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clear: true })
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Errore rimozione avatar');
+    if (window.homeData) window.homeData.avatars = json.data;
+    if (typeof showToast === 'function') showToast(`Avatar ${person === 'alex' ? 'Alex' : 'Cinzia'} rimosso`, 'info');
+    this.renderView();
+    if (window.floorplan) window.floorplan.render();
+  } catch (err) {
+    if (typeof showToast === 'function') showToast(`Errore: ${err.message}`, 'error');
   }
 };
 
