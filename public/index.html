@@ -65,7 +65,7 @@
       </div>
 
       <!-- Tastierino PIN Kiosk -->
-      <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 mb-5">
+      <div id="kiosk-pin-section" class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 mb-5">
         <div class="flex items-center justify-between mb-2 text-xs">
           <span class="font-bold text-slate-300 flex items-center gap-1.5">
             <i class="fa-solid fa-tablet-screen text-indigo-400"></i> Tablet Kiosk (PIN)
@@ -96,9 +96,14 @@
         </div>
       </div>
 
-      <div class="relative flex items-center justify-center my-4">
+      <div id="auth-divider-or" class="relative flex items-center justify-center my-4">
         <div class="border-t border-slate-800 w-full"></div>
         <span class="bg-slate-900 px-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider absolute">oppure</span>
+      </div>
+
+      <div id="auth-external-notice" class="hidden mb-4 p-3 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-200 text-xs text-left flex items-start gap-2">
+        <i class="fa-solid fa-earth-europe mt-0.5 text-sky-400 shrink-0"></i>
+        <span>Connessione da rete esterna rilevata. Il tastierino PIN è attivo solo sul Wi-Fi domestico: accedi con il tuo account Google autorizzato.</span>
       </div>
 
       <a href="/api/auth/google" class="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-900 font-bold text-sm transition-all shadow-md active:scale-95">

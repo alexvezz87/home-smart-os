@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const axios = require('axios');
 const eventLogger = require('./event-logger');
+const eventBus = require('./event-bus');
 
 // Durate dei token
 const KIOSK_TOKEN_TTL_SEC = 90 * 24 * 3600; // 90 giorni per Tablet Kiosk
@@ -15,6 +16,7 @@ const LOCKOUT_MS = 5 * 60 * 1000; // 5 minuti
 class AuthManager {
   constructor() {
     this.cookieName = 'home_smart_token';
+    this.ephemeralSecret = crypto.randomBytes(32).toString('hex');
   }
 
   isAuthEnabled() {
@@ -23,7 +25,48 @@ class AuthManager {
   }
 
   getSessionSecret() {
-    return process.env.SESSION_SECRET || process.env.ENCRYPTION_KEY || 'default_home_smart_os_session_secret';
+    return process.env.SESSION_SECRET || process.env.ENCRYPTION_KEY || this.ephemeralSecret;
+  }
+
+  normalizeIp(rawIp) {
+    let ip = String(rawIp || '').trim();
+    if (!ip) return '';
+    if (ip.includes(',')) {
+      ip = ip.split(',')[0].trim();
+    }
+    if (ip.startsWith('::ffff:')) {
+      ip = ip.slice(7).trim();
+    }
+    return ip;
+  }
+
+  isTrustedHomeNetwork(reqOrIp, extraHomeIps = []) {
+    let rawIp = '';
+    if (typeof reqOrIp === 'string') {
+      rawIp = reqOrIp;
+    } else if (reqOrIp && typeof reqOrIp === 'object') {
+      rawIp = reqOrIp.ip || reqOrIp.headers?.['x-forwarded-for'] || reqOrIp.socket?.remoteAddress || '';
+    }
+    const ip = this.normalizeIp(rawIp);
+    if (!ip) return false;
+
+    if (ip === '127.0.0.1' || ip === '::1' || ip === 'localhost') {
+      return true;
+    }
+    if (ip.startsWith('192.168.1.') || ip.startsWith('192.168.27.')) {
+      return true;
+    }
+
+    const envIps = String(process.env.HOME_PUBLIC_IP || '')
+      .split(',')
+      .map((item) => this.normalizeIp(item))
+      .filter(Boolean);
+    const extraList = Array.isArray(extraHomeIps)
+      ? extraHomeIps.map((item) => this.normalizeIp(item)).filter(Boolean)
+      : [];
+    const allowedWanIps = new Set([...envIps, ...extraList]);
+
+    return allowedWanIps.has(ip);
   }
 
   /**
@@ -181,8 +224,28 @@ class AuthManager {
   /**
    * Verifica PIN Kiosk
    */
-  verifyKioskPin(pin, ip = 'unknown') {
-    const rateCheck = this.checkRateLimit(ip);
+  verifyKioskPin(pin, ip = 'unknown', options = {}) {
+    const normIp = this.normalizeIp(ip) || 'unknown';
+    const isHomeNetwork = options && options.isHomeNetwork !== undefined
+      ? Boolean(options.isHomeNetwork)
+      : this.isTrustedHomeNetwork(normIp);
+
+    if (!isHomeNetwork) {
+      const msg = `⛔ Tentativo di login PIN Kiosk bloccato da rete esterna (IP: ${normIp})`;
+      eventLogger.log('security_alert', msg, { source: 'Sicurezza' });
+      eventBus.publish('security:auth_alert', {
+        reason: 'kiosk_pin_outside_lan',
+        ip: normIp,
+        message: msg
+      });
+      return {
+        success: false,
+        forbidden: true,
+        error: 'Il tastierino PIN è abilitato solo connessi al Wi-Fi di casa. Effettua l\'accesso con Google.'
+      };
+    }
+
+    const rateCheck = this.checkRateLimit(normIp);
     if (!rateCheck.allowed) {
       return {
         success: false,
@@ -199,20 +262,27 @@ class AuthManager {
 
     const providedPin = String(pin || '').trim();
     if (providedPin === expectedPin) {
-      this.resetAttempts(ip);
+      this.resetAttempts(normIp);
       const user = {
         email: 'tablet-kiosk@home.local',
         role: 'admin',
         type: 'kiosk'
       };
       const token = this.generateToken(user, KIOSK_TOKEN_TTL_SEC);
-      eventLogger.log('auth_login', '📱 Login Tablet Kiosk completato con PIN da IP ' + ip, { source: 'Tablet Kiosk' });
+      eventLogger.log('auth_login', '📱 Login Tablet Kiosk completato con PIN da IP ' + normIp, { source: 'Tablet Kiosk' });
       return { success: true, user, token, maxAge: KIOSK_TOKEN_TTL_SEC * 1000 };
     }
 
-    const rec = this.recordFailedAttempt(ip);
+    const rec = this.recordFailedAttempt(normIp);
     const attemptsLeft = Math.max(0, MAX_ATTEMPTS - rec.count);
-    eventLogger.log('security_alert', `⚠️ Tentativo PIN Kiosk errato da IP ${ip} (rimasti: ${attemptsLeft})`, { source: 'Sicurezza' });
+    const failMsg = `⚠️ Tentativo PIN Kiosk errato da IP ${normIp} (tentativi rimasti: ${attemptsLeft})`;
+    eventLogger.log('security_alert', failMsg, { source: 'Sicurezza' });
+    eventBus.publish('security:auth_alert', {
+      reason: 'kiosk_pin_failed',
+      ip: normIp,
+      attemptsLeft,
+      message: failMsg
+    });
     return {
       success: false,
       error: attemptsLeft > 0 ? `PIN errato. Tentativi rimasti: ${attemptsLeft}` : 'Troppi tentativi errati. Riprova tra 5 minuti.'
@@ -319,7 +389,14 @@ class AuthManager {
 
     // 3. Controllo whitelist
     if (!this.isEmailAllowed(email)) {
-      eventLogger.log('security_alert', `⛔ Accesso Google negato per email non in whitelist: ${email}`, { source: 'Sicurezza' });
+      const msg = `⛔ Tentativo di accesso Google OAuth bloccato per email non in whitelist: ${email}`;
+      eventLogger.log('security_alert', msg, { source: 'Sicurezza' });
+      eventBus.publish('security:auth_alert', {
+        reason: 'google_email_unauthorized',
+        email,
+        ip: this.normalizeIp(req?.ip || req?.headers?.['x-forwarded-for'] || ''),
+        message: msg
+      });
       return {
         authorized: false,
         email,
