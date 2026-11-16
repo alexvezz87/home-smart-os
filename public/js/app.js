@@ -134,7 +134,7 @@ function switchArea(area) {
   document.querySelectorAll('.nav-area-btn').forEach(btn => {
     const isTarget = btn.getAttribute('data-area') === area;
     if (isTarget) {
-      btn.className = 'nav-area-btn w-full px-3.5 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 text-white shadow-md shadow-indigo-600/30 transition-all flex items-center gap-3';
+      btn.className = 'nav-area-btn w-full px-3.5 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow-md shadow-cyan-500/25 transition-all flex items-center gap-3';
     } else {
       btn.className = 'nav-area-btn w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-slate-900/80 text-slate-300 hover:text-white hover:bg-slate-800 transition-all flex items-center gap-3';
     }
