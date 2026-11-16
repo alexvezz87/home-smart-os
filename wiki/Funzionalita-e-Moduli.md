@@ -212,6 +212,14 @@ Riorganizzata con un'architettura **modulare responsive**: su desktop/tablet ori
 - **Motore Vocale & Fallback (`src/security-system.js`, `src/nest-caster.js`)**: `announceToNest` sintetizza via Gemini TTS (`gemini-3.8-flash-tts`, voce predefinita **`Aoede`**, alternative `Kore`, `Leda`, `Zephyr`) servendo i `.wav` tramite `_buildPublicMediaUrl` (`APP_URL` HTTPS dietro Caddy o fallback LAN) con fallback trasparente a Google Translate TTS in caso di quota esaurita o assenza chiave.
 - **Pannello Amministrazione (`public/js/admin.js`, `server.js`)**: selettore motore/voce (`gemini:Aoede|Kore|Leda|Zephyr` / `google_classic`), campo intonazione `voiceStyle`, pulsante **"🎧 Anteprima Browser"** (`POST /api/ai/tts/test`) e test su speaker Salone tramite `POST /api/nest/speak`.
 
+---
+
+## 🚪 16. Rientro Intelligente Wi-Fi + Telecamera Salone & Fascia Silenziosa (`#87`)
+- **Evento Telecamera Real-Time (`src/security-system.js`)**: `attachCameraEventWatcher` pubblica `security:camera_motion` su `eventBus` con throttle separato di `3s` per `(cam.id + ':' + eventName)`, garantendo che `IsPeople` non venga mai mascherato dal cooldown da `30s` di `IsMotion`.
+- **Coda Arrivi Pendenti & Saluto Combinato (`src/nest-caster.js`)**: su `presence:changed` (`away -> home`), i residenti vengono messi in coda in `pendingWelcomeArrivals` (TTL `15m`) e salutati all'ingresso reale davanti alla telecamera del Salone (`IsPeople`, `!privacyMode`), con saluto combinato (*"Bentornati a casa Alex e Cinzia"*), svuotamento coda e cooldown `10m`.
+- **Fascia Oraria Silenziosa (`20:00 – 08:00`, `Europe/Rome`) & UI (`public/js/admin.js`)**: `isWelcomeWithinActiveHours` blocca i trigger automatici tra le `20:00` e le `07:59` svuotando le code residue, mentre i test manuali da Amministrazione restano sempre attivi. In Admin aggiunti checkbox `Attendi Telecamera Salone`, fascia oraria configurabile, badge live privacy/coda e pulsante **"🔊 Test Bentornati Alex e Cinzia"**.
+
+
 
 
 
