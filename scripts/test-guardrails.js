@@ -1365,3 +1365,64 @@ test('Dual DB WAMP & Sandbox Anti-Conflict (#71)', async () => {
     else process.env.SANDBOX_MODE = prevSandboxEnv;
   }
 });
+
+test('Auth Perimeter Hardening (#74): isTrustedHomeNetwork, blocco 403 PIN esterno, JWT effimero e security:auth_alert', async () => {
+  const auth = require('../src/auth');
+  const eventBus = require('../src/event-bus');
+
+  const prevHomeIp = process.env.HOME_PUBLIC_IP;
+  const prevPin = process.env.TABLET_KIOSK_PIN;
+  const prevSess = process.env.SESSION_SECRET;
+  const prevEnc = process.env.ENCRYPTION_KEY;
+
+  const alerts = [];
+  const onAlert = (evt) => alerts.push(evt?.data || evt);
+  eventBus.on('security:auth_alert', onAlert);
+
+  try {
+    process.env.HOME_PUBLIC_IP = '203.0.113.10';
+    process.env.TABLET_KIOSK_PIN = '1234';
+
+    // 1. Normalizzazione IP e verifica perimetro casa
+    assert.equal(auth.normalizeIp('::ffff:192.168.1.45'), '192.168.1.45');
+    assert.equal(auth.isTrustedHomeNetwork('127.0.0.1'), true);
+    assert.equal(auth.isTrustedHomeNetwork('::ffff:192.168.1.50'), true);
+    assert.equal(auth.isTrustedHomeNetwork('192.168.27.68'), true);
+    assert.equal(auth.isTrustedHomeNetwork({ headers: { 'x-forwarded-for': '203.0.113.10, 10.0.0.1' } }), true);
+    assert.equal(auth.isTrustedHomeNetwork('198.51.100.42'), false);
+
+    // 2. Segreto JWT effimero (nessun fallback statico)
+    delete process.env.SESSION_SECRET;
+    delete process.env.ENCRYPTION_KEY;
+    const secret = auth.getSessionSecret();
+    assert.ok(secret && secret.length >= 64);
+    assert.notEqual(secret, 'default_home_smart_os_session_secret');
+
+    // 3. Blocco 403 PIN Kiosk da rete esterna + evento security:auth_alert
+    const extRes = auth.verifyKioskPin('1234', '198.51.100.42');
+    assert.equal(extRes.success, false);
+    assert.equal(extRes.forbidden, true);
+    assert.ok(alerts.some((a) => a.reason === 'kiosk_pin_outside_lan' && a.ip === '198.51.100.42'));
+
+    // 4. PIN errato da LAN pubblica kiosk_pin_failed
+    const badPinRes = auth.verifyKioskPin('9999', '192.168.1.88');
+    assert.equal(badPinRes.success, false);
+    assert.ok(alerts.some((a) => a.reason === 'kiosk_pin_failed' && a.ip === '192.168.1.88'));
+
+    // 5. PIN corretto da LAN mantiene role: 'admin'
+    const okPinRes = auth.verifyKioskPin('1234', '192.168.1.89');
+    assert.equal(okPinRes.success, true);
+    assert.equal(okPinRes.user.role, 'admin');
+    assert.equal(okPinRes.user.type, 'kiosk');
+  } finally {
+    eventBus.removeListener('security:auth_alert', onAlert);
+    if (prevHomeIp === undefined) delete process.env.HOME_PUBLIC_IP;
+    else process.env.HOME_PUBLIC_IP = prevHomeIp;
+    if (prevPin === undefined) delete process.env.TABLET_KIOSK_PIN;
+    else process.env.TABLET_KIOSK_PIN = prevPin;
+    if (prevSess === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = prevSess;
+    if (prevEnc === undefined) delete process.env.ENCRYPTION_KEY;
+    else process.env.ENCRYPTION_KEY = prevEnc;
+  }
+});

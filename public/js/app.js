@@ -731,14 +731,35 @@ async function submitKioskPin() {
   }
 }
 
+let isKioskPinAllowed = true;
+
+function applyAuthModalMode(kioskAllowed) {
+  isKioskPinAllowed = kioskAllowed !== false;
+  const pinSection = document.getElementById('kiosk-pin-section');
+  const divider = document.getElementById('auth-divider-or');
+  const externalNotice = document.getElementById('auth-external-notice');
+
+  if (!isKioskPinAllowed) {
+    if (pinSection) pinSection.classList.add('hidden');
+    if (divider) divider.classList.add('hidden');
+    if (externalNotice) externalNotice.classList.remove('hidden');
+  } else {
+    if (pinSection) pinSection.classList.remove('hidden');
+    if (divider) divider.classList.remove('hidden');
+    if (externalNotice) externalNotice.classList.add('hidden');
+  }
+}
+
 async function checkAuth() {
   try {
     const res = await fetch('/api/auth/status');
     if (res.status === 401) {
+      applyAuthModalMode(false);
       showAuthModal();
       return;
     }
     const json = await res.json();
+    applyAuthModalMode(json.kioskPinAllowed);
     if (json.authenticated) {
       hideAuthModal();
       updateUserBadge(json.user);
