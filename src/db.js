@@ -274,7 +274,8 @@ class DatabaseManager {
         action VARCHAR(64) NOT NULL,
         message TEXT,
         meta JSON,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_activity_created_at (created_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
 
       `CREATE TABLE IF NOT EXISTS room_temp_history (
@@ -289,6 +290,9 @@ class DatabaseManager {
     for (const q of queries) {
       await this.pool.query(q);
     }
+    try {
+      await this.pool.query('ALTER TABLE activity_logs ADD INDEX idx_activity_created_at (created_at)');
+    } catch (_) {}
     console.log('[TiDB DB] Tabelle kv_store, energy_history_store, activity_logs e room_temp_history verificate.');
   }
 
@@ -572,13 +576,45 @@ class DatabaseManager {
   async addLog(action, message, meta = {}) {
     if (!this.pool) return;
     try {
+      const safeAction = String(action || 'audit').slice(0, 64);
       await this.pool.query(
         'INSERT INTO activity_logs (action, message, meta, created_at) VALUES (?, ?, ?, NOW())',
-        [action, message, JSON.stringify(meta)]
+        [safeAction, message, JSON.stringify(meta)]
       );
     } catch (err) {
       console.warn('[TiDB DB] Errore inserimento activity_log:', err.message);
     }
+  }
+
+  async getLogsBefore(cutoffUtcDate, limit = 5000) {
+    if (!this.pool) return [];
+    try {
+      const cutoff = cutoffUtcDate instanceof Date ? cutoffUtcDate : new Date(cutoffUtcDate);
+      const [rows] = await this.pool.query(
+        'SELECT id, action, message, meta, created_at FROM activity_logs WHERE created_at < ? ORDER BY created_at ASC, id ASC LIMIT ?',
+        [cutoff, Math.max(1, Number(limit) || 5000)]
+      );
+      return rows || [];
+    } catch (err) {
+      console.warn('[TiDB DB] Errore getLogsBefore:', err.message);
+      return [];
+    }
+  }
+
+  async deleteLogsByIds(ids = []) {
+    if (!this.pool || !Array.isArray(ids) || ids.length === 0) return 0;
+    let deleted = 0;
+    const batchSize = 500;
+    for (let i = 0; i < ids.length; i += batchSize) {
+      const batch = ids.slice(i, i + batchSize);
+      const placeholders = batch.map(() => '?').join(',');
+      const [res] = await this.pool.query(
+        `DELETE FROM activity_logs WHERE id IN (${placeholders})`,
+        batch
+      );
+      deleted += Number(res?.affectedRows || 0);
+    }
+    return deleted;
   }
 
   /**

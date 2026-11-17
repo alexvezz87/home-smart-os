@@ -103,6 +103,7 @@ class UnifiedLogger {
     this.isIntercepted = false;
     this.isWriting = false;
     this.lastRetentionDate = null;
+    this.dbPersistFn = null;
 
     this.origConsole = {
       log: console.log.bind(console),
@@ -208,7 +209,11 @@ class UnifiedLogger {
     console.error = wrap('error', 'ERR', this.origConsole.error);
   }
 
-  recordAudit({ level = 'action', source = 'audit', action = 'audit', message = '', meta = null } = {}) {
+  setDbPersister(fn) {
+    this.dbPersistFn = typeof fn === 'function' ? fn : null;
+  }
+
+  recordAudit({ level = 'action', source = 'audit', action = 'audit', message = '', meta = null, persistDb = false } = {}) {
     const now = new Date();
     const ts = formatTimestamp(now);
     const cleanMsg = sanitizeForLog(String(message || ''));
@@ -229,6 +234,16 @@ class UnifiedLogger {
     const tag = level === 'error' ? 'ERR' : (level === 'warn' ? 'WRN' : (level === 'action' ? 'ACT' : 'INF'));
     const fileLine = `[${ts}] [${tag}] [${source}] ${cleanMsg}${cleanMeta ? ' ' + JSON.stringify(cleanMeta) : ''}`;
     this.appendToFiles(level, fileLine, now);
+
+    if (persistDb === true && typeof this.dbPersistFn === 'function') {
+      const dbMeta = {
+        source,
+        level,
+        ...(cleanMeta && typeof cleanMeta === 'object' ? cleanMeta : {})
+      };
+      Promise.resolve(this.dbPersistFn(action, cleanMsg, dbMeta)).catch(() => {});
+    }
+
     return entry;
   }
 

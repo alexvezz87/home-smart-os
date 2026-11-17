@@ -1,5 +1,6 @@
 require('dotenv').config();
 const logger = require('./src/logger');
+const logArchiver = require('./src/log-archiver');
 logger.initConsoleInterceptor();
 
 const http = require('http');
@@ -263,31 +264,99 @@ app.get('/api/google/oauth/authorize', (req, res) => {
 });
 
 app.post('/api/google/oauth/token', async (req, res) => {
+  const startMs = Date.now();
+  const grantType = String(req.body?.grant_type || 'unknown');
+  let httpStatus = 200;
   try {
     const gf = googleFulfillment || require('./src/google-fulfillment');
+    const origStatus = res.status.bind(res);
+    res.status = (code) => { httpStatus = code; return origStatus(code); };
     return await gf.handleOAuthToken(req, res);
   } catch (error) {
+    httpStatus = 500;
     return res.status(500).json({ error: error.message });
+  } finally {
+    logger.recordAudit({
+      level: httpStatus >= 500 ? 'error' : (httpStatus >= 400 ? 'warn' : 'action'),
+      source: 'google-oauth',
+      action: `POST /api/google/oauth/token (${grantType})`,
+      message: `Google OAuth token grant=${grantType} -> ${httpStatus} (${Date.now() - startMs}ms)`,
+      meta: { grantType, statusCode: httpStatus, durationMs: Date.now() - startMs },
+      persistDb: true
+    });
   }
 });
 
 app.post('/api/google/fulfillment', async (req, res) => {
+  const startMs = Date.now();
+  const body = req.body || {};
+  const firstInput = Array.isArray(body.inputs) ? body.inputs[0] : {};
+  const intent = String(firstInput?.intent || 'UNKNOWN');
+  let httpStatus = 200;
+  let paused = false;
+  let commandErrors = [];
+  let deviceIds = [];
+  let commandNames = [];
+
   try {
+    if (intent === 'action.devices.EXECUTE') {
+      const cmds = firstInput?.payload?.commands || [];
+      for (const c of cmds) {
+        for (const d of c.devices || []) if (d?.id) deviceIds.push(String(d.id));
+        for (const e of c.execution || []) if (e?.command) commandNames.push(String(e.command));
+      }
+    } else if (intent === 'action.devices.QUERY') {
+      deviceIds = (firstInput?.payload?.devices || []).map((d) => String(d?.id || '')).filter(Boolean);
+    }
+
     const sb = sandboxManager || require('./src/sandbox-manager');
     if (sb?.config?.systemPaused) {
+      paused = true;
       return res.json({
-        requestId: req.body?.requestId || '',
+        requestId: body.requestId || '',
         payload: { errorCode: 'deviceTurnedOff', status: 'ERROR', debugString: 'Home Smart OS in pausa (Modalità App Originali)' }
       });
     }
     const gf = googleFulfillment || require('./src/google-fulfillment');
     if (!gf.verifyWebhookToken(req)) {
+      httpStatus = 401;
       return res.status(401).json({ error: 'Unauthorized Google Smart Home Webhook' });
     }
-    const result = await gf.handleFulfillment(req.body || {});
+    const result = await gf.handleFulfillment(body);
+    if (intent === 'action.devices.SYNC') {
+      deviceIds = (result?.payload?.devices || []).map((d) => String(d?.id || '')).slice(0, 20);
+    }
+    if (Array.isArray(result?.payload?.commands)) {
+      commandErrors = result.payload.commands
+        .filter((c) => c.status === 'ERROR')
+        .map((c) => ({ ids: c.ids, errorCode: c.errorCode, debugString: c.debugString }));
+    }
     return res.json(result);
   } catch (error) {
+    httpStatus = 500;
+    commandErrors.push({ errorCode: 'hardError', debugString: error.message });
     return res.status(500).json({ error: error.message });
+  } finally {
+    const durationMs = Date.now() - startMs;
+    const hasErr = httpStatus >= 500 || commandErrors.length > 0;
+    const level = httpStatus >= 500 ? 'error' : (httpStatus >= 400 || commandErrors.length > 0 ? 'warn' : 'action');
+    logger.recordAudit({
+      level,
+      source: 'google-fulfillment',
+      action: `POST /api/google/fulfillment (${intent})`,
+      message: `Google Fulfillment ${intent} -> ${httpStatus} (${durationMs}ms)${paused ? ' [PAUSED]' : ''}${hasErr ? ' [ERR]' : ''}`,
+      meta: {
+        intent,
+        statusCode: httpStatus,
+        durationMs,
+        paused,
+        deviceCount: deviceIds.length,
+        deviceIds: deviceIds.slice(0, 10),
+        commands: commandNames.slice(0, 10),
+        commandErrors: commandErrors.length > 0 ? commandErrors : undefined
+      },
+      persistDb: true
+    });
   }
 });
 
@@ -325,7 +394,8 @@ app.use('/api', (req, res, next) => {
       source: 'http-audit',
       action: `${req.method} ${cleanPath}`,
       message: `${req.method} ${cleanPath} -> ${statusCode} (${durationMs}ms) [${actor}]`,
-      meta: { method: req.method, path: cleanPath, statusCode, durationMs, actor, bodySummary }
+      meta: { method: req.method, path: cleanPath, statusCode, durationMs, actor, bodySummary },
+      persistDb: true
     });
   });
   next();
@@ -2153,7 +2223,52 @@ app.get('/api/admin/logs', async (req, res) => {
       });
     }
 
-    res.json({ success: true, items, status: logger.getStatus() });
+    res.json({
+      success: true,
+      items,
+      status: logger.getStatus(),
+      archiveStatus: logArchiver.getStatus()
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/admin/logs/archives', (req, res) => {
+  try {
+    const archives = logArchiver.listArchives();
+    res.json({ success: true, archives, status: logArchiver.getStatus() });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/admin/logs/archives/:fileName', (req, res) => {
+  try {
+    const { fileName } = req.params;
+    const isDownload = req.query.download === '1';
+    if (isDownload) {
+      const rawRes = logArchiver.readArchive(fileName, { raw: true });
+      const outName = req.query.ext === 'txt' ? fileName.replace(/\.log$/, '.txt') : fileName;
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${outName}"`);
+      return res.send(rawRes.content);
+    }
+    const result = logArchiver.readArchive(fileName, {
+      search: String(req.query.search || ''),
+      level: String(req.query.level || 'all'),
+      limit: Number(req.query.limit || 300)
+    });
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    return res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/admin/logs/archive-now', async (req, res) => {
+  try {
+    const result = await logArchiver.archiveAndPrune();
+    res.json({ success: true, data: result, status: logArchiver.getStatus() });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -2378,22 +2493,28 @@ async function bootstrap() {
   gmailHub = require('./src/gmail-hub');
   deliveryBillingParser = require('./src/delivery-billing-parser');
 
+  logger.setDbPersister((action, message, meta) => db.addLog(action, message, meta));
+  logArchiver.startScheduler();
+
   // Bridge EventBus -> Logger & EventLogger per tracciamento eventi chiave
   const BRIDGED_EVENTS = new Set([
     'presence:changed',
     'ai:guardrail_blocked',
     'camera:vision_alert',
     'climate:setpoint_changed',
-    'system:notification'
+    'system:notification',
+    'security:auth_alert',
+    'alert:triggered'
   ]);
   eventBus.on('*', (evt) => {
     if (!evt || !BRIDGED_EVENTS.has(evt.event)) return;
-    const level = evt.event === 'ai:guardrail_blocked' ? 'warn' : 'action';
+    const level = evt.event === 'ai:guardrail_blocked' || evt.event === 'security:auth_alert' ? 'warn' : 'action';
     logger.recordAudit({
       level,
       source: evt.source || 'eventBus',
       action: evt.event,
-      message: `${evt.event}: ${JSON.stringify(logger.sanitizeForLog(evt.data))}`
+      message: `${evt.event}: ${JSON.stringify(logger.sanitizeForLog(evt.data))}`,
+      persistDb: true
     });
   });
 

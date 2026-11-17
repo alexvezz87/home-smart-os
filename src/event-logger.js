@@ -60,7 +60,8 @@ class EventLogger {
         source: meta.source || 'EventLogger',
         action,
         message: description,
-        meta: sanitizedMeta
+        meta: sanitizedMeta,
+        persistDb: false
       });
       db.addLog(action, logger.sanitizeForLog(description), sanitizedMeta).catch(() => {});
     } catch (_) {}
