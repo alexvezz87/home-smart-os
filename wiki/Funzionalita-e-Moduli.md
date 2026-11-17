@@ -219,6 +219,13 @@ Riorganizzata con un'architettura **modulare responsive**: su desktop/tablet ori
 - **Coda Arrivi Pendenti & Saluto Combinato (`src/nest-caster.js`)**: su `presence:changed` (`away -> home`), i residenti vengono messi in coda in `pendingWelcomeArrivals` (TTL `15m`) e salutati all'ingresso reale davanti alla telecamera del Salone (`IsPeople`, `!privacyMode`), con saluto combinato (*"Bentornati a casa Alex e Cinzia"*), svuotamento coda e cooldown `10m`.
 - **Fascia Oraria Silenziosa (`20:00 – 08:00`, `Europe/Rome`) & UI (`public/js/admin.js`)**: `isWelcomeWithinActiveHours` blocca i trigger automatici tra le `20:00` e le `07:59` svuotando le code residue, mentre i test manuali da Amministrazione restano sempre attivi. In Admin aggiunti checkbox `Attendi Telecamera Salone`, fascia oraria configurabile, badge live privacy/coda e pulsante **"🔊 Test Bentornati Alex e Cinzia"**.
 
+---
+
+## 🗄️ 17. Audit Unificato, Backup Giornaliero Log (`01:00`) & Tracciamento Google Fulfillment (`#89`)
+- **Audit Completo (`src/logger.js`, `src/notifier.js`, `server.js`)**: tracciamento unificato su file live + TiDB `activity_logs` per mutazioni/errori HTTP, notifiche/alert, eventi critici `eventBus` e chiamate Google Smart Home (`POST /api/google/fulfillment` e `/api/google/oauth/token`) senza mai esporre token in chiaro.
+- **Backup Notturno & Consultazione UI (`src/log-archiver.js`, `public/js/admin.js`, `server.js`)**: scheduler alle `01:00 Europe/Rome` (con catch-up al riavvio) che archivia i log > 2 giorni in `data/logs-archive/YYYY-MM/audit-YYYY-MM-DD.log`; in **Amministrazione → Registro Eventi & Audit Log** aggiunto selettore sorgente (`Live (RAM)` / `Database TiDB (Ultimi 2gg)` / `Archivio Giornaliero (.log)`), anteprima, download `.log`/`.txt` e pulsante **"🗄️ Archivia Ora"** (`/api/admin/logs/archives*`, `/api/admin/logs/archive-now`).
+
+
 
 
 

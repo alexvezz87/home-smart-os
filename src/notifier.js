@@ -200,6 +200,14 @@ class Notifier {
     }
 
     this._recordHistory(record);
+    logger.recordAudit({
+      level: level === 'critical' ? 'error' : (level === 'warning' ? 'warn' : 'action'),
+      source: 'notifier',
+      action: `notification:${category}`,
+      message: `${title}: ${message}`,
+      meta: { level, category, channels: record.channels, dedupKey },
+      persistDb: true
+    });
     this.upsertFeedItem({
       sourceKey: dedupKey || `alert:${record.id}`,
       sourceType: payload.sourceType || (category === 'mail' ? 'mail_delivery' : category),

@@ -9,6 +9,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./public/snapshots:/app/public/snapshots
+      - ./logs:/app/logs
     ports:
       - "127.0.0.1:3000:3000"
       - "8555:8555/tcp"

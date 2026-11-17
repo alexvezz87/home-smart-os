@@ -2039,3 +2039,109 @@ test('Smart Welcome Wi-Fi + Camera Salone & Quiet Hours (#87)', async () => {
   assert.equal(at8amCam.announced, true);
   assert.equal(at8amCam.greeting, 'Bentornata a casa Cinzia');
 });
+
+test('Unified Audit & LogArchiver 01:00 (#89): retention 2gg, Write->Verify->Delete, anti-path-traversal e persistDb sanitizzato', async () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const { LogArchiver } = require('../src/log-archiver');
+  const { UnifiedLogger } = require('../src/logger');
+
+  const tmpArchiveDir = fs.mkdtempSync(path.join(os.tmpdir(), 'log-archive-'));
+  const tmpLogDir = fs.mkdtempSync(path.join(os.tmpdir(), 'log-live-'));
+
+  try {
+    let fakeNow = Date.parse('2026-11-17T10:00:00+01:00');
+    let rowsInDb = [
+      { id: 1, action: 'POST /api/google/fulfillment', message: 'SYNC ok', meta: { intent: 'action.devices.SYNC' }, created_at: '2026-11-15T14:20:00Z' },
+      { id: 2, action: 'notification:security', message: 'Test alert', meta: { level: 'info' }, created_at: '2026-11-15T18:00:00Z' },
+      { id: 3, action: 'http-audit', message: 'Recent log', meta: {}, created_at: '2026-11-16T12:00:00Z' }
+    ];
+    const deletedIds = [];
+
+    const fakeDb = {
+      getLogsBefore: async (cutoff) => rowsInDb.filter((r) => Date.parse(r.created_at) < cutoff.getTime()),
+      deleteLogsByIds: async (ids) => {
+        deletedIds.push(...ids);
+        rowsInDb = rowsInDb.filter((r) => !ids.includes(r.id));
+        return ids.length;
+      },
+      set: async () => true
+    };
+
+    const archiver = new LogArchiver({
+      db: fakeDb,
+      archiveDir: tmpArchiveDir,
+      retentionDays: 2,
+      archiveHourRome: 1,
+      nowFn: () => fakeNow
+    });
+
+    // 1. Cutoff a 2 giorni: 17/11 -> cutoff = 16/11 00:00:00 Europe/Rome (2026-11-15T23:00:00.000Z)
+    const cutoff = archiver.getCutoffDate();
+    assert.equal(cutoff.toISOString(), '2026-11-15T23:00:00.000Z');
+
+    // 2. Write -> Verify -> Delete esporta solo id 1 e 2, conserva id 3
+    const res = await archiver.archiveAndPrune();
+    assert.equal(res.success, true);
+    assert.equal(res.exportedCount, 2);
+    assert.equal(res.deletedCount, 2);
+    assert.deepEqual(deletedIds, [1, 2]);
+    assert.equal(rowsInDb.length, 1);
+    assert.equal(rowsInDb[0].id, 3);
+
+    const list = archiver.listArchives();
+    assert.equal(list.length, 1);
+    assert.equal(list[0].fileName, 'audit-2026-11-15.log');
+    assert.equal(list[0].lineCount, 2);
+
+    // 3. Anti path-traversal su readArchive
+    assert.throws(() => archiver.readArchive('../etc/passwd'), /Nome archivio non valido/);
+    assert.throws(() => archiver.readArchive('..\\secret.log'), /Nome archivio non valido/);
+    const readRes = archiver.readArchive('audit-2026-11-15.log', { search: 'SYNC' });
+    assert.equal(readRes.items.length, 1);
+
+    // 4. Nessun DELETE se scrittura fallisce
+    rowsInDb.push({ id: 4, action: 'err', message: 'Fail write test', meta: {}, created_at: '2026-11-14T10:00:00Z' });
+    const prevWrite = fs.writeFileSync;
+    const prevDelLen = deletedIds.length;
+    try {
+      fs.writeFileSync = () => { throw new Error('Disk full'); };
+      await assert.rejects(() => archiver.archiveAndPrune(), /Disk full/);
+      assert.equal(deletedIds.length, prevDelLen);
+    } finally {
+      fs.writeFileSync = prevWrite;
+    }
+
+    // 5. Scheduler trigger alle 01:00 Europe/Rome
+    fakeNow = Date.parse('2026-11-18T00:59:00+01:00');
+    const tickEarly = await archiver.checkScheduleTick();
+    assert.equal(tickEarly.skipped, true);
+
+    fakeNow = Date.parse('2026-11-18T01:00:00+01:00');
+    const tickDue = await archiver.checkScheduleTick();
+    assert.equal(tickDue.success, true);
+
+    // 6. UnifiedLogger.recordAudit con persistDb: true sanitizzato
+    const uLogger = new UnifiedLogger({ logDir: tmpLogDir });
+    const dbCalls = [];
+    uLogger.setDbPersister(async (action, message, meta) => {
+      dbCalls.push({ action, message, meta });
+    });
+    uLogger.recordAudit({
+      level: 'action',
+      source: 'google-fulfillment',
+      action: 'POST /api/google/fulfillment (EXECUTE)',
+      message: 'Bearer super-secret-token-12345 executed',
+      meta: { authorization: 'Bearer abcdef', intent: 'action.devices.EXECUTE' },
+      persistDb: true
+    });
+    await new Promise((r) => setTimeout(r, 15));
+    assert.equal(dbCalls.length, 1);
+    assert.ok(!dbCalls[0].message.includes('super-secret-token-12345'));
+    assert.ok(!JSON.stringify(dbCalls[0].meta).includes('abcdef'));
+  } finally {
+    fs.rmSync(tmpArchiveDir, { recursive: true, force: true });
+    fs.rmSync(tmpLogDir, { recursive: true, force: true });
+  }
+});
