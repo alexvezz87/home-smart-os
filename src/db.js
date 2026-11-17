@@ -576,9 +576,10 @@ class DatabaseManager {
   async addLog(action, message, meta = {}) {
     if (!this.pool) return;
     try {
+      const safeAction = String(action || 'audit').slice(0, 64);
       await this.pool.query(
         'INSERT INTO activity_logs (action, message, meta, created_at) VALUES (?, ?, ?, NOW())',
-        [action, message, JSON.stringify(meta)]
+        [safeAction, message, JSON.stringify(meta)]
       );
     } catch (err) {
       console.warn('[TiDB DB] Errore inserimento activity_log:', err.message);
