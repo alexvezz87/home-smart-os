@@ -2488,11 +2488,19 @@ class AdminManager {
         <!-- Registro Eventi & Audit Log -->
         <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
           <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
-            <div class="flex items-center gap-2">
-              <i class="fa-solid fa-clock-rotate-left text-purple-400"></i>
-              <h4 class="text-xs font-bold text-white uppercase tracking-wider">Registro Eventi &amp; Audit Log</h4>
+            <div class="space-y-0.5">
+              <div class="flex items-center gap-2">
+                <i class="fa-solid fa-clock-rotate-left text-purple-400"></i>
+                <h4 class="text-xs font-bold text-white uppercase tracking-wider">Registro Eventi &amp; Audit Log</h4>
+              </div>
+              <div id="admin-logs-archive-status" class="text-[10px] text-slate-400 font-mono">Backup 01:00 · Retention DB: 2 giorni</div>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+              <select id="admin-logs-source" onchange="window.adminManager.loadHistory()" class="px-2 py-1 rounded-lg text-[11px] bg-slate-950 border border-slate-700 text-slate-200">
+                <option value="all">Live (RAM)</option>
+                <option value="db">Database TiDB (Ultimi 2gg)</option>
+                <option value="archive">Archivio Giornaliero (.log)</option>
+              </select>
               <select id="admin-logs-level" onchange="window.adminManager.loadHistory()" class="px-2 py-1 rounded-lg text-[11px] bg-slate-950 border border-slate-700 text-slate-200">
                 <option value="all">Tutti i livelli</option>
                 <option value="action">Azioni</option>
@@ -2504,10 +2512,24 @@ class AdminManager {
               <button onclick="window.adminManager.loadHistory()" class="px-2 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
                 Filtra
               </button>
+              <button onclick="window.adminManager.runLogArchiveNow()" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30">
+                🗄️ Archivia Ora
+              </button>
               <button onclick="window.adminManager.clearHistory()" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 transition-all flex items-center gap-1 active:scale-95">
                 <i class="fa-solid fa-trash-can text-[10px]"></i> Svuota Log
               </button>
             </div>
+          </div>
+
+          <div id="admin-logs-archive-bar" class="hidden flex items-center gap-2 flex-wrap p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs">
+            <span class="text-[11px] text-slate-400 font-semibold">File archivio:</span>
+            <select id="admin-logs-archive-file" onchange="window.adminManager.loadHistory()" class="px-2 py-1 rounded-lg text-[11px] bg-slate-900 border border-slate-700 text-slate-200"></select>
+            <button onclick="window.adminManager.downloadLogArchive('log')" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30">
+              📥 Scarica .log
+            </button>
+            <button onclick="window.adminManager.downloadLogArchive('txt')" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
+              📄 Scarica .txt
+            </button>
           </div>
 
           <div id="admin-history-feed" class="space-y-2 max-h-96 overflow-y-auto pr-1">
@@ -2529,16 +2551,56 @@ class AdminManager {
     const feed = document.getElementById('admin-history-feed');
     if (!feed) return;
 
+    const sourceEl = document.getElementById('admin-logs-source');
     const levelEl = document.getElementById('admin-logs-level');
     const searchEl = document.getElementById('admin-logs-search');
+    const archiveBar = document.getElementById('admin-logs-archive-bar');
+    const archiveSelect = document.getElementById('admin-logs-archive-file');
+    const statusEl = document.getElementById('admin-logs-archive-status');
+
+    const source = sourceEl ? sourceEl.value : 'all';
     const level = levelEl ? levelEl.value : 'all';
     const search = searchEl ? searchEl.value.trim() : '';
 
+    if (archiveBar) {
+      archiveBar.classList.toggle('hidden', source !== 'archive');
+    }
+
     try {
-      const qs = new URLSearchParams({ level, search, limit: '100' }).toString();
-      const res = await fetch(`/api/admin/logs?${qs}`);
-      const json = await res.json();
-      const items = json.items || [];
+      let items = [];
+      let arcStatus = null;
+
+      if (source === 'archive') {
+        const arcRes = await fetch('/api/admin/logs/archives').then((r) => r.json());
+        const archives = arcRes.archives || [];
+        arcStatus = arcRes.status || null;
+        if (archiveSelect) {
+          const prevVal = archiveSelect.value;
+          archiveSelect.innerHTML = archives.length === 0
+            ? '<option value="">Nessun archivio disponibile</option>'
+            : archives.map((a) => `<option value="${this.escapeHtml(a.fileName)}">${this.escapeHtml(a.fileName)} (${Math.max(1, Math.round(a.sizeBytes / 1024))} KB · ${a.lineCount} righe)</option>`).join('');
+          if (prevVal && archives.some((a) => a.fileName === prevVal)) {
+            archiveSelect.value = prevVal;
+          }
+        }
+        const selectedFile = archiveSelect?.value;
+        if (selectedFile) {
+          const qs = new URLSearchParams({ level, search, limit: '300' }).toString();
+          const detail = await fetch(`/api/admin/logs/archives/${encodeURIComponent(selectedFile)}?${qs}`).then((r) => r.json());
+          items = detail.items || [];
+        }
+      } else {
+        const qs = new URLSearchParams({ source, level, search, limit: '100' }).toString();
+        const res = await fetch(`/api/admin/logs?${qs}`);
+        const json = await res.json();
+        items = json.items || [];
+        arcStatus = json.archiveStatus || null;
+      }
+
+      if (statusEl && arcStatus) {
+        const lastRun = arcStatus.lastRunAt ? new Date(arcStatus.lastRunAt).toLocaleString('it-IT') : 'mai eseguita';
+        statusEl.textContent = `Backup ${String(arcStatus.archiveHourRome ?? 1).padStart(2, '0')}:00 · Retention DB: ${arcStatus.retentionDays ?? 2} giorni · Ultima archiviazione: ${lastRun}`;
+      }
 
       if (items.length === 0) {
         feed.innerHTML = `
@@ -2571,6 +2633,26 @@ class AdminManager {
       }).join('');
     } catch (_) {
       feed.innerHTML = '<div class="text-center py-6 text-rose-400 text-xs">Impossibile caricare il registro eventi</div>';
+    }
+  }
+
+  downloadLogArchive(ext = 'log') {
+    const fileName = document.getElementById('admin-logs-archive-file')?.value;
+    if (!fileName) return window.showToast?.('Seleziona prima un file archivio', 'warning');
+    window.open(`/api/admin/logs/archives/${encodeURIComponent(fileName)}?download=1&ext=${encodeURIComponent(ext)}`, '_blank');
+  }
+
+  async runLogArchiveNow() {
+    try {
+      window.showToast?.('Archiviazione e pulizia log in corso...', 'info');
+      const res = await fetch('/api/admin/logs/archive-now', { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'Errore archiviazione');
+      const d = json.data || {};
+      window.showToast?.(`Archiviati ${d.exportedCount || 0} log, eliminati ${d.deletedCount || 0} record da DB`, 'success');
+      await this.loadHistory();
+    } catch (err) {
+      window.showToast?.('Errore archiviazione: ' + err.message, 'error');
     }
   }
 

@@ -200,5 +200,18 @@ Per isolare completamente lo sviluppo locale (`staging`) dalla produzione H24 su
 3. **Allerte Real-Time (`security:auth_alert`)**:
    - Tentativi PIN da rete esterna, PIN errati o login Google fuori whitelist pubblicano `security:auth_alert` su `eventBus`, instradato da `src/notifier.js` come notifica critica su Telegram e Web Push.
 
+---
+
+## 8. Audit Unificato Totale, Backup Giornaliero Log (`01:00`) & Google Fulfillment (`#89`)
+
+1. **Pipeline Unificata senza Duplicati (`src/logger.js`, `src/event-logger.js`, `src/notifier.js`)**:
+   - `UnifiedLogger.recordAudit` supporta `persistDb: true` (via `setDbPersister` collegato a `db.addLog`) con sanitizzazione automatica di messaggi e metadati (`sanitizeForLog`).
+   - `EventLogger.log()` mantiene `persistDb: false` evitando doppi inserimenti su `activity_logs`; `Notifier.send()` traccia su DB ogni notifica/alert emesso; `server.js` abilita `persistDb: true` su mutazioni/errori HTTP, eventi chiave `eventBus` (`BRIDGED_EVENTS`) e chiamate Google OAuth / Smart Home Fulfillment (`/api/google/fulfillment`).
+2. **Archiviazione & Pulizia Notturna alle `01:00` (`src/log-archiver.js`, `src/db.js`)**:
+   - Tabella `activity_logs` indicizzata su `created_at` (`idx_activity_created_at`).
+   - `LogArchiver` mantiene caldi su TiDB gli ultimi `DB_LOG_RETENTION_DAYS=2` giorni (oggi + ieri), esporta i giorni precedenti in `data/logs-archive/YYYY-MM/audit-YYYY-MM-DD.log`, esegue verifica su disco (*Write → Verify → Delete*) e solo dopo elimina in batch da `activity_logs`.
+   - Volume `./logs:/app/logs` aggiunto in `docker-compose.yml` per persistere i log live tra i deploy.
+
+
 
 
