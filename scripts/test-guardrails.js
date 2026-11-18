@@ -2643,6 +2643,63 @@ test('ABB Wallbox Provider dolomitiBillsSync import (#104)', async () => {
   }
 });
 
+test('SecuritySystem Modular Providers on Prototype (#103)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+
+  // 1. Verifica che src/security-system.js abbia < 320 righe
+  const secSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'security-system.js'), 'utf8');
+  const lineCount = secSrc.split(/\r?\n/).length;
+  assert.ok(lineCount < 320, `src/security-system.js deve avere < 320 righe (trovate ${lineCount})`);
+
+  // 2. Verifica esistenza e caricamento dei 3 provider in src/security/*.provider.js
+  const providerFiles = [
+    'nest-cast.provider.js',
+    'camera-ptz-onvif.provider.js',
+    'sentinel-vision.provider.js'
+  ];
+  for (const file of providerFiles) {
+    const fullPath = path.join(__dirname, '..', 'src', 'security', file);
+    assert.ok(fs.existsSync(fullPath), `${file} deve esistere`);
+    const mod = require(fullPath);
+    assert.equal(typeof mod, 'object', `${file} deve esportare un oggetto`);
+  }
+
+  // 3. Verifica presenza di tutti i metodi su securitySystem e SecuritySystem.prototype
+  const securitySystem = require('../src/security-system');
+  assert.equal(typeof securitySystem.SecuritySystem, 'function');
+
+  const expectedMethods = [
+    // nest-cast.provider.js
+    '_parseNestIpsEnv', '_isValidIpv4', '_loadNestIpsFromDb', 'getNestIps', 'updateNestIps',
+    'resolveNestIp', '_estimateWavDelayMs', '_buildPublicMediaUrl', 'announceToNest',
+    'getLocalHostIp', 'stopAnyCastSessionOnDevice', 'stopNestHubCast', 'castToNestHub',
+    // camera-ptz-onvif.provider.js
+    'getRTSPUrl', 'updateCameraNetwork', 'getTapoClient', 'getOnvifCam', 'checkCameraReachable',
+    'refreshCamerasReachability', 'startOnvifEventListeners', 'attachCameraEventWatcher',
+    'setSecurityMode', 'toggleCameraPrivacy', 'updateCameraImaging', 'captureSnapshot',
+    'toggleAutoPatrol', 'isDegreeSpace', 'ptzMove', 'pointToAngle', 'applyPreset',
+    'saveCurrentPositionAsPreset', 'deletePreset', 'simulateMotion',
+    // sentinel-vision.provider.js
+    'initHueSentinel', 'initSentinel', '_isCasaAway', 'getSentinelConfig', 'isTrustedGuestActive',
+    'setTrustedGuest', 'updateSentinelConfig', 'startSentinelPatrol', 'stopSentinelPatrol',
+    'getPetReferences', 'savePetReference', 'deletePetReference', '_buildPetReferenceParts',
+    'runSentinelPatrol', '_bindRollingMotionListener', 'pushRollingFrame',
+    'getRollingFrames', 'captureRollingFrame'
+  ];
+
+  for (const methodName of expectedMethods) {
+    assert.equal(typeof securitySystem.SecuritySystem.prototype[methodName], 'function', `SecuritySystem.prototype manca ${methodName}`);
+    assert.equal(typeof securitySystem[methodName], 'function', `securitySystem manca ${methodName}`);
+  }
+
+  // Smoke check funzionale offline
+  assert.equal(typeof securitySystem.getStatus(), 'object');
+  assert.equal(typeof securitySystem.getNestIps(), 'object');
+  assert.ok(Array.isArray(securitySystem.getPetReferences()));
+  assert.equal(typeof securitySystem.getSentinelConfig(), 'object');
+});
+
 
 
 
