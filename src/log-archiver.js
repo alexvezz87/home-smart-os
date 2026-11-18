@@ -55,6 +55,7 @@ class LogArchiver {
     this._running = false;
     this._timer = null;
     this.lastScheduledDateRome = null;
+    this._lineCountCache = new Map();
     this.status = {
       lastRunAt: null,
       lastDayArchived: null,
@@ -97,84 +98,107 @@ class LogArchiver {
     try {
       const nowDate = new Date(this.nowFn());
       const cutoff = this.getCutoffDate(nowDate);
-      const rows = typeof this.db.getLogsBefore === 'function'
-        ? await this.db.getLogsBefore(cutoff, 5000)
-        : [];
+      let totalExported = 0;
+      let totalDeleted = 0;
+      let lastDayArchived = this.status.lastDayArchived || null;
+      const allWrittenFiles = [];
+      let loops = 0;
 
-      if (!rows || rows.length === 0) {
+      while (loops < 5) {
+        loops++;
+        const rows = typeof this.db.getLogsBefore === 'function'
+          ? await this.db.getLogsBefore(cutoff, 5000)
+          : [];
+
+        if (!rows || rows.length === 0) {
+          break;
+        }
+
+        const byDay = new Map();
+        for (const row of rows) {
+          const dayKey = this.logger.getRomeDateKey(row.created_at ? new Date(row.created_at) : nowDate);
+          if (!byDay.has(dayKey)) byDay.set(dayKey, []);
+          byDay.get(dayKey).push(row);
+        }
+
+        for (const [dayKey, dayRows] of byDay.entries()) {
+          const monthDir = path.join(this.archiveDir, dayKey.slice(0, 7));
+          fs.mkdirSync(monthDir, { recursive: true });
+          const fileName = `audit-${dayKey}.log`;
+          const filePath = path.join(monthDir, fileName);
+          const tmpPath = `${filePath}.tmp`;
+
+          const existingContent = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
+          const existingLines = existingContent ? existingContent.split(/\r?\n/).filter(Boolean) : [];
+          const existingIds = new Set();
+          for (const l of existingLines) {
+            const m = l.match(/\[#(\d+)\]/);
+            if (m) existingIds.add(m[1]);
+          }
+
+          const newLines = [];
+          for (const r of dayRows) {
+            if (r.id !== undefined && existingIds.has(String(r.id))) continue;
+            newLines.push(this._formatRowLine(r));
+          }
+
+          const mergedLines = [...existingLines, ...newLines];
+          const finalContent = mergedLines.join('\n') + '\n';
+          fs.writeFileSync(tmpPath, finalContent, 'utf8');
+          fs.renameSync(tmpPath, filePath);
+
+          // Verifica obbligatoria su disco prima di qualsiasi DELETE
+          if (!fs.existsSync(filePath)) {
+            throw new Error(`Verifica fallita: file archivio mancante (${filePath})`);
+          }
+          const stat = fs.statSync(filePath);
+          if (!stat || stat.size <= 0) {
+            throw new Error(`Verifica fallita: file archivio vuoto (${filePath})`);
+          }
+          const diskLines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/).filter(Boolean);
+          if (diskLines.length < mergedLines.length) {
+            throw new Error(`Verifica fallita: conteggio righe incoerente in ${filePath}`);
+          }
+
+          this._lineCountCache.set(filePath, {
+            sizeBytes: stat.size,
+            mtimeMs: stat.mtimeMs,
+            lineCount: diskLines.length
+          });
+          allWrittenFiles.push({ fileName, dayKey, rowsCount: dayRows.length, totalLines: diskLines.length, sizeBytes: stat.size });
+        }
+
+        let batchDeleted = 0;
+        if (!dryRun && typeof this.db.deleteLogsByIds === 'function') {
+          const ids = rows.map((r) => r.id).filter((id) => id !== undefined && id !== null);
+          batchDeleted = await this.db.deleteLogsByIds(ids);
+        }
+
+        totalExported += rows.length;
+        totalDeleted += batchDeleted;
+        const sortedDays = Array.from(byDay.keys()).sort();
+        if (sortedDays.length > 0) {
+          lastDayArchived = sortedDays[sortedDays.length - 1];
+        }
+
+        if (rows.length < 5000 || dryRun) break;
+      }
+
+      if (totalExported === 0) {
         this.status = {
           ...this.status,
           lastRunAt: nowDate.toISOString(),
-          lastExportedCount: 0,
-          lastDeletedCount: 0,
           lastError: null
         };
         return { success: true, exportedCount: 0, deletedCount: 0, files: [], cutoff: cutoff.toISOString() };
       }
 
-      const byDay = new Map();
-      for (const row of rows) {
-        const dayKey = this.logger.getRomeDateKey(row.created_at ? new Date(row.created_at) : nowDate);
-        if (!byDay.has(dayKey)) byDay.set(dayKey, []);
-        byDay.get(dayKey).push(row);
-      }
-
-      const writtenFiles = [];
-      for (const [dayKey, dayRows] of byDay.entries()) {
-        const monthDir = path.join(this.archiveDir, dayKey.slice(0, 7));
-        fs.mkdirSync(monthDir, { recursive: true });
-        const fileName = `audit-${dayKey}.log`;
-        const filePath = path.join(monthDir, fileName);
-        const tmpPath = `${filePath}.tmp`;
-
-        const existingContent = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
-        const existingLines = existingContent ? existingContent.split(/\r?\n/).filter(Boolean) : [];
-        const existingIds = new Set();
-        for (const l of existingLines) {
-          const m = l.match(/\[#(\d+)\]/);
-          if (m) existingIds.add(m[1]);
-        }
-
-        const newLines = [];
-        for (const r of dayRows) {
-          if (r.id !== undefined && existingIds.has(String(r.id))) continue;
-          newLines.push(this._formatRowLine(r));
-        }
-
-        const mergedLines = [...existingLines, ...newLines];
-        const finalContent = mergedLines.join('\n') + '\n';
-        fs.writeFileSync(tmpPath, finalContent, 'utf8');
-        fs.renameSync(tmpPath, filePath);
-
-        // Verifica obbligatoria su disco prima di qualsiasi DELETE
-        if (!fs.existsSync(filePath)) {
-          throw new Error(`Verifica fallita: file archivio mancante (${filePath})`);
-        }
-        const stat = fs.statSync(filePath);
-        if (!stat || stat.size <= 0) {
-          throw new Error(`Verifica fallita: file archivio vuoto (${filePath})`);
-        }
-        const diskLines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/).filter(Boolean);
-        if (diskLines.length < mergedLines.length) {
-          throw new Error(`Verifica fallita: conteggio righe incoerente in ${filePath}`);
-        }
-
-        writtenFiles.push({ fileName, dayKey, rowsCount: dayRows.length, totalLines: diskLines.length, sizeBytes: stat.size });
-      }
-
-      let deletedCount = 0;
-      if (!dryRun && typeof this.db.deleteLogsByIds === 'function') {
-        const ids = rows.map((r) => r.id).filter((id) => id !== undefined && id !== null);
-        deletedCount = await this.db.deleteLogsByIds(ids);
-      }
-
-      const sortedDays = Array.from(byDay.keys()).sort();
       this.status = {
         ...this.status,
         lastRunAt: nowDate.toISOString(),
-        lastDayArchived: sortedDays[sortedDays.length - 1] || null,
-        lastExportedCount: rows.length,
-        lastDeletedCount: deletedCount,
+        lastDayArchived,
+        lastExportedCount: totalExported,
+        lastDeletedCount: totalDeleted,
         lastError: null
       };
 
@@ -184,9 +208,9 @@ class LogArchiver {
 
       return {
         success: true,
-        exportedCount: rows.length,
-        deletedCount,
-        files: writtenFiles,
+        exportedCount: totalExported,
+        deletedCount: totalDeleted,
+        files: allWrittenFiles,
         cutoff: cutoff.toISOString()
       };
     } catch (err) {
@@ -207,7 +231,15 @@ class LogArchiver {
     return { skipped: true, reason: 'not_due' };
   }
 
-  startScheduler() {
+  async startScheduler() {
+    if (this.db && typeof this.db.get === 'function') {
+      try {
+        const savedStatus = await this.db.get('log-archiver-status');
+        if (savedStatus && typeof savedStatus === 'object') {
+          this.status = { ...this.status, ...savedStatus };
+        }
+      } catch (_) {}
+    }
     if (this._timer) return;
     this.checkScheduleTick().catch(() => {});
     this._timer = setInterval(() => {
@@ -235,8 +267,19 @@ class LogArchiver {
         if (!/^audit-\d{4}-\d{2}-\d{2}\.log$/.test(fileName)) continue;
         const fullPath = path.join(monthDir, fileName);
         const stat = fs.statSync(fullPath);
-        const content = fs.readFileSync(fullPath, 'utf8');
-        const lineCount = content ? content.split(/\r?\n/).filter(Boolean).length : 0;
+        const cached = this._lineCountCache.get(fullPath);
+        let lineCount;
+        if (cached && cached.sizeBytes === stat.size && cached.mtimeMs === stat.mtimeMs) {
+          lineCount = cached.lineCount;
+        } else {
+          const content = fs.readFileSync(fullPath, 'utf8');
+          lineCount = content ? content.split(/\r?\n/).filter(Boolean).length : 0;
+          this._lineCountCache.set(fullPath, {
+            sizeBytes: stat.size,
+            mtimeMs: stat.mtimeMs,
+            lineCount
+          });
+        }
         const date = fileName.slice(6, 16);
         results.push({
           fileName,

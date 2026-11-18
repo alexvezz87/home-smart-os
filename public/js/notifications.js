@@ -96,6 +96,7 @@ class NotificationsManager {
               const isMail = item.sourceType === 'mail_delivery' || item.sourceType === 'mail_bill';
               const isUrgent = item.attentionTier === 'urgent' || item.attentionTier === 'actionable';
               const canReceive = item.sourceType === 'mail_delivery' && item.metadata?.deliveryStatus !== 'delivered';
+              const canTrustGuest = item.category === 'security' || item.sourceType === 'security' || Boolean(item.metadata?.canTrustGuest);
               return `
                 <div class="p-3 hover:bg-slate-800/40 transition-colors space-y-1.5">
                   <div class="flex items-start justify-between gap-2">
@@ -106,6 +107,7 @@ class NotificationsManager {
                   <div class="text-[11px] text-slate-300 line-clamp-2">${this.escapeHtml(item.message)}</div>
                   <div class="flex items-center gap-1.5 pt-1 flex-wrap">
                     <button type="button" onclick="window.notificationsManager.openDetails('${this.escapeHtml(item.id)}')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-200">Dettagli</button>
+                    ${canTrustGuest ? `<button type="button" onclick="window.notificationsManager.trustGuestFromNotification('${this.escapeHtml(item.id)}')" class="px-2 py-0.5 rounded bg-amber-600/20 hover:bg-amber-600/30 text-[10px] text-amber-300">🤝 Persona Fidata</button>` : ''}
                     ${canReceive ? `<button type="button" onclick="window.notificationsManager.markPackageReceived('${this.escapeHtml(item.id)}')" class="px-2 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-[10px] text-emerald-300">📦 Pacco ricevuto</button>` : ''}
                     <button type="button" onclick="window.notificationsManager.markAsRead('${this.escapeHtml(item.id)}')" class="px-2 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-[10px] text-indigo-300">✓ Letta</button>
                   </div>
@@ -207,6 +209,7 @@ class NotificationsManager {
         ? 'border-amber-500/40 bg-amber-950/15'
         : 'border-slate-800 bg-slate-900/70';
     const canReceive = item.sourceType === 'mail_delivery' && item.metadata?.deliveryStatus !== 'delivered';
+    const canTrustGuest = item.category === 'security' || item.sourceType === 'security' || Boolean(item.metadata?.canTrustGuest);
     const hints = Array.isArray(item.actionHints) ? item.actionHints : [];
 
     return `
@@ -225,6 +228,7 @@ class NotificationsManager {
           </div>
           <div class="flex items-center gap-1.5 flex-wrap shrink-0">
             <button type="button" onclick="window.notificationsManager.openDetails('${this.escapeHtml(item.id)}')" class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold">Dettagli</button>
+            ${canTrustGuest ? `<button type="button" onclick="window.notificationsManager.trustGuestFromNotification('${this.escapeHtml(item.id)}')" class="px-2.5 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-xs font-semibold">🤝 Persona Fidata</button>` : ''}
             ${canReceive ? `<button type="button" onclick="window.notificationsManager.markPackageReceived('${this.escapeHtml(item.id)}')" class="px-2.5 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold">📦 Pacco ricevuto</button>` : ''}
             ${!item.read ? `<button type="button" onclick="window.notificationsManager.markAsRead('${this.escapeHtml(item.id)}')" class="px-2.5 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-semibold">✓ Segna come letta</button>` : ''}
             <button type="button" onclick="window.notificationsManager.deleteNotification('${this.escapeHtml(item.id)}')" class="px-2.5 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 text-xs font-semibold" title="Elimina">🗑️</button>
@@ -256,6 +260,7 @@ class NotificationsManager {
     if (!modal) return;
     const m = item.metadata || {};
     const canReceive = item.sourceType === 'mail_delivery' && m.deliveryStatus !== 'delivered';
+    const canTrustGuest = item.category === 'security' || item.sourceType === 'security' || Boolean(m.canTrustGuest);
 
     modal.classList.remove('hidden');
     modal.innerHTML = `
@@ -276,6 +281,7 @@ class NotificationsManager {
           </div>
         ` : ''}
         <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800 flex-wrap">
+          ${canTrustGuest ? `<button type="button" onclick="window.notificationsManager.trustGuestFromNotification('${this.escapeHtml(item.id)}'); window.notificationsManager.closeDetails();" class="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold">🤝 Persona Fidata</button>` : ''}
           ${canReceive ? `<button type="button" onclick="window.notificationsManager.markPackageReceived('${this.escapeHtml(item.id)}'); window.notificationsManager.closeDetails();" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">📦 Pacco ricevuto</button>` : ''}
           ${!item.read ? `<button type="button" onclick="window.notificationsManager.markAsRead('${this.escapeHtml(item.id)}'); window.notificationsManager.closeDetails();" class="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold">✓ Segna come letta</button>` : ''}
           <button type="button" onclick="window.notificationsManager.deleteNotification('${this.escapeHtml(item.id)}'); window.notificationsManager.closeDetails();" class="px-3 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 text-xs font-semibold">🗑️ Elimina</button>
@@ -308,6 +314,26 @@ class NotificationsManager {
       window.showToast?.('📦 Pacco segnato come ricevuto!', 'success');
     }
     await this.refreshBadgeAndFeed(true);
+  }
+
+  async trustGuestFromNotification(notifId) {
+    try {
+      const res = await fetch('/api/security/sentinel/trust-guest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: true, label: 'Persona fidata (notifica)' })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Errore accredito persona fidata');
+      window.showToast?.('🤝 Persona fidata accreditata fino al tuo rientro', 'success');
+      if (notifId) {
+        await this.markAsRead(notifId);
+      } else {
+        await this.refreshBadgeAndFeed(true);
+      }
+    } catch (err) {
+      window.showToast?.(err.message || 'Errore accredito persona fidata', 'error');
+    }
   }
 
   async syncGmailNow() {

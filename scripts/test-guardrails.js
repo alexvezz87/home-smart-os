@@ -2145,3 +2145,132 @@ test('Unified Audit & LogArchiver 01:00 (#89): retention 2gg, Write->Verify->Del
     fs.rmSync(tmpLogDir, { recursive: true, force: true });
   }
 });
+
+test('Persona Fidata, Risparmio Token AI & LogArchiver Cache (#92)', async () => {
+  const securitySystem = require('../src/security-system');
+  const eventBus = require('../src/event-bus');
+  const telegramBot = require('../src/telegram-bot');
+  const { LogArchiver } = require('../src/log-archiver');
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+
+  const origSentinelCfg = securitySystem._sentinelConfig ? JSON.parse(JSON.stringify(securitySystem._sentinelConfig)) : null;
+  const origMode = securitySystem.mode;
+  const origCameras = securitySystem.cameras;
+  const origNotifier = securitySystem._notifier;
+  const origTelegramSend = telegramBot.sendMessage;
+  const origTelegramAnswer = telegramBot.answerCallbackQuery;
+  const origIsAuth = telegramBot.isAuthorized;
+
+  try {
+    // Assicura presenza away di Casa
+    securitySystem.mode = 'away';
+    await securitySystem.initSentinel();
+
+    // 1. Attivazione setTrustedGuest(true) ferma runSentinelPatrol senza chiamate AI
+    await securitySystem.setTrustedGuest(true, { source: 'test-unit', label: 'Ospite Test' });
+    assert.equal(securitySystem.isTrustedGuestActive(), true);
+    const patrolTrusted = await securitySystem.runSentinelPatrol();
+    assert.equal(patrolTrusted.skipped, true);
+    assert.equal(patrolTrusted.reason, 'trusted_guest_active');
+
+    // 2. runSentinelPatrol salta telecamere con privacyMode: true o online: false
+    await securitySystem.setTrustedGuest(false, { source: 'test-unit' });
+    assert.equal(securitySystem.isTrustedGuestActive(), false);
+    securitySystem.cameras = new Map([
+      ['cam-priv', { id: 'cam-priv', name: 'Priv', privacyMode: true, online: true, reachable: true }],
+      ['cam-off', { id: 'cam-off', name: 'Off', privacyMode: false, online: false, reachable: false }]
+    ]);
+    const patrolFiltered = await securitySystem.runSentinelPatrol();
+    assert.equal(patrolFiltered.skipped, true);
+    assert.equal(patrolFiltered.reason, 'no_cameras');
+
+    // 3. Callback Telegram trust_guest_away attiva isTrustedGuestActive() === true
+    let sentMsg = '';
+    telegramBot.isAuthorized = (id) => String(id) === 'chat-test-1';
+    telegramBot.answerCallbackQuery = async () => ({ ok: true });
+    telegramBot.sendMessage = async (msg) => { sentMsg = msg; return { ok: true }; };
+    const cbRes = await telegramBot._handleCallback({
+      id: 'cb-92-test',
+      data: 'trust_guest_away',
+      message: { chat: { id: 'chat-test-1' } }
+    });
+    assert.equal(cbRes.handled, true);
+    assert.equal(securitySystem.isTrustedGuestActive(), true);
+    assert.ok(sentMsg.includes('Persona Fidata accreditata'));
+
+    // 4. Quando isTrustedGuestActive() === true, sensore movimento fuori casa non invia alert
+    let alertCalls = 0;
+    securitySystem._notifier = { send: async () => { alertCalls += 1; } };
+    // Simula handler Hue sentinel con sensore di movimento: check diretto isTrustedGuestActive()
+    assert.equal(securitySystem.isTrustedGuestActive(), true);
+    assert.equal(alertCalls, 0);
+
+    // 5. Al rientro di Alex o Cinzia (away -> home), isTrustedGuestActive() si resetta automaticamente a false
+    securitySystem.mode = 'home';
+    eventBus.emit('presence:changed', { person: 'Alex', status: 'home', previous: 'away' });
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(securitySystem.isTrustedGuestActive(), false);
+
+    // Alla successiva uscita (Casa -> away), la Sentinella torna attiva (trustedGuest resta false)
+    securitySystem.mode = 'away';
+    eventBus.emit('presence:changed', { person: 'Casa', status: 'away', previous: 'home' });
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(securitySystem.isTrustedGuestActive(), false);
+
+    // 6. Attivazione preventiva mentre ancora in casa (armedWhileHome: true) sopravvive all'uscita Casa -> away
+    securitySystem.mode = 'home';
+    await securitySystem.setTrustedGuest(true, { source: 'test-preventivo', label: 'Colf' });
+    assert.equal(securitySystem._sentinelConfig.trustedGuest.armedWhileHome, true);
+    securitySystem.mode = 'away';
+    eventBus.emit('presence:changed', { person: 'Casa', status: 'away', previous: 'home' });
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(securitySystem.isTrustedGuestActive(), true);
+    // Ma si resetta al successivo rientro away -> home
+    securitySystem.mode = 'home';
+    eventBus.emit('presence:changed', { person: 'Cinzia', status: 'home', previous: 'away' });
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(securitySystem.isTrustedGuestActive(), false);
+
+    // 7. LogArchiver: cache listArchives() senza rilettura file invariati e preservazione lastExportedCount su run vuoto
+    const tmpArchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'log-arch-92-'));
+    try {
+      const monthDir = path.join(tmpArchDir, '2026-01');
+      fs.mkdirSync(monthDir, { recursive: true });
+      const logFile = path.join(monthDir, 'audit-2026-01-01.log');
+      fs.writeFileSync(logFile, '{"a":1}\n{"a":2}\n', 'utf8');
+      const arch = new LogArchiver({
+        archiveDir: tmpArchDir,
+        retentionDays: 2,
+        db: { getLogsBefore: async () => [] }
+      });
+      const list1 = arch.listArchives();
+      assert.equal(list1.length, 1);
+      assert.equal(list1[0].lineCount, 2);
+      assert.ok(arch._lineCountCache.has(logFile));
+      const list2 = arch.listArchives();
+      assert.equal(list2[0].lineCount, 2);
+
+      // Preservazione lastExportedCount quando run successivo trova 0 righe
+      arch.status.lastExportedCount = 42;
+      arch.status.lastDeletedCount = 42;
+      arch.status.lastDayArchived = '2026-01-01';
+      await arch.archiveAndPrune();
+      assert.equal(arch.getStatus().lastExportedCount, 42);
+      assert.equal(arch.getStatus().lastDayArchived, '2026-01-01');
+    } finally {
+      fs.rmSync(tmpArchDir, { recursive: true, force: true });
+    }
+  } finally {
+    securitySystem.stopSentinelPatrol();
+    securitySystem._sentinelConfig = origSentinelCfg;
+    securitySystem.mode = origMode;
+    securitySystem.cameras = origCameras;
+    securitySystem._notifier = origNotifier;
+    telegramBot.sendMessage = origTelegramSend;
+    telegramBot.answerCallbackQuery = origTelegramAnswer;
+    telegramBot.isAuthorized = origIsAuth;
+  }
+});
+
