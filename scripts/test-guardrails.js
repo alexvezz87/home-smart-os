@@ -3118,6 +3118,88 @@ test('Google Calendar (Alex): scope differenziato, promemoria, 1-tap da Gmail e 
   }
 });
 
+test('Macro-Area Calendario: getCalendarOverview() 45gg, index.html e CalendarManager (#112)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const vm = require('node:vm');
+  const { CalendarHub } = require('../src/calendar-hub');
+  const { DeliveryBillingParser } = require('../src/delivery-billing-parser');
+
+  // 1. CalendarHub config.daysAhead === 45
+  const cal = new CalendarHub();
+  assert.equal(cal.config.daysAhead, 45);
+
+  const nowMs = Date.now();
+  const dayPlus1 = new Date(nowMs + 1 * 86400_000).toISOString().slice(0, 10);
+  const dayPlus3 = new Date(nowMs + 3 * 86400_000).toISOString().slice(0, 10);
+  const dayPlus5 = new Date(nowMs + 5 * 86400_000).toISOString().slice(0, 10);
+
+  cal.events = [
+    {
+      id: 'ev-112',
+      summary: 'Controllo Auto',
+      start: `${dayPlus5}T09:30:00Z`,
+      end: `${dayPlus5}T10:30:00Z`,
+      allDay: false,
+      htmlLink: 'https://calendar.google.com/event?eid=112'
+    }
+  ];
+
+  const parser = new DeliveryBillingParser();
+  parser.bills = [
+    {
+      id: 'bill:acda:112',
+      provider: 'ACDA Acqua',
+      amountEur: 45.5,
+      dueDate: dayPlus1,
+      status: 'pending',
+      mailSubject: 'Bolletta Acqua'
+    }
+  ];
+  parser.deliveries = [
+    {
+      id: 'del:amazon:112',
+      courier: 'Amazon',
+      itemsDescription: 'Pannolini',
+      expectedDate: dayPlus3,
+      status: 'in_transit'
+    }
+  ];
+  cal.deliveryBillingParser = parser;
+
+  const overview = cal.getCalendarOverview({ days: 45, nowMs });
+  assert.equal(overview.items.length, 3);
+  assert.equal(overview.items[0].source, 'gmail_bill');
+  assert.equal(overview.items[0].dateKey, dayPlus1);
+  assert.equal(overview.items[1].source, 'gmail_delivery');
+  assert.equal(overview.items[1].dateKey, dayPlus3);
+  assert.equal(overview.items[2].source, 'google_calendar');
+  assert.equal(overview.items[2].dateKey, dayPlus5);
+
+  // 2. Verifica public/index.html
+  const rootDir = path.join(__dirname, '..');
+  const html = fs.readFileSync(path.join(rootDir, 'public', 'index.html'), 'utf8');
+  assert.ok(html.includes('data-area="calendar"'), 'index.html deve contenere data-area="calendar"');
+  assert.ok(html.includes('id="area-calendar"'), 'index.html deve contenere id="area-calendar"');
+  assert.ok(html.includes('/js/calendar.js'), 'index.html deve includere /js/calendar.js');
+
+  // 3. Verifica caricamento VM di public/js/calendar.js e definizione CalendarManager
+  const calJs = fs.readFileSync(path.join(rootDir, 'public', 'js', 'calendar.js'), 'utf8');
+  const sandbox = {
+    console,
+    Intl,
+    Date,
+    fetch: async () => ({ ok: true, json: async () => ({ success: true, data: { status: {}, items: [] } }) }),
+    document: { getElementById: () => null }
+  };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(calJs, sandbox, { filename: 'public/js/calendar.js' });
+  assert.equal(typeof sandbox.window.CalendarManager, 'function');
+  assert.ok(sandbox.window.calendarManager instanceof sandbox.window.CalendarManager);
+  assert.equal(typeof sandbox.window.calendarManager.renderView, 'function');
+});
+
 
 
 
