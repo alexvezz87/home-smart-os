@@ -2521,5 +2521,86 @@ test('EvClimateHub Modular Providers on Prototype (#99)', () => {
   assert.ok(Array.isArray(evClimateHub.getSystemAlerts()));
 });
 
+test('AdminManager Modular Frontend Split & VM Prototype Verification (#101)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const vm = require('node:vm');
+
+  const rootDir = path.join(__dirname, '..');
+  const adminMainPath = path.join(rootDir, 'public', 'js', 'admin.js');
+  const adminSrc = fs.readFileSync(adminMainPath, 'utf8');
+
+  // 1. public/js/admin.js deve avere < 380 righe
+  const lineCount = adminSrc.split(/\r?\n/).length;
+  assert.ok(lineCount < 380, `public/js/admin.js deve avere < 380 righe (trovate ${lineCount})`);
+
+  // 2. Tutti i 4 file in public/js/admin/*.js esistono e sono inclusi in public/index.html
+  const moduleFiles = [
+    'public/js/admin/admin-climate.js',
+    'public/js/admin/admin-devices-ev.js',
+    'public/js/admin/admin-security-nest.js',
+    'public/js/admin/admin-system-backbone.js'
+  ];
+  const indexHtml = fs.readFileSync(path.join(rootDir, 'public', 'index.html'), 'utf8');
+  const mainIdx = indexHtml.indexOf('<script src="/js/admin.js"></script>');
+  assert.ok(mainIdx !== -1, 'index.html deve includere /js/admin.js');
+
+  for (const rel of moduleFiles) {
+    const abs = path.join(rootDir, rel);
+    assert.ok(fs.existsSync(abs), `${rel} deve esistere`);
+    const webPath = '/' + rel.replace(/^public\//, '');
+    const modIdx = indexHtml.indexOf(`<script src="${webPath}"></script>`);
+    assert.ok(modIdx > mainIdx, `index.html deve includere ${webPath} dopo /js/admin.js`);
+  }
+
+  // 3. Esecuzione in VM sandbox e verifica metodi su window.adminManager + funzioni window.*
+  const sandbox = {
+    console,
+    setTimeout,
+    clearTimeout,
+    document: { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [] },
+    localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    addEventListener: () => {},
+    navigator: {},
+    fetch: async () => ({ ok: true, json: async () => ({ success: true }) })
+  };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+
+  vm.runInContext(adminSrc, sandbox, { filename: 'admin.js' });
+  for (const rel of moduleFiles) {
+    const code = fs.readFileSync(path.join(rootDir, rel), 'utf8');
+    vm.runInContext(code, sandbox, { filename: rel });
+  }
+
+  const mgr = sandbox.window.adminManager;
+  assert.ok(mgr, 'window.adminManager deve essere istanziato');
+
+  const expectedMethods = [
+    'renderView', 'renderFloorplanPane', 'selectTab', 'escapeHtml',
+    'renderClimatePane', 'syncBoschNow', 'adjustValveSetpoint', 'applyBabyComfortProfile',
+    'loadClimateOptimizerPanel', 'renderClimateOptimizerPanel',
+    'renderLightsPane', 'renderPlugsPane', 'renderEvPane', 'renderDriveTripsAdminCard',
+    'renderSecurityPane', 'loadNotificationsPanel', 'loadNestFulfillmentPanel',
+    'saveNestFulfillmentConfig', 'testNestSpeak', 'toggleTrustedGuest',
+    'renderSystemPane', 'loadHistory', 'loadBackbonePanels', 'loadGmailHubPanel',
+    'loadEnvironmentPanel', 'switchDbMode', 'cloneDbToWamp', 'toggleSystemPause'
+  ];
+  for (const m of expectedMethods) {
+    assert.equal(typeof mgr[m], 'function', `window.adminManager.${m} deve essere una funzione`);
+  }
+
+  const expectedGlobals = [
+    'toggleClimateOptimizer', 'evaluateClimateOptimizerNow',
+    'saveHueSensorConfig',
+    'saveGeminiApiKey', 'testGeminiVision',
+    'filterIliadboxDevices', 'refreshIliadboxDevices', 'assignIliadboxMac', 'saveIliadboxConfig', 'testAiTts'
+  ];
+  for (const g of expectedGlobals) {
+    assert.equal(typeof sandbox.window[g], 'function', `window.${g} deve essere una funzione`);
+  }
+});
+
+
 
 
