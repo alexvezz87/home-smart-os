@@ -2856,6 +2856,135 @@ test('ClimateOptimizer v2 (#106): Boiler Coalescing, Fascia Mite, Inertia Trim, 
   assert.ok(optGas2.metrics.savedGasM3 > 0);
 });
 
+test('Fix Baseline Drift, Persistenza baselineByZone, Stale-Cache Override & SpatialEngine Real Data (#108)', async () => {
+  const db = require('../src/db');
+  const eventBus = require('../src/event-bus');
+  const spatialEngine = require('../src/spatial-engine');
+
+  // 1. No Baseline Drift in solar_trim (MIN_TRIM_FLOOR_C = 19.0)
+  const noonMs = Date.parse('2026-11-18T11:00:00Z'); // 12:00 Europe/Rome
+  const optFloor = new ClimateOptimizer();
+  const prop175 = optFloor.evaluateZoneProposal(
+    { id: 'zn10', name: 'Salone', tempActual: 19.5, tempSetpoint: 17.5 },
+    { nowMs: noonMs, weather: { sunny: true, outdoorTemp: 14 } }
+  );
+  assert.notEqual(prop175.badge, 'solar_trim');
+  assert.ok(prop175.targetSetpoint >= 17.5);
+
+  const prop190 = optFloor.evaluateZoneProposal(
+    { id: 'zn10', name: 'Salone', tempActual: 20.0, tempSetpoint: 19.0 },
+    { nowMs: noonMs, weather: { sunny: true, outdoorTemp: 14 } }
+  );
+  assert.notEqual(prop190.badge, 'solar_trim');
+  assert.equal(prop190.targetSetpoint, 19.0);
+
+  const prop200 = optFloor.evaluateZoneProposal(
+    { id: 'zn10', name: 'Salone', tempActual: 20.2, tempSetpoint: 20.0 },
+    { nowMs: noonMs, weather: { sunny: true, outdoorTemp: 14 } }
+  );
+  assert.equal(prop200.badge, 'solar_trim');
+  assert.equal(prop200.targetSetpoint, 19.0);
+
+  // 2. Persistenza baselineByZone su TiDB (persistState -> init su nuova istanza)
+  const memDb = new Map();
+  const origGet = db.get;
+  const origSet = db.set;
+  db.get = async (k) => memDb.get(k) || null;
+  db.set = async (k, v) => { memDb.set(k, JSON.parse(JSON.stringify(v))); };
+  try {
+    const opt1 = new ClimateOptimizer();
+    opt1.baselineByZone.set('zn10', {
+      originalSetpoint: 20.5,
+      lastAppliedTarget: 19.5,
+      previousSetpoint: 20.5,
+      appliedAt: noonMs
+    });
+    await opt1.persistState();
+
+    const opt2 = new ClimateOptimizer();
+    try {
+      await opt2.init();
+      const restored = opt2.baselineByZone.get('zn10');
+      assert.ok(restored, 'baselineByZone deve essere ripristinata dopo init()');
+      assert.equal(restored.originalSetpoint, 20.5);
+      assert.equal(restored.lastAppliedTarget, 19.5);
+      assert.equal(restored.previousSetpoint, 20.5);
+    } finally {
+      opt2.stop();
+    }
+  } finally {
+    db.get = origGet;
+    db.set = origSet;
+  }
+
+  // 3. Protezione Stale-Cache su override esterni (bosch_external)
+  const extEvents = [];
+  const offExt = eventBus.on('climate:manual_override', (e) => extEvents.push(e?.data || e));
+  try {
+    let curBoschSet = 20.0; // cache ancora ferma a previousSetpoint
+    const optStale = new ClimateOptimizer({
+      evClimateHub: {
+        getUnifiedStatus: () => ({
+          bosch: {
+            connected: true,
+            zones: [{ id: 'zn10', name: 'Salone', tempActual: 20.0, tempSetpoint: curBoschSet, valvePosition: 10 }]
+          }
+        })
+      }
+    });
+    optStale.fetchWeatherForecast = async () => ({ sunny: false, outdoorTemp: 10, cloudCover: 80, weatherCode: 3 });
+    optStale.persistState = async () => {};
+    optStale.baselineByZone.set('zn10', {
+      originalSetpoint: 20.0,
+      lastAppliedTarget: 19.0,
+      previousSetpoint: 20.0,
+      appliedAt: noonMs - 5 * 60_000
+    });
+
+    await optStale.evaluateNow({ reason: 'scheduled', dryRun: true, nowMs: noonMs });
+    assert.equal(optStale.isManualOverrideActive('zn10', noonMs + 1000), false);
+    assert.equal(extEvents.length, 0);
+
+    // Ora l'utente alza davvero a 21.0°C -> scatta override manuale esterno
+    curBoschSet = 21.0;
+    await optStale.evaluateNow({ reason: 'scheduled', dryRun: true, nowMs: noonMs });
+    assert.equal(optStale.isManualOverrideActive('zn10', noonMs + 1000), true);
+    assert.ok(extEvents.some((e) => e.source === 'bosch_external' && e.targetTemp === 21.0));
+  } finally {
+    if (typeof offExt === 'function') offExt();
+  }
+
+  // 4. SpatialEngine real data priority senza fallback hardcoded finti
+  try {
+    const mapWithBosch = spatialEngine.getEnrichedMapState({
+      evClimate: {
+        bosch: {
+          zones: [{ id: 'zn10', name: 'Salone', tempActual: 19.5, tempSetpoint: 18.0, valvePosition: 12 }]
+        }
+      }
+    });
+    const pin33 = mapWithBosch.pins.find((p) => p.pin === 33);
+    assert.ok(pin33);
+    assert.equal(pin33.temperature, 19.5);
+    assert.equal(pin33.setpoint, 18.0);
+    assert.equal(pin33.valvePercent, 12);
+
+    const mapEmpty = spatialEngine.getEnrichedMapState({ evClimate: { bosch: { zones: [] } } });
+    const valvesEmpty = mapEmpty.pins.filter((p) => p.category === 'valve');
+    assert.ok(valvesEmpty.length > 0);
+    for (const v of valvesEmpty) {
+      assert.equal(v.temperature, null);
+      assert.equal(v.setpoint, null);
+      assert.equal(v.valvePercent, 0);
+    }
+  } finally {
+    if (spatialEngine.reflexInterval) {
+      clearInterval(spatialEngine.reflexInterval);
+      spatialEngine.reflexInterval = null;
+    }
+  }
+});
+
 
 
 

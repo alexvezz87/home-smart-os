@@ -295,10 +295,10 @@ Object.assign(window.AdminManager.prototype, {
 
               return displayValves.map(v => {
                 const matchingZone = ev.bosch?.zones?.find(z => z.id === v.zoneId || z.name === v.name || z.name?.includes(v.room) || v.name?.includes(z.name));
-                const tempActual = v.temperature ?? v.tempActual ?? matchingZone?.tempActual;
-                const tempSetpoint = v.setpoint ?? v.tempSetpoint ?? matchingZone?.tempSetpoint;
-                const valvePercent = v.valvePercent ?? matchingZone?.valvePosition ?? 0;
-                const isHeating = v.isHeating || (valvePercent > 10) || (tempActual != null && tempSetpoint != null && tempActual < tempSetpoint);
+                const tempActual = matchingZone?.tempActual ?? v.temperature ?? v.tempActual;
+                const tempSetpoint = matchingZone?.tempSetpoint ?? v.setpoint ?? v.tempSetpoint;
+                const valvePercent = matchingZone?.valvePosition ?? v.valvePercent ?? 0;
+                const isHeating = Boolean(v.isHeating || (valvePercent > 10) || (tempActual != null && tempSetpoint != null && tempActual < tempSetpoint && valvePercent > 0));
                 const isLowBattery = v.battery === 'low' || matchingZone?.valve?.battery === 'low';
                 const cleanName = (v.name || '').replace('Termovalvola ', '');
 

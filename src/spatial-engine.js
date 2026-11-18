@@ -1086,15 +1086,12 @@ class SpatialEngine {
         const zValve = zData?.valvePosition ?? zData?.valvePercent;
         const zBatt = zData?.valve?.battery ?? zData?.batteryPercent;
 
-        const fallbackTemp = (p.pin === 37 || p.pin === 38 ? 21.2 : (p.pin === 39 ? 20.2 : (bosch.actualTemperature || 20.6)));
-        const fallbackSetpoint = (p.pin === 37 || p.pin === 38 ? 21.5 : (p.pin === 39 ? 20.0 : (bosch.manualSetpoint || 20.5)));
-
-        clone.temperature = +(zTemp || fallbackTemp).toFixed(1);
-        clone.setpoint = +(zSet || fallbackSetpoint).toFixed(1);
-        clone.valvePercent = zValve !== undefined && zValve !== null ? Number(zValve) : (clone.temperature < clone.setpoint ? 75 : 0);
+        clone.temperature = zTemp != null ? +Number(zTemp).toFixed(1) : null;
+        clone.setpoint = zSet != null ? +Number(zSet).toFixed(1) : null;
+        clone.valvePercent = zValve !== undefined && zValve !== null ? Number(zValve) : 0;
         clone.isHeating = clone.valvePercent > 15;
         clone.isOn = clone.valvePercent > 0;
-        clone.batteryPercent = zBatt || 92;
+        clone.batteryPercent = zBatt ?? null;
         clone.deviceId = zData?.valve?.id || `bosch_trv_${p.pin}`;
         clone.zoneId = zData?.id || p.zoneId;
         const opt = climateOptimizer.getZoneOptimization(clone.zoneId, p.boschName || p.name);
