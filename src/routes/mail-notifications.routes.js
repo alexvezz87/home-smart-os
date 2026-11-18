@@ -270,4 +270,55 @@ module.exports = function registerMailNotificationsRoutes(app, services) {
       res.status(500).json({ success: false, error: error.message });
     }
   });
+
+  // Google Calendar (Account Alex #110)
+  app.get('/api/calendar/status', (req, res) => {
+    try {
+      res.json({ success: true, data: services.calendarHub.getStatus() });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.get('/api/calendar/events', (req, res) => {
+    try {
+      const days = Number(req.query.days || 7);
+      res.json({ success: true, events: services.calendarHub.getUpcomingEvents(days) });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post('/api/calendar/sync', async (req, res) => {
+    try {
+      const days = Number(req.body?.days || 7);
+      const result = await services.calendarHub.syncEvents({ days });
+      res.json({ success: true, ...result, data: services.calendarHub.getStatus() });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post('/api/calendar/config', async (req, res) => {
+    try {
+      const { enabled, reminderMinutesBefore, daysAhead } = req.body || {};
+      const status = await services.calendarHub.updateConfig({ enabled, reminderMinutesBefore, daysAhead });
+      res.json({ success: true, data: status });
+    } catch (error) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post('/api/calendar/from-mail', async (req, res) => {
+    try {
+      const { type, id } = req.body || {};
+      if (!type || !id) {
+        return res.status(400).json({ success: false, error: 'Parametri type e id obbligatori' });
+      }
+      const result = await services.calendarHub.createEventFromMailItem(type, id);
+      res.json({ success: true, ...result });
+    } catch (error) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
 };

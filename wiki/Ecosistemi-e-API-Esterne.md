@@ -126,3 +126,6 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 
 ### Voce Gemini TTS per Google Nest (`#82`)
 - **Synthesize & Cast**: `POST /api/nest/speak` e `GET/POST /api/nest/config` supportano `ttsEngine` (`gemini` | `google_classic`), `voiceName` (`Aoede`, `Kore`, `Leda`, `Zephyr`) e `styleInstruction`/`voiceStyle`, con cache `.wav` in `public/audio/tts/` servita su `APP_URL/audio/tts/...`.
+
+### Google Calendar API v3 — Account Alex (`#110`)
+- **OAuth2 & Endpoint**: riusa il client `google-drive-oauth` di `GmailHub` con scope `https://www.googleapis.com/auth/calendar.events` solo su `alex`. Endpoint protetti in `src/routes/mail-notifications.routes.js`: `GET /api/calendar/status`, `GET /api/calendar/events`, `POST /api/calendar/sync`, `POST /api/calendar/config` e `POST /api/calendar/from-mail`.

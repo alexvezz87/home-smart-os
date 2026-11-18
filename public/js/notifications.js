@@ -97,6 +97,9 @@ class NotificationsManager {
               const isUrgent = item.attentionTier === 'urgent' || item.attentionTier === 'actionable';
               const canReceive = item.sourceType === 'mail_delivery' && item.metadata?.deliveryStatus !== 'delivered';
               const canTrustGuest = item.category === 'security' || item.sourceType === 'security' || Boolean(item.metadata?.canTrustGuest);
+              const calMeta = item.meta?.calendarAction || item.metadata?.calendarAction;
+              const calAdded = Boolean(item.meta?.calendarAdded || item.metadata?.calendarAdded);
+              const canCalendar = Boolean(calMeta && calMeta.type && calMeta.itemId && !calAdded);
               return `
                 <div class="p-3 hover:bg-slate-800/40 transition-colors space-y-1.5">
                   <div class="flex items-start justify-between gap-2">
@@ -107,6 +110,7 @@ class NotificationsManager {
                   <div class="text-[11px] text-slate-300 line-clamp-2">${this.escapeHtml(item.message)}</div>
                   <div class="flex items-center gap-1.5 pt-1 flex-wrap">
                     <button type="button" onclick="window.notificationsManager.openDetails('${this.escapeHtml(item.id)}')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-200">Dettagli</button>
+                    ${canCalendar ? `<button type="button" onclick="window.notificationsManager.addToCalendarFromNotification('${this.escapeHtml(calMeta.type)}', '${this.escapeHtml(calMeta.itemId)}', '${this.escapeHtml(item.id)}', this)" class="px-2 py-0.5 rounded bg-sky-600/20 hover:bg-sky-600/30 text-[10px] text-sky-300">📅 Aggiungi al Calendario</button>` : ''}
                     ${canTrustGuest ? `<button type="button" onclick="window.notificationsManager.trustGuestFromNotification('${this.escapeHtml(item.id)}')" class="px-2 py-0.5 rounded bg-amber-600/20 hover:bg-amber-600/30 text-[10px] text-amber-300">🤝 Persona Fidata</button>` : ''}
                     ${canReceive ? `<button type="button" onclick="window.notificationsManager.markPackageReceived('${this.escapeHtml(item.id)}')" class="px-2 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-[10px] text-emerald-300">📦 Pacco ricevuto</button>` : ''}
                     <button type="button" onclick="window.notificationsManager.markAsRead('${this.escapeHtml(item.id)}')" class="px-2 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-[10px] text-indigo-300">✓ Letta</button>
@@ -210,6 +214,9 @@ class NotificationsManager {
         : 'border-slate-800 bg-slate-900/70';
     const canReceive = item.sourceType === 'mail_delivery' && item.metadata?.deliveryStatus !== 'delivered';
     const canTrustGuest = item.category === 'security' || item.sourceType === 'security' || Boolean(item.metadata?.canTrustGuest);
+    const calMeta = item.meta?.calendarAction || item.metadata?.calendarAction;
+    const calAdded = Boolean(item.meta?.calendarAdded || item.metadata?.calendarAdded);
+    const canCalendar = Boolean(calMeta && calMeta.type && calMeta.itemId && !calAdded);
     const hints = Array.isArray(item.actionHints) ? item.actionHints : [];
 
     return `
@@ -228,6 +235,7 @@ class NotificationsManager {
           </div>
           <div class="flex items-center gap-1.5 flex-wrap shrink-0">
             <button type="button" onclick="window.notificationsManager.openDetails('${this.escapeHtml(item.id)}')" class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold">Dettagli</button>
+            ${canCalendar ? `<button type="button" onclick="window.notificationsManager.addToCalendarFromNotification('${this.escapeHtml(calMeta.type)}', '${this.escapeHtml(calMeta.itemId)}', '${this.escapeHtml(item.id)}', this)" class="px-2.5 py-1.5 rounded-xl bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 text-xs font-semibold">📅 Aggiungi al Calendario</button>` : ''}
             ${canTrustGuest ? `<button type="button" onclick="window.notificationsManager.trustGuestFromNotification('${this.escapeHtml(item.id)}')" class="px-2.5 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-xs font-semibold">🤝 Persona Fidata</button>` : ''}
             ${canReceive ? `<button type="button" onclick="window.notificationsManager.markPackageReceived('${this.escapeHtml(item.id)}')" class="px-2.5 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold">📦 Pacco ricevuto</button>` : ''}
             ${!item.read ? `<button type="button" onclick="window.notificationsManager.markAsRead('${this.escapeHtml(item.id)}')" class="px-2.5 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-semibold">✓ Segna come letta</button>` : ''}
@@ -261,6 +269,9 @@ class NotificationsManager {
     const m = item.metadata || {};
     const canReceive = item.sourceType === 'mail_delivery' && m.deliveryStatus !== 'delivered';
     const canTrustGuest = item.category === 'security' || item.sourceType === 'security' || Boolean(m.canTrustGuest);
+    const calMeta = item.meta?.calendarAction || m.calendarAction;
+    const calAdded = Boolean(item.meta?.calendarAdded || m.calendarAdded);
+    const canCalendar = Boolean(calMeta && calMeta.type && calMeta.itemId && !calAdded);
 
     modal.classList.remove('hidden');
     modal.innerHTML = `
@@ -281,6 +292,7 @@ class NotificationsManager {
           </div>
         ` : ''}
         <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800 flex-wrap">
+          ${canCalendar ? `<button type="button" onclick="window.notificationsManager.addToCalendarFromNotification('${this.escapeHtml(calMeta.type)}', '${this.escapeHtml(calMeta.itemId)}', '${this.escapeHtml(item.id)}', this)" class="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold">📅 Aggiungi al Calendario</button>` : ''}
           ${canTrustGuest ? `<button type="button" onclick="window.notificationsManager.trustGuestFromNotification('${this.escapeHtml(item.id)}'); window.notificationsManager.closeDetails();" class="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold">🤝 Persona Fidata</button>` : ''}
           ${canReceive ? `<button type="button" onclick="window.notificationsManager.markPackageReceived('${this.escapeHtml(item.id)}'); window.notificationsManager.closeDetails();" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">📦 Pacco ricevuto</button>` : ''}
           ${!item.read ? `<button type="button" onclick="window.notificationsManager.markAsRead('${this.escapeHtml(item.id)}'); window.notificationsManager.closeDetails();" class="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold">✓ Segna come letta</button>` : ''}
@@ -340,6 +352,30 @@ class NotificationsManager {
     window.showToast?.('Sincronizzazione Gmail in corso...', 'info');
     await fetch('/api/mail/sync', { method: 'POST' }).catch(() => {});
     await this.refreshBadgeAndFeed(true);
+  }
+
+  async addToCalendarFromNotification(type, id, notifId = null, btnEl = null) {
+    try {
+      const res = await fetch('/api/calendar/from-mail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, id })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Errore salvataggio Calendar');
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.textContent = '✅ Salvato in Calendario';
+      }
+      window.showToast?.(data.alreadyExists ? '📅 Già presente su Google Calendar' : '✅ Salvato in Calendario (Alex)', 'success');
+      if (notifId) {
+        await this.markAsRead(notifId);
+      } else {
+        await this.refreshBadgeAndFeed(true);
+      }
+    } catch (err) {
+      window.showToast?.(err.message || 'Errore salvataggio Calendar', 'error');
+    }
   }
 }
 

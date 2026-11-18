@@ -432,11 +432,19 @@ class TelegramBotManager {
         '/foto_camera — Snapshot live Camera\n' +
         '/clima — Stato riscaldamento e valvole\n' +
         '/auto — Stato auto elettrica e wallbox\n' +
+        '/agenda — Eventi Google Calendar (oggi e prossimi 7 giorni)\n' +
         '/scene — Tastiera rapida scene ed effetti Philips Hue\n' +
         '/spegni_tutto — Spegne luci e carichi non essenziali\n' +
         'Oppure scrivi o invia un vocale in linguaggio naturale.',
         { chatId }
       );
+      return { handled: true };
+    }
+
+    if (cmd === '/agenda') {
+      const calendarHub = this.deps.calendarHub || require('./calendar-hub');
+      const agendaText = calendarHub.formatAgendaText({ days: 7, html: true });
+      await this.sendMessage(agendaText, { chatId });
       return { handled: true };
     }
 
@@ -537,6 +545,27 @@ class TelegramBotManager {
 
     const data = String(cb.data || '');
     eventBus.publish('telegram:command', { chatId, callback: data });
+
+    if (data.startsWith('cal_add:')) {
+      const [, itemType, ...idParts] = data.split(':');
+      const itemId = idParts.join(':');
+      try {
+        const calendarHub = this.deps.calendarHub || require('./calendar-hub');
+        const res = await calendarHub.createEventFromMailItem(itemType, itemId);
+        if (res.alreadyExists) {
+          await this.answerCallbackQuery(cb.id, 'Evento già presente su Google Calendar');
+          await this.sendMessage(`📅 Evento già presente sul Calendario di Alex: <b>${this._escapeHtml(res.summary || itemId)}</b>`, { chatId, silent: true });
+        } else {
+          await this.answerCallbackQuery(cb.id, 'Aggiunto al Calendario di Alex!');
+          await this.sendMessage(`✅ Aggiunto al Calendario di Alex: <b>${this._escapeHtml(res.summary || itemId)}</b>`, { chatId, silent: true });
+        }
+        return { handled: true, result: res };
+      } catch (err) {
+        await this.answerCallbackQuery(cb.id, 'Errore salvataggio Calendar');
+        await this.sendMessage(`⚠️ Impossibile salvare su Google Calendar: ${this._escapeHtml(err.message)}`, { chatId, silent: true });
+        return { handled: true, error: err.message };
+      }
+    }
 
     if (data === 'trust_guest_away' || data.startsWith('trust_guest')) {
       const securitySystem = this.deps.securitySystem || require('./security-system');
