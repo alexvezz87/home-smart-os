@@ -244,6 +244,20 @@ Per ridurre `src/ev-climate-hub.js` da `3.038` a `< 500` righe mantenendo **100%
    - `bosch-oauth-transport.provider.js`: OAuth2 SingleKey ID (PointT API), cattura browser Playwright opzionale e fallback XMPP `bosch-xmpp` (`_ensureBoschPointtToken`, `_boschPointtGet`/`Put`/`Bulk`, `_getBoschClient`).
    - `bosch-climate-energy.provider.js`: storico giornaliero/orario caldaia gas, sync 9 zone CT200, setpoint, profili Baby Comfort e programmazione settimanale (`syncBoschEasyControl`, `setBoschZoneSetpoint`, `fetchBoschFullEnergyHistory`).
 
+---
+
+## 11. Architettura Modulare Frontend `AdminManager` (`public/js/admin/*`, `#101`)
+
+Per ridurre `public/js/admin.js` da `4.023` a `< 380` righe mantenendo piena compatibilità con tutti gli `onclick="window.adminManager.*"` e le funzioni globali `window.*`:
+
+1. **Core Shell (`public/js/admin.js`)**:
+   - Mantiene `class AdminManager` (`constructor`, `escapeHtml`, `formatErrorWithLinks`, `selectTab`, `_getBadgeClass`, `_renderActiveServiceContent`, `renderView`, `renderFloorplanPane`), esportando `window.AdminManager` e `window.adminManager`.
+2. **I 4 Moduli Tematici in `public/js/admin/` (inclusi in `public/index.html` subito dopo `/js/admin.js`)**:
+   - `admin-climate.js`: vista e azioni Clima Bosch CT200, Baby Comfort, OAuth manuale e `climate-optimizer` (`window.toggleClimateOptimizer`, `window.evaluateClimateOptimizerNow`).
+   - `admin-devices-ev.js`: luci Philips Hue, sensore corridoio (`window.saveHueSensorConfig`), prese Meross, Wallbox ABB, Volvo EX30 e storico viaggi/ricariche Drive.
+   - `admin-security-nest.js`: telecamere Tapo, Gemini Vision (`window.saveGeminiApiKey`, `window.testGeminiVision`), Hub Notifiche/Telegram/WebPush, Google Nest Follow-Me / Gemini TTS, Sentinella e Persona Fidata (`toggleTrustedGuest`).
+   - `admin-system-backbone.js`: registro audit/archivi log, Gmail Hub, avatar presenza, Iliadbox Wi-Fi (`window.filterIliadboxDevices`, `window.saveIliadboxConfig`), AI Gateway (`window.testAiTts`), ambiente duale WAMP/Cloud, Sandbox e pausa/arresto sistema.
+
 
 
 
