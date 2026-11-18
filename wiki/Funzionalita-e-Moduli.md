@@ -232,6 +232,15 @@ Riorganizzata con un'architettura **modulare responsive**: su desktop/tablet ori
 - **Azioni Rapide Telegram & Web UI (`src/telegram-bot.js`, `src/notifier.js`, `public/js/notifications.js`, `public/js/admin.js`)**: pulsante inline **`🤝 Persona Fidata (fino al rientro)`** su tutti gli alert Sentinella/movimento (`trust_guest_away`), pulsante **`🤝 Persona Fidata`** nel Centro Notifiche (popover, card e modale) e badge/toggle in **Amministrazione → Sentinella Fuori Casa** con opzione intervallo `0` (*Solo evento, 0 AI timer*).
 - **Risparmio Token AI, Dedup Polling & LogArchiver (`src/security-system.js`, `src/ev-climate-hub.js`, `src/log-archiver.js`)**: blocco analisi AI quando i proprietari sono in casa o su telecamere in `privacyMode`/offline; deduplicazione log `eventLogger` per polling 60s Wallbox/Bosch; cache `lineCount` in `LogArchiver.listArchives()`, idratazione stato da DB e preservazione contatori su run vuoti.
 
+---
+
+## ♻️ 19. Scomposizione Modulare `SecuritySystem` (`src/security/*`, `#103`)
+- **Core (`src/security-system.js`, `< 320` righe)**: mantiene stato centralizzato (`cameras`, `mode`, `nestIps`, `sentinel`, `trustedGuest`, `rollingFrames`), caricamento/salvataggio config cifrata e montaggio dei 3 provider su `SecuritySystem.prototype` tramite `Object.assign`.
+- **Moduli Specializzati (`src/security/*.provider.js`)**:
+  - `nest-cast.provider.js`: Google Nest Cast unicast/TTS/streaming su Nest Hub (`announceToNest`, `resolveNestIp`, `castToNestHub`).
+  - `camera-ptz-onvif.provider.js`: controllo Tapo/ONVIF, PTZ, preset, privacy, imaging, snapshot e listener eventi (`attachCameraEventWatcher`, `ptzMove`, `captureSnapshot`).
+  - `sentinel-vision.provider.js`: Sentinella AI Fuori Casa, Hue Sentinel SSE, accredito Persona Fidata, riferimenti pet e Rolling Memory Buffer (`initSentinel`, `setTrustedGuest`, `runSentinelPatrol`, `captureRollingFrame`).
+
 
 
 

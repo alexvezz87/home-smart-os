@@ -258,6 +258,20 @@ Per ridurre `public/js/admin.js` da `4.023` a `< 380` righe mantenendo piena com
    - `admin-security-nest.js`: telecamere Tapo, Gemini Vision (`window.saveGeminiApiKey`, `window.testGeminiVision`), Hub Notifiche/Telegram/WebPush, Google Nest Follow-Me / Gemini TTS, Sentinella e Persona Fidata (`toggleTrustedGuest`).
    - `admin-system-backbone.js`: registro audit/archivi log, Gmail Hub, avatar presenza, Iliadbox Wi-Fi (`window.filterIliadboxDevices`, `window.saveIliadboxConfig`), AI Gateway (`window.testAiTts`), ambiente duale WAMP/Cloud, Sandbox e pausa/arresto sistema.
 
+---
+
+## 12. Architettura a Provider Modulari per `SecuritySystem` (`src/security/*`, `#103`)
+
+Per completare la **Fase 4/4** del refactoring Zero-Regression riducendo `src/security-system.js` da `2.094` a `< 320` righe e preservando al 100% compatibilità e monkey-patch su `securitySystem` / `SecuritySystem.prototype`:
+
+1. **Core Orchestrator (`src/security-system.js`)**:
+   - Mantiene `class SecuritySystem` (`constructor`, `loadConfig`, `loadExistingSnapshots`, `saveConfig`, `resolveCamera`, `getStatus`) ed espone `SecuritySystem` oltre al singleton.
+   - Monta i 3 provider su `SecuritySystem.prototype` tramite `Object.assign(SecuritySystem.prototype, ...)`.
+2. **I 3 Provider Tematici in `src/security/`**:
+   - `nest-cast.provider.js`: mappa IP statici Google Nest WireGuard (`_parseNestIpsEnv`, `getNestIps`, `updateNestIps`, `resolveNestIp`), calcolo durata chime e streaming/annunci TTS (`_estimateWavDelayMs`, `_buildPublicMediaUrl`, `announceToNest`, `getLocalHostIp`, `stopAnyCastSessionOnDevice`, `stopNestHubCast`, `castToNestHub`).
+   - `camera-ptz-onvif.provider.js`: driver Tapo/ONVIF, reachability, watcher eventi real-time, privacy, imaging, snapshot HD, PTZ, preset e simulazione movimento (`getRTSPUrl`, `updateCameraNetwork`, `getTapoClient`, `getOnvifCam`, `startOnvifEventListeners`, `attachCameraEventWatcher`, `toggleCameraPrivacy`, `captureSnapshot`, `ptzMove`, `pointToAngle`, `applyPreset`).
+   - `sentinel-vision.provider.js`: Sentinella Fuori Casa, Hue Sentinel SSE, accredito temporaneo Persona Fidata (`trustedGuest`), riferimenti pet Lucifero & Camilla e Rolling Memory Buffer (`initHueSentinel`, `initSentinel`, `_isCasaAway`, `setTrustedGuest`, `runSentinelPatrol`, `pushRollingFrame`, `captureRollingFrame`).
+
 
 
 
