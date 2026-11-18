@@ -373,17 +373,20 @@ class AIGateway {
       const key = `${action}:${proposal.dedupKey || proposal.cameraId || proposal.text || 'default'}`;
       const lastTs = this.cooldownMap.get(key);
       if (lastTs !== undefined && (nowMs - lastTs) < cooldownMs) {
-        const entry = recordAndPublish({
-          action,
-          reason: `Anti-spam cooldown attivo per "${key}"`,
-          proposedValue: proposal.text || proposal.cameraId || null,
-          clampedOrBlocked: 'blocked:cooldown'
-        });
+        const reason = `Anti-spam cooldown attivo per "${key}"`;
+        if (!proposal.silentCooldown) {
+          recordAndPublish({
+            action,
+            reason,
+            proposedValue: proposal.text || proposal.cameraId || null,
+            clampedOrBlocked: 'blocked:cooldown'
+          });
+        }
         return {
           allowed: false,
           blocked: true,
           cooldownActive: true,
-          reason: entry.reason
+          reason
         };
       }
       this.cooldownMap.set(key, nowMs);

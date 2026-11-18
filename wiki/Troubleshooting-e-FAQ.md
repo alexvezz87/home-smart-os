@@ -92,6 +92,8 @@
    - Premi **`🤝 Persona Fidata (fino al rientro)`** direttamente sulla notifica Telegram, sul Centro Notifiche Web UI oppure in **Amministrazione → Sentinella Fuori Casa**. L'accredito sospende ronda AI, analisi Vision e alert movimento fino al rientro a casa di Alex o Cinzia (quando si resetta in automatico). Per azzerare le chiamate AI periodiche della ronda mantenendo solo i trigger da evento reale, imposta l'intervallo Sentinella su **Solo evento (0 AI timer)**.
 10. **Volvo EX30: `invalid_scope` con `offline_access` (`#95`) / `Session doesn't have required client`**:
    - **Nota**: I client DCR (`vid-dcr-...`) del Volvo Developer Portal non accettano `offline_access` se non abilitato espressamente sul portale (`invalid_scope`). In `src/ev-climate-hub.js` restano attivi i soli scope `openid` + API Volvo. Se il refresh fallisce con `HTTP 400: Session doesn't have required client`, verificare l'assenza di istanze concorrenti o rigenerare la sessione dal Developer Portal Volvo.
+11. **Falsi allarmi Sentinella / Movimento "Fuori Casa" dopo il rientro dei proprietari (`#96`)**:
+   - In `src/security-system.js` (`_isCasaAway()` e `initHueSentinel()`), lo stato presenza Wi-Fi Iliadbox (`anyHome === true/false`) ha ora priorità su `this.mode === 'away'`: anche se le telecamere vengono lasciate con obiettivo aperto (`mode: 'away'`), non appena Alex o Cinzia sono connessi al Wi-Fi domestico la casa risulta "A Casa" (`_isCasaAway() === false`) e la Sentinella si arresta. Inoltre in `src/notifier.js` i normali cooldown anti-spam di `camera:vision` / `tts:announce` non generano più notifiche `AI Guardrail Attivato` su Telegram.
 
 
 

@@ -1648,6 +1648,9 @@ class SecuritySystem {
    * Aggancio Sentinella istantaneo a latenza zero su movimento Sensore Corridoio Hue SSE.
    */
   initHueSentinel(hueLocal, iliadboxClient) {
+    if (iliadboxClient) {
+      this._iliadboxClient = iliadboxClient;
+    }
     this._bindRollingMotionListener();
     if (!hueLocal || typeof hueLocal.on !== 'function' || this._hueSentinelBound) return;
     this._hueSentinelBound = true;
@@ -1655,10 +1658,7 @@ class SecuritySystem {
     hueLocal.on('motion', (evt) => {
       if (!evt || !evt.active) return;
 
-      const presence = iliadboxClient && typeof iliadboxClient.getPresenceState === 'function'
-        ? iliadboxClient.getPresenceState()
-        : null;
-      const isAway = this.mode === 'away' || (presence && presence.lastUpdated && presence.anyHome === false);
+      const isAway = this._isCasaAway();
 
       if (isAway && !this.isTrustedGuestActive()) {
         const msg = `🚨 [Sentinella Hue SSE] Movimento rilevato in Corridoio (${evt.sensorName || 'Sensore corridoio'}) con casa in modalità Fuori Casa!`;
@@ -1719,6 +1719,11 @@ class SecuritySystem {
       eventBus.on('presence:changed', (evt = {}) => {
         const payload = evt && evt.data ? evt.data : evt;
         if (payload.person && payload.person !== 'Casa' && payload.status === 'home' && payload.previous === 'away') {
+          this.stopSentinelPatrol();
+          if (this.mode === 'away') {
+            this.mode = 'home';
+            this.saveConfig();
+          }
           if (this.isTrustedGuestActive()) {
             this.setTrustedGuest(false, { source: `owner_return:${payload.person}` }).catch(() => {});
           }
@@ -1733,6 +1738,10 @@ class SecuritySystem {
             }
           } else if (payload.status === 'home') {
             this.stopSentinelPatrol();
+            if (this.mode === 'away') {
+              this.mode = 'home';
+              this.saveConfig();
+            }
             if (this.isTrustedGuestActive() && !this._sentinelConfig?.trustedGuest?.armedWhileHome) {
               this.setTrustedGuest(false, { source: 'casa_return_home' }).catch(() => {});
             }
@@ -1753,11 +1762,13 @@ class SecuritySystem {
   }
 
   _isCasaAway() {
-    if (this.mode === 'away') return true;
     const p = this._iliadboxClient && typeof this._iliadboxClient.getPresenceState === 'function'
       ? this._iliadboxClient.getPresenceState()
       : null;
-    return Boolean(p && p.lastUpdated && p.anyHome === false);
+    if (p && p.lastUpdated && typeof p.anyHome === 'boolean') {
+      return p.anyHome === false;
+    }
+    return this.mode === 'away';
   }
 
   getSentinelConfig() {
@@ -1929,7 +1940,8 @@ class SecuritySystem {
       const guard = aiGateway.validateHardwareAction({
         action: 'camera:vision',
         cameraId: 'sentinel-patrol',
-        cooldownMs: 90 * 1000
+        cooldownMs: 90 * 1000,
+        silentCooldown: true
       });
       if (guard && guard.allowed === false) {
         return { skipped: true, reason: guard.reason || 'cooldown' };
