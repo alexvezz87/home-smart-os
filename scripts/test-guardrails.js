@@ -2292,3 +2292,71 @@ test('Volvo OAuth2 valid scopes (#95)', async () => {
   }
 });
 
+test('Hotfix Sentinella Priorità Presenza Wi-Fi & Stop falsi alert Cooldown (#96)', async () => {
+  const securitySystem = require('../src/security-system');
+  const notifier = require('../src/notifier');
+  const eventBus = require('../src/event-bus');
+
+  const prevMode = securitySystem.mode;
+  const prevIliadbox = securitySystem._iliadboxClient;
+  const prevSave = securitySystem.saveConfig;
+  const prevSend = notifier.send;
+
+  try {
+    securitySystem.saveConfig = () => {};
+
+    // 1. Anche se securitySystem.mode è 'away' (telecamere aperte), se Iliadbox rileva anyHome: true, _isCasaAway() DEVE essere false
+    securitySystem.mode = 'away';
+    securitySystem._iliadboxClient = {
+      getPresenceState: () => ({
+        lastUpdated: new Date().toISOString(),
+        anyHome: true
+      })
+    };
+    assert.equal(securitySystem._isCasaAway(), false);
+
+    // E runSentinelPatrol viene saltata con casa_non_in_away
+    const patrolRes = await securitySystem.runSentinelPatrol();
+    assert.equal(patrolRes.skipped, true);
+    assert.equal(patrolRes.reason, 'casa_non_in_away');
+
+    // 2. Quando anyHome diventa false su Iliadbox, _isCasaAway() diventa true
+    securitySystem._iliadboxClient = {
+      getPresenceState: () => ({
+        lastUpdated: new Date().toISOString(),
+        anyHome: false
+      })
+    };
+    assert.equal(securitySystem._isCasaAway(), true);
+
+    // 3. Rientro di Alex (presence:changed away -> home) riporta mode a 'home' e ferma la ronda
+    eventBus.publish('presence:changed', {
+      person: 'Alex',
+      status: 'home',
+      previous: 'away'
+    });
+    assert.equal(securitySystem.mode, 'home');
+
+    // 4. Cooldown tecnico con silentCooldown: true su validateHardwareAction non pubblica ai:guardrail_blocked
+    const aiGateway = require('../src/ai-gateway');
+    let guardrailEvents = 0;
+    const unsub = eventBus.on('ai:guardrail_blocked', () => { guardrailEvents += 1; });
+    try {
+      const cKey = `cam-silent-${Date.now()}`;
+      const r1 = aiGateway.validateHardwareAction({ action: 'camera:vision', cameraId: cKey, cooldownMs: 60000, silentCooldown: true });
+      assert.equal(r1.allowed, true);
+      const r2 = aiGateway.validateHardwareAction({ action: 'camera:vision', cameraId: cKey, cooldownMs: 60000, silentCooldown: true });
+      assert.equal(r2.allowed, false);
+      assert.equal(r2.cooldownActive, true);
+      assert.equal(guardrailEvents, 0);
+    } finally {
+      if (typeof unsub === 'function') unsub();
+    }
+  } finally {
+    securitySystem.mode = prevMode;
+    securitySystem._iliadboxClient = prevIliadbox;
+    securitySystem.saveConfig = prevSave;
+    notifier.send = prevSend;
+  }
+});
+

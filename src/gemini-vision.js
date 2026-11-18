@@ -234,7 +234,8 @@ Rispondi con un paragrafo discorsivo fluido di 2-4 frasi chiare, precise e rassi
       const guard = aiGateway.validateHardwareAction({
         action: 'camera:vision',
         cameraId: cam.id,
-        cooldownMs
+        cooldownMs,
+        silentCooldown: true
       });
       if (guard && guard.allowed === false) {
         return { success: false, skipped: true, reason: guard.reason || 'cooldown' };
