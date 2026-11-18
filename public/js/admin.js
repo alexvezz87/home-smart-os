@@ -1698,15 +1698,25 @@ class AdminManager {
               <span class="font-bold text-slate-200"><i class="fa-solid fa-paw text-amber-400 mr-1.5"></i>Sentinella Fuori Casa &amp; Filtro Pet (Lucifero &amp; Camilla)</span>
               <p class="text-[11px] text-slate-400">Ronda periodica AI sulle telecamere quando casa è in Away (ignora Lucifero &amp; Camilla)</p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
               <select id="admin-sentinel-interval" onchange="window.adminManager.updateSentinelConfig()" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white">
-                ${[5, 10, 15].map((m) => `<option value="${m}" ${Number(sentinel.intervalMinutes || 10) === m ? 'selected' : ''}>Ogni ${m} min</option>`).join('')}
+                ${[0, 5, 10, 15, 30, 60].map((m) => `<option value="${m}" ${Number(sentinel.intervalMinutes ?? 10) === m ? 'selected' : ''}>${m === 0 ? 'Solo evento (0 AI timer)' : `Ogni ${m} min`}</option>`).join('')}
               </select>
               <label class="flex items-center gap-1.5 text-xs text-slate-200 cursor-pointer">
                 <input id="admin-sentinel-enabled" type="checkbox" ${sentinel.enabled !== false ? 'checked' : ''} onchange="window.adminManager.updateSentinelConfig()" class="accent-amber-500" />
                 Attiva
               </label>
             </div>
+          </div>
+          <div class="flex items-center justify-between flex-wrap gap-2 pt-2 border-t border-slate-800/80">
+            <div class="text-[11px] flex items-center gap-2">
+              <span class="px-2 py-0.5 rounded-full font-bold ${sentinel.trustedGuest?.active ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'}">
+                ${sentinel.trustedGuest?.active ? '🤝 Persona Fidata ATTIVA (fino al rientro)' : '🛡️ Nessun ospite fidato attivo'}
+              </span>
+            </div>
+            <button type="button" onclick="window.adminManager.toggleTrustedGuest(${!sentinel.trustedGuest?.active})" class="px-2.5 py-1 rounded-lg text-xs font-semibold ${sentinel.trustedGuest?.active ? 'bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30' : 'bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30'}">
+              ${sentinel.trustedGuest?.active ? 'Revoca Accredito' : '🤝 Accredita Persona Fidata'}
+            </button>
           </div>
 
           <div class="flex items-center gap-2 flex-wrap">
@@ -2137,7 +2147,8 @@ class AdminManager {
 
   async updateSentinelConfig() {
     const enabled = document.getElementById('admin-sentinel-enabled')?.checked;
-    const intervalMinutes = Number(document.getElementById('admin-sentinel-interval')?.value || 10);
+    const rawInt = document.getElementById('admin-sentinel-interval')?.value;
+    const intervalMinutes = rawInt !== undefined ? Number(rawInt) : 10;
     try {
       await fetch('/api/notifications/config', {
         method: 'POST',
@@ -2145,6 +2156,22 @@ class AdminManager {
         body: JSON.stringify({ sentinel: { enabled, intervalMinutes } })
       });
       window.showToast?.('Configurazione Sentinella aggiornata', 'success');
+    } catch (err) {
+      window.showToast?.(err.message, 'error');
+    }
+  }
+
+  async toggleTrustedGuest(active) {
+    try {
+      const res = await fetch('/api/security/sentinel/trust-guest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: Boolean(active), source: 'admin-ui' })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Errore aggiornamento Persona Fidata');
+      window.showToast?.(active ? '🤝 Persona fidata accreditata fino al rientro' : '🛡️ Accredito Persona fidata revocato', 'success');
+      this.loadNotificationsPanel();
     } catch (err) {
       window.showToast?.(err.message, 'error');
     }

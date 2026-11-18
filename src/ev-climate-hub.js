@@ -625,7 +625,11 @@ class EvClimateHub {
         lastError: null
       };
 
-      eventLogger.log('abb_wallbox', `✅ Sincronizzata Wallbox ABB Terra AC (${devNum}) da Cloud ChargerSync`);
+      const wbSig = `${this.wallboxState.status}:${Math.round(this.wallboxState.powerW || 0)}:${this.wallboxState.charging}`;
+      if (this._lastLoggedWallboxSig !== wbSig) {
+        this._lastLoggedWallboxSig = wbSig;
+        eventLogger.log('abb_wallbox', `✅ Sincronizzata Wallbox ABB Terra AC (${devNum}) da Cloud ChargerSync`);
+      }
     } catch (e) {
       this.wallboxState.connected = false;
       this.wallboxState.connectedMode = 'auth_error';
@@ -2359,7 +2363,12 @@ class EvClimateHub {
           lastError: null
         };
 
-        eventLogger.log('bosch_thermo', `🔥 Sincronizzato Bosch EasyControl CT200 (${this.boschState.serialNumber}) via PointT Cloud API`);
+        const zonesSig = zonesList.map((z) => `${z.id}:${z.tempSetpoint}`).join(',');
+        const boschSig = `${this.boschState.indoorTemp}:${this.boschState.setpoint}:${this.boschState.boilerActive}:${zonesSig}`;
+        if (this._lastLoggedBoschSig !== boschSig) {
+          this._lastLoggedBoschSig = boschSig;
+          eventLogger.log('bosch_thermo', `🔥 Sincronizzato Bosch EasyControl CT200 (${this.boschState.serialNumber}) via PointT Cloud API`);
+        }
         return this.boschState;
       } catch (err) {
         this.boschState.connected = false;
@@ -2475,7 +2484,12 @@ class EvClimateHub {
         lastError: null
       };
 
-      eventLogger.log('bosch_thermo', `🔥 Sincronizzato Bosch EasyControl CT200 (${serialNumber}) via XMPP`);
+      const zonesSig = zonesList.map((z) => `${z.id}:${z.tempSetpoint}`).join(',');
+      const boschSig = `${this.boschState.indoorTemp}:${this.boschState.setpoint}:${this.boschState.boilerActive}:${zonesSig}`;
+      if (this._lastLoggedBoschSig !== boschSig) {
+        this._lastLoggedBoschSig = boschSig;
+        eventLogger.log('bosch_thermo', `🔥 Sincronizzato Bosch EasyControl CT200 (${serialNumber}) via XMPP`);
+      }
     } catch (e) {
       await this._closeBoschClient();
       this.boschState.connected = false;

@@ -788,15 +788,16 @@ class SecuritySystem {
                   source: 'Sensore ONVIF Tapo'
                 });
 
-                // Se siamo in modalità Fuori Casa, scatta automaticamente una foto HD
-                if (this.mode === 'away' && !cam.privacyMode) {
+                // Scatto snapshot automatico e Gemini Vision SOLO se Fuori Casa, senza Ospite Fidato e senza Privacy Mode
+                const shouldAnalyzeAway = this._isCasaAway() && !this.isTrustedGuestActive() && !cam.privacyMode;
+                if (shouldAnalyzeAway) {
                   this.captureSnapshot(cam.id, 'Sensore Movimento ONVIF').catch(() => {});
                 }
 
-                // Rolling Memory Buffer + Analisi Temporale Ibrida (#34)
+                // Rolling Memory Buffer + Analisi Temporale Ibrida (#34/#92)
                 if (!cam.privacyMode) {
                   this.captureRollingFrame(cam.id).catch(() => {});
-                  if (name === 'IsPeople' || name === 'IsTPSmartEvent' || this.mode === 'away') {
+                  if (shouldAnalyzeAway && (name === 'IsPeople' || name === 'IsTPSmartEvent' || this.mode === 'away')) {
                     try {
                       const geminiVision = require('./gemini-vision');
                       geminiVision.analyzeTemporalSequence(cam.id, '', this, {
@@ -1659,7 +1660,7 @@ class SecuritySystem {
         : null;
       const isAway = this.mode === 'away' || (presence && presence.lastUpdated && presence.anyHome === false);
 
-      if (isAway) {
+      if (isAway && !this.isTrustedGuestActive()) {
         const msg = `🚨 [Sentinella Hue SSE] Movimento rilevato in Corridoio (${evt.sensorName || 'Sensore corridoio'}) con casa in modalità Fuori Casa!`;
         eventLogger.log('security', msg, {
           device: evt.sensorName || 'Sensore corridoio',
@@ -1687,7 +1688,14 @@ class SecuritySystem {
       enabled: true,
       intervalMinutes: 10,
       lastPatrolAt: null,
-      lastResult: null
+      lastResult: null,
+      trustedGuest: {
+        active: false,
+        label: 'Ospite fidato',
+        activatedAt: null,
+        activatedBy: null,
+        armedWhileHome: false
+      }
     };
     this._petRefs = [];
     this._patrolTimer = null;
@@ -1710,11 +1718,24 @@ class SecuritySystem {
       this._sentinelBusBound = true;
       eventBus.on('presence:changed', (evt = {}) => {
         const payload = evt && evt.data ? evt.data : evt;
+        if (payload.person && payload.person !== 'Casa' && payload.status === 'home' && payload.previous === 'away') {
+          if (this.isTrustedGuestActive()) {
+            this.setTrustedGuest(false, { source: `owner_return:${payload.person}` }).catch(() => {});
+          }
+        }
         if (payload.person === 'Casa') {
           if (payload.status === 'away') {
-            this.startSentinelPatrol();
+            if (this.isTrustedGuestActive() && this._sentinelConfig?.trustedGuest?.armedWhileHome) {
+              this._sentinelConfig.trustedGuest.armedWhileHome = false;
+              db.set('sentinel-config', this._sentinelConfig, false).catch(() => {});
+            } else if (!this.isTrustedGuestActive()) {
+              this.startSentinelPatrol();
+            }
           } else if (payload.status === 'home') {
             this.stopSentinelPatrol();
+            if (this.isTrustedGuestActive() && !this._sentinelConfig?.trustedGuest?.armedWhileHome) {
+              this.setTrustedGuest(false, { source: 'casa_return_home' }).catch(() => {});
+            }
           }
         }
       });
@@ -1747,15 +1768,59 @@ class SecuritySystem {
     };
   }
 
+  isTrustedGuestActive() {
+    return Boolean(this._sentinelConfig && this._sentinelConfig.trustedGuest && this._sentinelConfig.trustedGuest.active);
+  }
+
+  async setTrustedGuest(active = true, { source = 'web', label = 'Persona fidata' } = {}) {
+    if (!this._sentinelConfig) {
+      this._sentinelConfig = { enabled: true, intervalMinutes: 10 };
+    }
+    if (active === true) {
+      const awayNow = this._isCasaAway();
+      this._sentinelConfig.trustedGuest = {
+        active: true,
+        label: String(label || 'Persona fidata').trim() || 'Persona fidata',
+        activatedAt: new Date().toISOString(),
+        activatedBy: source,
+        armedWhileHome: !awayNow
+      };
+      this.stopSentinelPatrol();
+      eventLogger.log('security', '🤝 Persona fidata accreditata temporaneamente: notifiche e analisi AI Sentinella sospese fino al rientro', { source });
+    } else {
+      this._sentinelConfig.trustedGuest = {
+        active: false,
+        label: null,
+        activatedAt: null,
+        activatedBy: source,
+        armedWhileHome: false
+      };
+      if (this._sentinelConfig.enabled && this._isCasaAway()) {
+        this.startSentinelPatrol();
+      }
+      eventLogger.log('security', '🛡️ Accredito temporaneo Persona Fidata terminato: Sentinella riattivata', { source });
+    }
+
+    await db.set('sentinel-config', this._sentinelConfig, false);
+    if (eventBus && typeof eventBus.publish === 'function') {
+      eventBus.publish('security:trusted_guest_changed', {
+        active: Boolean(active),
+        trustedGuest: this._sentinelConfig.trustedGuest,
+        source
+      });
+    }
+    return this.getSentinelConfig();
+  }
+
   async updateSentinelConfig(patch = {}) {
     if (!this._sentinelConfig) this._sentinelConfig = { enabled: true, intervalMinutes: 10 };
     if (typeof patch.enabled === 'boolean') this._sentinelConfig.enabled = patch.enabled;
-    if ([5, 10, 15].includes(Number(patch.intervalMinutes))) {
+    if ([0, 5, 10, 15, 30, 60].includes(Number(patch.intervalMinutes))) {
       this._sentinelConfig.intervalMinutes = Number(patch.intervalMinutes);
     }
     await db.set('sentinel-config', this._sentinelConfig, false);
     this.stopSentinelPatrol();
-    if (this._sentinelConfig.enabled && this._isCasaAway()) {
+    if (this._sentinelConfig.enabled && this._isCasaAway() && !this.isTrustedGuestActive()) {
       this.startSentinelPatrol();
     }
     return this.getSentinelConfig();
@@ -1763,8 +1828,11 @@ class SecuritySystem {
 
   startSentinelPatrol() {
     if (!this._sentinelConfig || !this._sentinelConfig.enabled) return;
+    if (this.isTrustedGuestActive()) return;
+    const mins = Number(this._sentinelConfig.intervalMinutes ?? 10);
+    if (mins <= 0) return;
     if (this._patrolTimer) return;
-    const ms = (this._sentinelConfig.intervalMinutes || 10) * 60 * 1000;
+    const ms = mins * 60 * 1000;
     this._patrolTimer = setInterval(() => {
       if (this._isCasaAway() && this._sentinelConfig.enabled) {
         this.runSentinelPatrol({ reason: 'timer' }).catch(() => {});
@@ -1853,6 +1921,9 @@ class SecuritySystem {
     if (!force && !this._isCasaAway()) {
       return { skipped: true, reason: 'casa_non_in_away' };
     }
+    if (!force && this.isTrustedGuestActive()) {
+      return { skipped: true, reason: 'trusted_guest_active' };
+    }
 
     if (!force && typeof aiGateway.validateHardwareAction === 'function') {
       const guard = aiGateway.validateHardwareAction({
@@ -1867,7 +1938,8 @@ class SecuritySystem {
 
     const go2rtcCams = typeof go2rtc.getCameras === 'function' ? go2rtc.getCameras() : [];
     const rawCams = Array.isArray(go2rtcCams) && go2rtcCams.length > 0 ? go2rtcCams : this.cameras;
-    const cams = Array.isArray(rawCams) ? rawCams : Object.values(rawCams || {});
+    const allCams = Array.isArray(rawCams) ? rawCams : Object.values(rawCams || {});
+    const cams = allCams.filter((c) => c && !c.privacyMode && c.online !== false && c.reachable !== false);
     if (cams.length === 0) {
       return { skipped: true, reason: 'no_cameras' };
     }
@@ -1925,6 +1997,7 @@ class SecuritySystem {
               dedupKey: `sentinel:${cam.id}`,
               cooldownMs: 3 * 60 * 1000,
               actionButtons: [
+                { text: '🤝 Persona Fidata (fino al rientro)', callback_data: 'trust_guest_away' },
                 { text: '🔕 Silenzia 1h', callback_data: 'mute_alert:security' }
               ],
               targetUrl: '/#security'
