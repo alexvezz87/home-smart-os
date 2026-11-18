@@ -15,6 +15,7 @@ const WINDOW_DROP_WINDOW_MS = 15 * 60 * 1000;
 const WINDOW_PAUSE_DURATION_MS = 15 * 60 * 1000;
 const GAS_SAVED_M3_PER_DEGREE_HOUR = 0.07;
 const DEFAULT_MAX_COMFORT_TEMP_C = 20.5;
+const MIN_TRIM_FLOOR_C = 19.0;
 
 const BUILDING_THERMAL_PROFILE = {
   glazing: 'Infissi PVC chiusura ermetica e triplo vetro (elevata inerzia e ritenzione termica)',
@@ -124,6 +125,27 @@ class ClimateOptimizer {
             savedGasM3: saved.metrics.monthKey === currentMonth ? Number(saved.metrics.savedGasM3 || 0) : 0,
             monthKey: currentMonth
           };
+        }
+        if (saved.baselineByZone && typeof saved.baselineByZone === 'object') {
+          this.baselineByZone.clear();
+          for (const [zId, entry] of Object.entries(saved.baselineByZone)) {
+            if (
+              entry
+              && Number.isFinite(Number(entry.originalSetpoint))
+              && Number.isFinite(Number(entry.lastAppliedTarget))
+              && Number(entry.originalSetpoint) >= 15
+              && Number(entry.lastAppliedTarget) >= 15
+            ) {
+              this.baselineByZone.set(String(zId), {
+                originalSetpoint: Number(entry.originalSetpoint),
+                lastAppliedTarget: Number(entry.lastAppliedTarget),
+                previousSetpoint: entry.previousSetpoint !== undefined && entry.previousSetpoint !== null
+                  ? Number(entry.previousSetpoint)
+                  : null,
+                appliedAt: Number(entry.appliedAt || 0)
+              });
+            }
+          }
         }
       }
     } catch (err) {
@@ -285,7 +307,17 @@ class ClimateOptimizer {
     const nameLower = String(zone.name || '').toLowerCase();
     const currentSetpoint = Number(zone.tempSetpoint ?? 20.0);
     const tracked = this.baselineByZone.get(zoneIdStr);
-    const hasTrackedBaseline = tracked && Math.abs(currentSetpoint - tracked.lastAppliedTarget) < 0.25;
+    const hasTrackedBaseline = Boolean(
+      tracked && (
+        Math.abs(currentSetpoint - tracked.lastAppliedTarget) < 0.25
+        || (
+          tracked.previousSetpoint !== null
+          && tracked.previousSetpoint !== undefined
+          && Math.abs(currentSetpoint - tracked.previousSetpoint) < 0.25
+          && (nowMs - (tracked.appliedAt || 0)) < 20 * 60 * 1000
+        )
+      )
+    );
     const baseline = hasTrackedBaseline ? tracked.originalSetpoint : currentSetpoint;
     const currentTemp = zone.tempActual !== undefined && zone.tempActual !== null ? Number(zone.tempActual) : null;
 
@@ -368,9 +400,12 @@ class ClimateOptimizer {
     const isCamerettaOverheat = nameLower.includes('cameretta') && currentTemp !== null && currentTemp >= 20.8;
     if (!badge && this.config.enableSolarTrim && isSolarWindow && (isSouthRoom || isCamerettaOverheat) && context.weather?.sunny) {
       const trim = (context.weather.outdoorTemp !== null && context.weather.outdoorTemp >= 12) ? 1.0 : 0.5;
-      proposed = +(baseline - trim).toFixed(1);
-      badge = 'solar_trim';
-      reason = `Irraggiamento solare previsto su ${zone.name}: trim preventivo -${trim}°C (${proposed}°C)`;
+      const trimmed = Math.max(MIN_TRIM_FLOOR_C, +(baseline - trim).toFixed(1));
+      if (trimmed < baseline) {
+        proposed = trimmed;
+        badge = 'solar_trim';
+        reason = `Irraggiamento solare previsto su ${zone.name}: trim preventivo -${+(baseline - trimmed).toFixed(1)}°C (${proposed}°C)`;
+      }
     }
 
     // Priorità 5: Anti-Overshoot da inerzia triplo vetro (inertia_trim)
@@ -531,9 +566,17 @@ class ClimateOptimizer {
       const zIdStr = String(z.id);
       const tracked = this.baselineByZone.get(zIdStr);
       const hasActiveOrRecentWinPause = this.windowPauseByZone.has(zIdStr);
+      const isStalePreviousReading = Boolean(
+        tracked
+        && tracked.previousSetpoint !== null
+        && tracked.previousSetpoint !== undefined
+        && Number(z.tempSetpoint) === Number(tracked.previousSetpoint)
+        && (nowMs - (tracked.appliedAt || 0)) < 20 * 60 * 1000
+      );
       if (
         tracked
         && !hasActiveOrRecentWinPause
+        && !isStalePreviousReading
         && Number.isFinite(Number(z.tempSetpoint))
         && Math.abs(Number(z.tempSetpoint) - tracked.lastAppliedTarget) >= 0.5
         && !this.isManualOverrideActive(z.id, nowMs)
@@ -584,6 +627,7 @@ class ClimateOptimizer {
       };
 
       if (!dryRun && this.evClimateHub && unified?.bosch?.connected) {
+        let setFailed = false;
         if (prop.changed) {
           try {
             await this.evClimateHub.setBoschZoneSetpoint(z.id, prop.targetSetpoint);
@@ -603,14 +647,20 @@ class ClimateOptimizer {
               source: 'ClimateOptimizer'
             });
           } catch (err) {
+            setFailed = true;
             console.warn(`⚠️ [ClimateOptimizer] Errore applicazione setpoint su ${z.name}:`, err.message);
           }
         }
 
         if (prop.badge || Math.abs(prop.targetSetpoint - prop.originalSetpoint) >= 0.25) {
+          const effectiveAppliedTarget = (!setFailed && prop.changed)
+            ? prop.targetSetpoint
+            : prop.currentSetpoint;
           this.baselineByZone.set(String(z.id), {
             originalSetpoint: prop.originalSetpoint,
-            lastAppliedTarget: prop.targetSetpoint
+            lastAppliedTarget: effectiveAppliedTarget,
+            previousSetpoint: prop.currentSetpoint,
+            appliedAt: nowMs
           });
         } else {
           this.baselineByZone.delete(String(z.id));
@@ -701,7 +751,8 @@ Restituisci JSON con schema: { "motivation": "frase breve in italiano", "adjustm
     try {
       await db.set(METRICS_DB_KEY, {
         config: this.config,
-        metrics: this.metrics
+        metrics: this.metrics,
+        baselineByZone: Object.fromEntries(this.baselineByZone)
       }, false);
     } catch (_) {}
   }
