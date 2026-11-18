@@ -67,6 +67,7 @@ const VOLVO_OAUTH_CODE_VERIFIER = 'gE1qT9Y2MlF7Tbh1DHKc6S5gK6EQrFSv3i4VblZzPzE';
 const VOLVO_OAUTH_CODE_CHALLENGE = 'S7O74JM8CWDI_MQoRPtOAxz0ADBBBVI-xXDETbfBn5A';
 const VOLVO_OAUTH_SCOPES = [
   'openid',
+  'offline_access',
   'energy:state:read',
   'energy:capability:read',
   'conve:odometer_status',
