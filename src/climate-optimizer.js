@@ -11,7 +11,7 @@ const EVALUATE_INTERVAL_MS = 12 * 60 * 1000; // 12 minuti
 const MANUAL_OVERRIDE_TTL_MS = 30 * 60 * 1000; // 30 minuti protezione comandi manuali
 const WINDOW_DROP_THRESHOLD_C = 0.8;
 const WINDOW_NEAR_RADIATOR_DROP_THRESHOLD_C = 0.6;
-const WINDOW_DROP_WINDOW_MS = 5 * 60 * 1000;
+const WINDOW_DROP_WINDOW_MS = 15 * 60 * 1000;
 const WINDOW_PAUSE_DURATION_MS = 15 * 60 * 1000;
 const GAS_SAVED_M3_PER_DEGREE_HOUR = 0.07;
 const DEFAULT_MAX_COMFORT_TEMP_C = 20.5;
@@ -71,6 +71,7 @@ class ClimateOptimizer {
   constructor(options = {}) {
     this.evClimateHub = options.evClimateHub || null;
     this.securitySystem = options.securitySystem || null;
+    this.thermalAnalytics = options.thermalAnalytics || null;
 
     this.config = {
       enabled: true,
@@ -87,6 +88,7 @@ class ClimateOptimizer {
     this.baselineByZone = new Map(); // zoneId -> { originalSetpoint, lastAppliedTarget }
     this.manualOverrideByZone = new Map(); // zoneId -> untilMs
     this.lastRampAtByZone = new Map(); // zoneId -> tsMs
+    this.coalesceDeferCountByZone = new Map(); // zoneId -> consecutive defers
     this.lastGasTickAt = 0;
     this.zoneStates = {}; // zoneId -> { id, name, currentTemp, setpoint, originalSetpoint, badge, reason, updatedAt }
 
@@ -105,9 +107,10 @@ class ClimateOptimizer {
     this._presenceSubscribed = false;
   }
 
-  async init({ evClimateHub, securitySystem } = {}) {
+  async init({ evClimateHub, securitySystem, thermalAnalytics } = {}) {
     if (evClimateHub) this.evClimateHub = evClimateHub;
     if (securitySystem) this.securitySystem = securitySystem;
+    if (thermalAnalytics) this.thermalAnalytics = thermalAnalytics;
 
     try {
       const saved = await db.get(METRICS_DB_KEY);
@@ -222,7 +225,7 @@ class ClimateOptimizer {
     const temp = Number(currentTemp);
     const history = this.tempHistoryByZone.get(id) || [];
     history.push({ ts: nowMs, temp });
-    const recent = history.filter((pt) => nowMs - pt.ts <= 10 * 60 * 1000);
+    const recent = history.filter((pt) => nowMs - pt.ts <= 20 * 60 * 1000);
     this.tempHistoryByZone.set(id, recent);
 
     const dropThreshold = isRadiatorNearWindowZone(options.zoneName)
@@ -307,12 +310,17 @@ class ClimateOptimizer {
       }
     }
 
-    // Priorità 2: Eco Assente (Iliadbox / SecuritySystem)
+    const maxComfort = Number.isFinite(Number(this.config.maxComfortTempC))
+      ? Number(this.config.maxComfortTempC)
+      : DEFAULT_MAX_COMFORT_TEMP_C;
+
+    // Priorità 2: Eco Assente (Fascia mite costante: 19.5°C Cameretta, 19.0°C altre zone)
     if (!badge && this.config.enablePresenceTrim && context.allAway) {
-      proposed = Math.min(baseline, 17.5);
+      const ecoFloor = nameLower.includes('cameretta') ? 19.5 : 19.0;
+      proposed = Math.min(baseline, ecoFloor);
       if (proposed < baseline) {
         badge = 'eco_away';
-        reason = `Casa vuota (presenza Iliadbox assente): riduzione Eco a ${proposed}°C`;
+        reason = `Casa vuota (presenza Iliadbox assente): riduzione Eco mite a ${proposed}°C`;
       }
     }
 
@@ -323,39 +331,59 @@ class ClimateOptimizer {
       reason = 'Bagno Alex in attenuazione ECO (18.5°C su programma condiviso Bagni)';
     }
 
-    // Priorità 3: Zonizzazione Notturna (22:30 - 06:30)
-    const isNight = clk.totalMinutes >= (22 * 60 + 30) || clk.totalMinutes <= (6 * 60 + 30);
-    if (!badge && this.config.enableNightShift && isNight) {
+    // Priorità 3: Zonizzazione Notturna & Pre-riscaldamento serale (Fascia mite 19.0°C - 20.0°C)
+    const isEveningPreHeat = clk.totalMinutes >= 20 * 60 && clk.totalMinutes < 22 * 60;
+    const isNight = clk.totalMinutes >= 22 * 60 || clk.totalMinutes <= (6 * 60 + 30);
+    const isNightGeneral = clk.totalMinutes >= (22 * 60 + 30) || clk.totalMinutes <= (6 * 60 + 30);
+    if (!badge && this.config.enableNightShift && isEveningPreHeat) {
+      if (nameLower.includes('camera da letto') && baseline < 20.0) {
+        proposed = Math.min(maxComfort, 20.0);
+        badge = 'night_shift';
+        reason = 'Pre-riscaldamento serale Camera da letto (20.0°C)';
+      } else if (nameLower.includes('cameretta')) {
+        proposed = Math.min(maxComfort, Math.max(baseline, 19.5));
+        badge = 'night_shift';
+        reason = `Comfort serale prioritario Cameretta (${proposed}°C)`;
+      }
+    } else if (!badge && this.config.enableNightShift && isNight) {
       const isNightPriority = nameLower.includes('cameretta') || nameLower.includes('camera da letto');
       if (nameLower.includes('cameretta')) {
         proposed = Math.min(baseline, 19.5);
         badge = 'night_shift';
         reason = `Zonizzazione Notturna prioritaria (Cameretta): mantenimento stabile ${proposed}°C`;
       } else if (nameLower.includes('camera da letto')) {
-        proposed = Math.min(baseline, 18.0);
+        proposed = Math.min(baseline, 19.0);
         badge = 'night_shift';
-        reason = `Zonizzazione Notturna (Camera da letto): attenuazione sonno a ${proposed}°C`;
-      } else if (!isNightPriority && baseline > 17.5) {
-        proposed = 17.5;
+        reason = `Zonizzazione Notturna mite (Camera da letto): mantenimento a ${proposed}°C`;
+      } else if (isNightGeneral && !isNightPriority && baseline > 19.0) {
+        proposed = 19.0;
         badge = 'night_shift';
-        reason = 'Zonizzazione Notturna zona giorno/servizi: attenuazione a 17.5°C';
+        reason = 'Zonizzazione Notturna mite zona giorno/servizi: mantenimento anti-sbalzo a 19.0°C';
       }
     }
 
-    // Priorità 4: Solar & Weather Trim (10:30 - 15:30 su Salone / Cucina esposti a sud)
+    // Priorità 4: Solar & Weather Trim (10:30 - 15:30 su Salone / Cucina o Cameretta in surriscaldamento >= 20.8°C)
     const isSolarWindow = clk.totalMinutes >= (10 * 60 + 30) && clk.totalMinutes <= (15 * 60 + 30);
     const isSouthRoom = nameLower.includes('salone') || nameLower.includes('cucina');
-    if (!badge && this.config.enableSolarTrim && isSolarWindow && isSouthRoom && context.weather?.sunny) {
+    const isCamerettaOverheat = nameLower.includes('cameretta') && currentTemp !== null && currentTemp >= 20.8;
+    if (!badge && this.config.enableSolarTrim && isSolarWindow && (isSouthRoom || isCamerettaOverheat) && context.weather?.sunny) {
       const trim = (context.weather.outdoorTemp !== null && context.weather.outdoorTemp >= 12) ? 1.0 : 0.5;
       proposed = +(baseline - trim).toFixed(1);
       badge = 'solar_trim';
       reason = `Irraggiamento solare previsto su ${zone.name}: trim preventivo -${trim}°C (${proposed}°C)`;
     }
 
+    // Priorità 5: Anti-Overshoot da inerzia triplo vetro (inertia_trim)
+    if (!badge && currentTemp !== null) {
+      const coolingRatePerHour = context.zoneThermalStats?.[zoneIdStr]?.coolingRatePerHour;
+      if (typeof coolingRatePerHour === 'number' && coolingRatePerHour > -0.04 && currentTemp >= (proposed - 0.2) && proposed > 19.0) {
+        proposed = Math.max(19.0, +(proposed - 0.5).toFixed(1));
+        badge = 'inertia_trim';
+        reason = `Anti-overshoot inerzia triplo vetro (dispersione ${coolingRatePerHour}°C/h): chiusura anticipata a ${proposed}°C`;
+      }
+    }
+
     // Rispetto tetto massimo comfort configurabile (default 20.5°C)
-    const maxComfort = Number.isFinite(Number(this.config.maxComfortTempC))
-      ? Number(this.config.maxComfortTempC)
-      : DEFAULT_MAX_COMFORT_TEMP_C;
     if (proposed > maxComfort) {
       proposed = maxComfort;
       if (!badge) {
@@ -363,8 +391,9 @@ class ClimateOptimizer {
       }
     }
 
-    // Strategia 3: Rampa graduale caldaia a condensazione (solo in salita; bypass su fine finestra aperta)
-    const ramped = windowRestored ? proposed : this.applyGentleRamp(currentSetpoint, proposed);
+    // Strategia 3: Rampa graduale caldaia a condensazione (anche in ripartenza post-aerazione)
+    const ramped = this.applyGentleRamp(currentSetpoint, proposed);
+    void windowRestored;
 
     // Guardrail Deterministico Hardware Obbligatorio (15.0°C - 23.5°C) + tetto comfort
     const guard = aiGateway.validateHardwareAction({
@@ -391,6 +420,83 @@ class ClimateOptimizer {
     };
   }
 
+  applyBoilerCoalescing(pendingProposals = []) {
+    if (!Array.isArray(pendingProposals) || pendingProposals.length === 0) return;
+    const maxComfort = Number.isFinite(Number(this.config.maxComfortTempC))
+      ? Number(this.config.maxComfortTempC)
+      : DEFAULT_MAX_COMFORT_TEMP_C;
+
+    const strongList = [];
+    const weakList = [];
+    const piggybackList = [];
+
+    for (const item of pendingProposals) {
+      const { z, prop } = item;
+      if (!prop || prop.badge === 'window_pause') continue;
+      const rawValvePos = typeof z.valvePosition === 'number'
+        ? Number(z.valvePosition)
+        : (typeof z.valve?.position === 'number' ? Number(z.valve.position) : 0);
+      const delta = prop.currentTemp !== null ? +(prop.targetSetpoint - prop.currentTemp).toFixed(2) : 0;
+
+      if (delta >= 0.5 || rawValvePos >= 25) {
+        strongList.push(item);
+      } else if (delta > 0 && delta < 0.5 && rawValvePos < 25) {
+        weakList.push(item);
+      } else if (
+        prop.currentTemp !== null
+        && delta >= -0.3
+        && delta <= 0
+        && prop.badge !== 'eco_away'
+        && prop.badge !== 'night_shift'
+        && prop.badge !== 'window_pause'
+      ) {
+        const nl = String(z.name || '').toLowerCase();
+        if (nl.includes('cameretta') || nl.includes('salone') || nl.includes('camera da letto') || nl.includes('cucina')) {
+          piggybackList.push(item);
+        }
+      }
+    }
+
+    let deferredZoneId = null;
+    if (strongList.length === 0 && weakList.length === 1) {
+      const { z, prop } = weakList[0];
+      const zId = String(z.id);
+      const nameLower = String(z.name || '').toLowerCase();
+      const deferCount = this.coalesceDeferCountByZone.get(zId) || 0;
+      const isCamerettaPriority = nameLower.includes('cameretta') && (prop.targetSetpoint - prop.currentTemp) > 0.2;
+
+      if (isCamerettaPriority || deferCount >= 2) {
+        this.coalesceDeferCountByZone.set(zId, 0);
+      } else {
+        prop.targetSetpoint = Math.max(18.5, +(prop.currentSetpoint - 0.5).toFixed(1));
+        prop.badge = 'coalesce_defer';
+        prop.reason = 'Boiler Coalescing: attesa sincronizzazione multi-zona (evita accensione solitaria breve)';
+        prop.changed = Math.abs(prop.targetSetpoint - prop.currentSetpoint) >= 0.5;
+        this.coalesceDeferCountByZone.set(zId, deferCount + 1);
+        deferredZoneId = zId;
+      }
+    }
+
+    for (const { z } of pendingProposals) {
+      const zId = String(z.id);
+      if (zId !== deferredZoneId) {
+        this.coalesceDeferCountByZone.set(zId, 0);
+      }
+    }
+
+    if (strongList.length >= 1) {
+      for (const { prop } of piggybackList) {
+        const boosted = Math.min(maxComfort, +(prop.targetSetpoint + 0.5).toFixed(1));
+        if (boosted > prop.targetSetpoint) {
+          prop.targetSetpoint = boosted;
+          prop.badge = 'coalesce_boost';
+          prop.reason = 'Boiler Coalescing: pre-carica termica opportunista a caldaia già attiva (+0.5°C)';
+          prop.changed = Math.abs(prop.targetSetpoint - prop.currentSetpoint) >= 0.5;
+        }
+      }
+    }
+  }
+
   async evaluateNow({ reason = 'manual', dryRun = false, nowMs = Date.now() } = {}) {
     const clk = getRomeClock(new Date(nowMs));
     if (this.metrics.monthKey !== clk.monthKey) {
@@ -410,8 +516,40 @@ class ClimateOptimizer {
     const corridorTemp = hueLocal.motionSensor?.temperature ?? null;
     const shouldAccumulateGas = !dryRun && (reason === 'scheduled' || (nowMs - this.lastGasTickAt >= 10 * 60 * 1000));
 
-    const results = [];
+    const zoneThermalStats = {};
+    const reportZones = this.thermalAnalytics?.latestReport?.zones;
+    if (Array.isArray(reportZones)) {
+      for (const zs of reportZones) {
+        if (zs && zs.zoneId) zoneThermalStats[String(zs.zoneId)] = zs;
+      }
+    } else if (reportZones && typeof reportZones === 'object') {
+      Object.assign(zoneThermalStats, reportZones);
+    }
+
+    const pendingProposals = [];
     for (const z of zones) {
+      const zIdStr = String(z.id);
+      const tracked = this.baselineByZone.get(zIdStr);
+      const hasActiveOrRecentWinPause = this.windowPauseByZone.has(zIdStr);
+      if (
+        tracked
+        && !hasActiveOrRecentWinPause
+        && Number.isFinite(Number(z.tempSetpoint))
+        && Math.abs(Number(z.tempSetpoint) - tracked.lastAppliedTarget) >= 0.5
+        && !this.isManualOverrideActive(z.id, nowMs)
+      ) {
+        this.recordManualOverride(z.id, MANUAL_OVERRIDE_TTL_MS, nowMs);
+        this.baselineByZone.delete(zIdStr);
+        eventBus.publish('climate:manual_override', {
+          ts: nowMs,
+          zoneId: z.id,
+          room: z.name,
+          targetTemp: Number(z.tempSetpoint),
+          previousTemp: tracked.lastAppliedTarget,
+          source: 'bosch_external'
+        });
+      }
+
       if (this.isManualOverrideActive(z.id, nowMs)) {
         this.zoneStates[z.id] = {
           id: z.id,
@@ -426,7 +564,14 @@ class ClimateOptimizer {
         continue;
       }
 
-      const prop = this.evaluateZoneProposal(z, { nowMs, allAway, weather, corridorTemp });
+      const prop = this.evaluateZoneProposal(z, { nowMs, allAway, weather, corridorTemp, zoneThermalStats });
+      pendingProposals.push({ z, prop });
+    }
+
+    this.applyBoilerCoalescing(pendingProposals);
+
+    const results = [];
+    for (const { z, prop } of pendingProposals) {
       this.zoneStates[z.id] = {
         id: z.id,
         name: z.name,
@@ -471,9 +616,10 @@ class ClimateOptimizer {
           this.baselineByZone.delete(String(z.id));
         }
 
-        if (shouldAccumulateGas && prop.targetSetpoint < prop.originalSetpoint) {
+        const wouldHaveCalledHeat = prop.currentTemp !== null && prop.currentTemp < (prop.originalSetpoint + 0.3);
+        if (shouldAccumulateGas && prop.targetSetpoint < prop.originalSetpoint && wouldHaveCalledHeat) {
           const deltaDeg = prop.originalSetpoint - prop.targetSetpoint;
-          // Accumula stima metano risparmiato per ciclo (~12 min = 0.2h)
+          // Accumula stima metano risparmiato per ciclo (~12 min = 0.2h) solo se la stanza avrebbe chiamato calore
           this.metrics.savedGasM3 = +(this.metrics.savedGasM3 + deltaDeg * GAS_SAVED_M3_PER_DEGREE_HOUR * 0.2).toFixed(3);
         }
       }
