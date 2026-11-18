@@ -265,8 +265,8 @@ module.exports = function registerHueAppliancesSpatialRoutes(app, services) {
       snapshot.printer = pantumPrinter ? pantumPrinter.getStatus() : null;
       snapshot.thinq = lgThinq ? lgThinq.getStatus() : null;
       snapshot.dyson = dysonPurifier ? dysonPurifier.getStatus() : null;
-      snapshot.spatial = spatialEngine.getEnrichedMapState(snapshot);
       snapshot.evClimate = evClimateHub.getUnifiedStatus(snapshot);
+      snapshot.spatial = spatialEngine.getEnrichedMapState(snapshot);
       snapshot.presence = iliadboxClient ? iliadboxClient.getPresenceState() : null;
       snapshot.avatars = typeof getHomeAvatars === 'function' ? await getHomeAvatars() : { alex: null, cinzia: null };
       res.json({ success: true, data: snapshot });
