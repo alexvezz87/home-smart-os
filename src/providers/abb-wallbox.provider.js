@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const axios = require('axios');
 const WebSocket = require('ws');
 const eventLogger = require('../event-logger');
+const dolomitiBillsSync = require('../dolomiti-bills-sync');
 
 // Costanti protocollo ufficiale ChargerSync / ChargeDot per ABB Terra AC (da Dviros/ha-abb-terra-ac)
 const ABB_REST_BASE = 'https://abb-user.chargedot.com';
