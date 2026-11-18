@@ -680,31 +680,32 @@ class FloorplanEngine {
     return `
       <g pointer-events="none">
         <g stroke="${wallStroke}" stroke-width="7" stroke-linecap="square" fill="none" opacity="0.92">
-          <path d="M 240 55 L 735 55 L 735 340" />
+          <path d="M 240 55 L 735 55 L 735 455" />
           <path d="M 240 55 L 240 492" />
           <path d="M 530 55 L 530 252" />
           <path d="M 240 320 L 405 320 M 462 320 L 530 320" />
           <path d="M 492 252 L 605 252 M 685 252 L 735 252" />
           <path d="M 492 252 L 492 455" />
-          <path d="M 492 455 L 510 455 M 558 455 L 815 455" />
+          <path d="M 492 455 L 510 455 M 558 455 L 750 455 M 800 455 L 815 455" />
           <path d="M 240 492 L 390 492" />
           <path d="M 390 320 L 390 355 M 390 405 L 390 680 M 390 738 L 390 768" />
-          <path d="M 735 340 L 815 340 L 815 758 L 538 758" />
+          <path d="M 815 455 L 815 758 L 538 758" />
           <path d="M 600 455 L 600 485 M 600 535 L 600 592 L 815 592" />
           <path d="M 452 518 L 472 518 M 516 518 L 538 518 L 538 665 L 452 665 L 452 518" />
+          <path d="M 538 665 L 538 758" />
           <path d="M 235 768 L 390 768" />
           <path d="M 235 768 L 235 1222 L 748 1222 L 748 758" />
           <path d="M 538 835 L 538 1010 L 650 1010 M 708 1010 L 748 1010" />
           <path d="M 640 1010 L 640 1112 L 538 1112 L 538 1222" />
         </g>
         <g stroke="${wallFill}" stroke-width="4" stroke-linecap="square" fill="none">
-          <path d="M 240 55 L 735 55 L 735 340 L 815 340 L 815 758 L 748 758 L 748 1222 L 235 1222 L 235 768 L 390 768 L 390 492 L 240 492 Z" />
+          <path d="M 240 55 L 735 55 L 735 455 L 815 455 L 815 758 L 748 758 L 748 1222 L 235 1222 L 235 768 L 390 768 L 390 492 L 240 492 Z" />
         </g>
         <g stroke="${winCol}" stroke-width="5" opacity="0.95">
           <line x1="335" y1="55" x2="455" y2="55" />
           <line x1="530" y1="95" x2="530" y2="165" />
           <line x1="605" y1="252" x2="685" y2="252" />
-          <line x1="815" y1="485" x2="815" y2="555" />
+          <line x1="750" y1="455" x2="800" y2="455" />
           <line x1="748" y1="840" x2="748" y2="935" />
           <line x1="650" y1="1010" x2="708" y2="1010" />
           <line x1="335" y1="1222" x2="485" y2="1222" />
@@ -718,6 +719,8 @@ class FloorplanEngine {
           <path d="M 510 408 A 47 47 0 0 1 558 455" stroke-dasharray="4 3" />
           <line x1="600" y1="485" x2="648" y2="485" stroke-width="2.5" />
           <path d="M 648 485 A 48 48 0 0 1 600 535" stroke-dasharray="4 3" />
+          <line x1="544" y1="592" x2="544" y2="642" stroke-width="2.5" />
+          <path d="M 544 642 A 50 50 0 0 0 594 592" stroke-dasharray="4 3" />
           <line x1="390" y1="680" x2="445" y2="695" stroke="#22d3ee" stroke-width="3.5" />
           <path d="M 445 695 A 58 58 0 0 1 390 738" stroke="#22d3ee" stroke-dasharray="4 3" />
         </g>
