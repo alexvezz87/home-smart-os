@@ -88,7 +88,8 @@ const services = {
   climateOptimizer: null,
   thermalAnalytics: null,
   gmailHub: null,
-  deliveryBillingParser: null
+  deliveryBillingParser: null,
+  calendarHub: null
 };
 
 // Carica certificati SSL per HTTPS (necessario per callback OAuth2 Volvo ID su https://localhost:3000/callback)
@@ -228,6 +229,7 @@ async function bootstrap() {
   services.notifier = require('./src/notifier');
   services.gmailHub = require('./src/gmail-hub');
   services.deliveryBillingParser = require('./src/delivery-billing-parser');
+  services.calendarHub = require('./src/calendar-hub');
 
   logger.setDbPersister((action, message, meta) => db.addLog(action, message, meta));
   logArchiver.startScheduler();
@@ -280,7 +282,7 @@ async function bootstrap() {
   services.hueLocal.init();
   services.securitySystem.initHueSentinel(services.hueLocal, services.iliadboxClient);
   services.webPushManager.init().catch((err) => console.warn('⚠️ [WebPush] Init background:', err.message));
-  services.telegramBot.init({ go2rtc: require('./src/go2rtc-manager'), notifier: services.notifier }).catch((err) => console.warn('⚠️ [Telegram] Init background:', err.message));
+  services.telegramBot.init({ go2rtc: require('./src/go2rtc-manager'), notifier: services.notifier, calendarHub: services.calendarHub }).catch((err) => console.warn('⚠️ [Telegram] Init background:', err.message));
   services.sandboxManager.init({
     evClimateHub: services.evClimateHub,
     hueLocal: services.hueLocal,
@@ -307,6 +309,11 @@ async function bootstrap() {
     notifier: services.notifier,
     telegramBot: services.telegramBot
   }).catch((err) => console.warn('⚠️ [MailParser] Init background:', err.message));
+  services.calendarHub.init({
+    gmailHub: services.gmailHub,
+    deliveryBillingParser: services.deliveryBillingParser,
+    notifier: services.notifier
+  }).catch((err) => console.warn('⚠️ [CalendarHub] Init background:', err.message));
   services.pantumPrinter.init().catch((err) => console.warn('⚠️ [Pantum] Init background:', err.message));
   services.lgThinq.init().catch((err) => console.warn('⚠️ [LG ThinQ] Init background:', err.message));
   services.dysonPurifier.init().catch((err) => console.warn('⚠️ [Dyson HP11] Init background:', err.message));
