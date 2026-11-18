@@ -2601,6 +2601,48 @@ test('AdminManager Modular Frontend Split & VM Prototype Verification (#101)', (
   }
 });
 
+test('ABB Wallbox Provider dolomitiBillsSync import (#104)', async () => {
+  const axios = require('axios');
+  const evHub = require('../src/ev-climate-hub');
+  const prevPost = axios.post;
+  const prevGet = axios.get;
+  const prevAbb = { ...evHub.config.abb };
+  const prevState = { ...evHub.wallboxState };
+  try {
+    evHub.config.abb = { email: 'user@example.invalid', password: 'secret', maxHomeBreakerW: 6000, autoLoadBalance: true };
+    evHub.abbTokenCache = null;
+    axios.post = async (url) => {
+      if (String(url).includes('/oauth/token')) {
+        return { status: 200, data: { access_token: 'tok-abb', expires_in: 3600 } };
+      }
+      return { status: 200, data: {} };
+    };
+    axios.get = async (url) => {
+      const u = String(url);
+      if (u.includes('/sessions')) {
+        return { status: 200, data: { data: [{ startTime: '2026-11-18 10:00:00', stopTime: '2026-11-18 11:00:00', energy: 5000, duration: 3600 }] } };
+      }
+      if (u.includes('/api/v2/devices/dev-1')) {
+        return { status: 200, data: { id: 'dev-1', deviceNumber: 'TACW-TEST', connectState: 1, ports: [{ portNumber: 1, status: 2, detail: { power: 0, voltage: 23000, current: 0 } }] } };
+      }
+      if (u.includes('/api/v2/devices')) {
+        return { status: 200, data: { data: [{ id: 'dev-1', deviceNumber: 'TACW-TEST', connectState: 1, ratedPower: 7400, ratedCurrent: 32 }] } };
+      }
+      return { status: 200, data: {} };
+    };
+    await evHub.syncAbbChargerSync();
+    assert.equal(evHub.wallboxState.connected, true);
+    assert.equal(evHub.wallboxState.lastError, null);
+    assert.equal(evHub.wallboxState.sessionsHistory.length, 1);
+    assert.ok(Number.isFinite(evHub.wallboxState.sessionsHistory[0].costEur));
+  } finally {
+    axios.post = prevPost;
+    axios.get = prevGet;
+    evHub.config.abb = prevAbb;
+    evHub.wallboxState = prevState;
+  }
+});
+
 
 
 
