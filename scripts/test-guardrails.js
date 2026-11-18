@@ -2274,7 +2274,7 @@ test('Persona Fidata, Risparmio Token AI & LogArchiver Cache (#92)', async () =>
   }
 });
 
-test('Volvo OAuth2 offline_access scope (#94)', async () => {
+test('Volvo OAuth2 valid scopes (#95)', async () => {
   const evHub = require('../src/ev-climate-hub');
   const prevClientId = evHub.config.volvo.clientId;
   const prevRedirectUri = evHub.config.volvo.redirectUri;
@@ -2285,7 +2285,7 @@ test('Volvo OAuth2 offline_access scope (#94)', async () => {
     const parsed = new URL(authUrl);
     const scopes = String(parsed.searchParams.get('scope') || '').split(/\s+/);
     assert.ok(scopes.includes('openid'), 'scope deve includere openid');
-    assert.ok(scopes.includes('offline_access'), 'scope deve includere offline_access per refresh token persistente');
+    assert.ok(!scopes.includes('offline_access'), 'scope non deve includere offline_access su DCR client Volvo');
   } finally {
     evHub.config.volvo.clientId = prevClientId;
     evHub.config.volvo.redirectUri = prevRedirectUri;
