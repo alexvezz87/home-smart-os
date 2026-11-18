@@ -90,9 +90,8 @@
    - Ogni notte alle `01:00 Europe/Rome` `LogArchiver` esporta i record `activity_logs` più vecchi di 2 giorni in `data/logs-archive/YYYY-MM/audit-YYYY-MM-DD.log` e li rimuove dal DB. In **Amministrazione → Registro Eventi & Audit Log** seleziona **Archivio Giornaliero (.log)** per cercare, consultare o scaricare (`.log`/`.txt`) i file storici.
 9. **Sospendere gli alert Sentinella quando entra una persona fidata in casa (`#92`)**:
    - Premi **`🤝 Persona Fidata (fino al rientro)`** direttamente sulla notifica Telegram, sul Centro Notifiche Web UI oppure in **Amministrazione → Sentinella Fuori Casa**. L'accredito sospende ronda AI, analisi Vision e alert movimento fino al rientro a casa di Alex o Cinzia (quando si resetta in automatico). Per azzerare le chiamate AI periodiche della ronda mantenendo solo i trigger da evento reale, imposta l'intervallo Sentinella su **Solo evento (0 AI timer)**.
-10. **Volvo EX30: disconnessione dopo 4-5 minuti dal login con `HTTP 400: Session doesn't have required client` (`#94`)**:
-   - **Causa**: senza lo scope `offline_access` nella richiesta `/auth`, Keycloak (`auth.volvocars.com`) rilascia un `refresh_token` legato alla sessione browser transiente anziché un token offline persistente, facendo fallire il primo rinnovo dopo la scadenza dell'Access Token (300s).
-   - **Soluzione**: aggiunto `'offline_access'` a `VOLVO_OAUTH_SCOPES` in `src/ev-climate-hub.js`. Dopo il deploy è necessario un ultimo ricollegamento tramite **"Connetti con Volvo ID (1-Click Automatico)"** per ottenere il nuovo `refresh_token` con scope `offline_access`.
+10. **Volvo EX30: `invalid_scope` con `offline_access` (`#95`) / `Session doesn't have required client`**:
+   - **Nota**: I client DCR (`vid-dcr-...`) del Volvo Developer Portal non accettano `offline_access` se non abilitato espressamente sul portale (`invalid_scope`). In `src/ev-climate-hub.js` restano attivi i soli scope `openid` + API Volvo. Se il refresh fallisce con `HTTP 400: Session doesn't have required client`, verificare l'assenza di istanze concorrenti o rigenerare la sessione dal Developer Portal Volvo.
 
 
 
