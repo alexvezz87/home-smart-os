@@ -302,13 +302,13 @@ test('ClimateOptimizer: rampa graduale, finestra aperta, eco assente, solar trim
   assert.equal(win.paused, true);
   assert.equal(win.target, 15.0);
 
-  // 3. Eco Assente (allAway: true)
+  // 3. Eco Assente (allAway: true -> pavimento mite 19.0°C)
   const ecoProp = opt.evaluateZoneProposal(
     { id: 'zn3', name: 'Cucina', tempActual: 20.5, tempSetpoint: 20.5 },
     { nowMs: t0, allAway: true, weather: { sunny: false } }
   );
   assert.equal(ecoProp.badge, 'eco_away');
-  assert.equal(ecoProp.targetSetpoint, 17.5);
+  assert.equal(ecoProp.targetSetpoint, 19.0);
 
   // 4. Solar Trim su Salone alle 12:00 Europe/Rome (2026-11-14T11:00:00Z = 12:00 CET)
   const noonMs = Date.parse('2026-11-14T11:00:00Z');
@@ -365,7 +365,7 @@ test('ClimateOptimizer: idempotenza multi-ciclo solar_trim e ripristino fine fin
 
   const restored = optWin.evaluateZoneProposal({ id: 'zn1', name: 'Salone', tempActual: 20.0, tempSetpoint: 15.0 }, { nowMs: w0 + 17 * 60_000, weather: { sunny: false } });
   assert.equal(restored.badge, null);
-  assert.equal(restored.targetSetpoint, 20.5);
+  assert.equal(restored.targetSetpoint, 15.5);
   assert.equal(restored.changed, true);
 });
 
@@ -381,14 +381,14 @@ test('ClimateOptimizer (#61): tetto max 20.5°C, notte Camera 18°C, Eco Bagno A
   );
   assert.equal(capped.targetSetpoint, 20.5);
 
-  // 2. Camera da letto alle 23:00 resta a 18.0°C (non risale a 19.0°C)
+  // 2. Camera da letto alle 23:00 scende al nuovo pavimento mite 19.0°C
   const nightBedroom = opt.evaluateZoneProposal(
-    { id: 'zn7', name: 'Camera da letto', tempActual: 19.5, tempSetpoint: 18.0 },
+    { id: 'zn7', name: 'Camera da letto', tempActual: 19.5, tempSetpoint: 20.0 },
     { nowMs: nightMs, weather: { sunny: false } }
   );
   assert.equal(nightBedroom.badge, 'night_shift');
-  assert.equal(nightBedroom.targetSetpoint, 18.0);
-  assert.equal(nightBedroom.changed, false);
+  assert.equal(nightBedroom.targetSetpoint, 19.0);
+  assert.equal(nightBedroom.changed, true);
 
   // 3. Bagno Alex condiviso su PG2 (20.5°C) viene attenuato a 18.5°C Eco di giorno
   const bagnoAlex = opt.evaluateZoneProposal(
@@ -2698,6 +2698,162 @@ test('SecuritySystem Modular Providers on Prototype (#103)', () => {
   assert.equal(typeof securitySystem.getNestIps(), 'object');
   assert.ok(Array.isArray(securitySystem.getPetReferences()));
   assert.equal(typeof securitySystem.getSentinelConfig(), 'object');
+});
+
+test('ClimateOptimizer v2 (#106): Boiler Coalescing, Fascia Mite, Inertia Trim, Override Esterno & savedGasM3 onesto', async () => {
+  const eventBus = require('../src/event-bus');
+
+  // 1. Boiler Coalescing: coalesce_defer per 2 cicli e sblocco al 3° ciclo su Bagno Cinzia
+  const dayMs = Date.parse('2026-11-18T16:00:00Z'); // 17:00 Europe/Rome (fuori finestra solare/notte)
+  let setpoints = { zn4: 20.0, zn10: 20.0 };
+  const fakeHub = {
+    getUnifiedStatus: () => ({
+      bosch: {
+        connected: true,
+        zones: [
+          { id: 'zn4', name: 'Bagno Cinzia', tempActual: 19.7, tempSetpoint: setpoints.zn4, valvePosition: 10 },
+          { id: 'zn10', name: 'Salone', tempActual: 20.6, tempSetpoint: setpoints.zn10, valvePosition: 0 }
+        ]
+      }
+    }),
+    setBoschZoneSetpoint: async () => {}
+  };
+
+  const opt = new ClimateOptimizer({ evClimateHub: fakeHub });
+  opt.fetchWeatherForecast = async () => ({ sunny: false, outdoorTemp: 10, cloudCover: 80, weatherCode: 3 });
+  opt.persistState = async () => {};
+
+  const r1 = await opt.evaluateNow({ reason: 'scheduled', dryRun: true, nowMs: dayMs });
+  const z1 = r1.results.find((r) => r.zoneId === 'zn4');
+  assert.equal(z1.badge, 'coalesce_defer');
+  assert.equal(z1.targetSetpoint, 19.5);
+
+  const r2 = await opt.evaluateNow({ reason: 'scheduled', dryRun: true, nowMs: dayMs + 12 * 60_000 });
+  const z2 = r2.results.find((r) => r.zoneId === 'zn4');
+  assert.equal(z2.badge, 'coalesce_defer');
+  assert.equal(z2.targetSetpoint, 19.5);
+
+  // Al 3° ciclo (anti-starvation) sblocca
+  const r3 = await opt.evaluateNow({ reason: 'scheduled', dryRun: true, nowMs: dayMs + 24 * 60_000 });
+  const z3 = r3.results.find((r) => r.zoneId === 'zn4');
+  assert.notEqual(z3.badge, 'coalesce_defer');
+  assert.equal(z3.targetSetpoint, 20.0);
+
+  // 2. Priorità Francesco: Cameretta con richiesta debole NON viene mai differita
+  const optCam = new ClimateOptimizer({
+    evClimateHub: {
+      getUnifiedStatus: () => ({
+        bosch: {
+          connected: true,
+          zones: [{ id: 'zn2', name: 'Cameretta', tempActual: 19.2, tempSetpoint: 19.5, valvePosition: 10 }]
+        }
+      })
+    }
+  });
+  optCam.fetchWeatherForecast = async () => ({ sunny: false, outdoorTemp: 10, cloudCover: 80, weatherCode: 3 });
+  optCam.persistState = async () => {};
+  const rCam = await optCam.evaluateNow({ reason: 'scheduled', dryRun: true, nowMs: dayMs });
+  assert.notEqual(rCam.results[0].badge, 'coalesce_defer');
+  assert.equal(rCam.results[0].targetSetpoint, 19.5);
+
+  // 3. coalesce_boost: Bagno Cinzia richiesta forte + Salone quasi-attivo -> Salone boost a 20.5°C
+  const optBoost = new ClimateOptimizer({
+    evClimateHub: {
+      getUnifiedStatus: () => ({
+        bosch: {
+          connected: true,
+          zones: [
+            { id: 'zn4', name: 'Bagno Cinzia', tempActual: 19.0, tempSetpoint: 20.0, valvePosition: 40 },
+            { id: 'zn10', name: 'Salone', tempActual: 20.1, tempSetpoint: 20.0, valvePosition: 0 }
+          ]
+        }
+      })
+    }
+  });
+  optBoost.fetchWeatherForecast = async () => ({ sunny: false, outdoorTemp: 10, cloudCover: 80, weatherCode: 3 });
+  optBoost.persistState = async () => {};
+  const rBoost = await optBoost.evaluateNow({ reason: 'scheduled', dryRun: true, nowMs: dayMs });
+  const saloneBoost = rBoost.results.find((r) => r.zoneId === 'zn10');
+  assert.equal(saloneBoost.badge, 'coalesce_boost');
+  assert.equal(saloneBoost.targetSetpoint, 20.5);
+
+  // 4. inertia_trim con coolingRatePerHour: -0.01
+  const optInertia = new ClimateOptimizer();
+  const pInertia = optInertia.evaluateZoneProposal(
+    { id: 'zn10', name: 'Salone', tempActual: 19.9, tempSetpoint: 20.0 },
+    { nowMs: dayMs, weather: { sunny: false }, zoneThermalStats: { zn10: { coolingRatePerHour: -0.01 } } }
+  );
+  assert.equal(pInertia.badge, 'inertia_trim');
+  assert.equal(pInertia.targetSetpoint, 19.5);
+
+  // 5. detectWindowOpen con due campioni distanziati di 12 minuti -> scatta paused: true a 15.0°C
+  const optWin12 = new ClimateOptimizer();
+  const w0 = 1_700_000_000_000;
+  assert.equal(optWin12.detectWindowOpen('zn3', 20.5, 20.0, w0).paused, false);
+  const w12 = optWin12.detectWindowOpen('zn3', 19.5, 20.0, w0 + 12 * 60_000);
+  assert.equal(w12.paused, true);
+  assert.equal(w12.target, 15.0);
+
+  // 6. Rilevamento automatico override manuale esterno da Bosch (source: 'bosch_external')
+  const extEvents = [];
+  const offExt = eventBus.on('climate:manual_override', (e) => extEvents.push(e?.data || e));
+  try {
+    const optExt = new ClimateOptimizer({
+      evClimateHub: {
+        getUnifiedStatus: () => ({
+          bosch: {
+            connected: true,
+            zones: [{ id: 'zn10', name: 'Salone', tempActual: 19.8, tempSetpoint: 20.5, valvePosition: 30 }]
+          }
+        })
+      }
+    });
+    optExt.fetchWeatherForecast = async () => ({ sunny: false, outdoorTemp: 10, cloudCover: 80, weatherCode: 3 });
+    optExt.persistState = async () => {};
+    optExt.baselineByZone.set('zn10', { originalSetpoint: 20.0, lastAppliedTarget: 19.0 });
+
+    await optExt.evaluateNow({ reason: 'scheduled', dryRun: true, nowMs: dayMs });
+    assert.equal(optExt.isManualOverrideActive('zn10', dayMs + 1000), true);
+    assert.ok(extEvents.some((e) => e.source === 'bosch_external' && e.zoneId === 'zn10' && e.targetTemp === 20.5));
+  } finally {
+    if (typeof offExt === 'function') offExt();
+  }
+
+  // 7. Calcolo onesto savedGasM3: stanza già calda (22.5°C > 20.0 + 0.3) -> 0; stanza fredda (19.5°C < 20.5 + 0.3) -> > 0
+  const awayMs = dayMs;
+  const optGas = new ClimateOptimizer({
+    evClimateHub: {
+      getUnifiedStatus: () => ({
+        bosch: {
+          connected: true,
+          zones: [{ id: 'zn3', name: 'Cucina', tempActual: 22.5, tempSetpoint: 20.0, valvePosition: 0 }]
+        }
+      }),
+      setBoschZoneSetpoint: async () => {}
+    },
+    securitySystem: { mode: 'away' }
+  });
+  optGas.fetchWeatherForecast = async () => ({ sunny: false, outdoorTemp: 10, cloudCover: 80, weatherCode: 3 });
+  optGas.persistState = async () => {};
+  await optGas.evaluateNow({ reason: 'scheduled', dryRun: false, nowMs: awayMs });
+  assert.equal(optGas.metrics.savedGasM3, 0);
+
+  const optGas2 = new ClimateOptimizer({
+    evClimateHub: {
+      getUnifiedStatus: () => ({
+        bosch: {
+          connected: true,
+          zones: [{ id: 'zn3', name: 'Cucina', tempActual: 19.5, tempSetpoint: 20.5, valvePosition: 20 }]
+        }
+      }),
+      setBoschZoneSetpoint: async () => {}
+    },
+    securitySystem: { mode: 'away' }
+  });
+  optGas2.fetchWeatherForecast = async () => ({ sunny: false, outdoorTemp: 10, cloudCover: 80, weatherCode: 3 });
+  optGas2.persistState = async () => {};
+  await optGas2.evaluateNow({ reason: 'scheduled', dryRun: false, nowMs: awayMs });
+  assert.ok(optGas2.metrics.savedGasM3 > 0);
 });
 
 

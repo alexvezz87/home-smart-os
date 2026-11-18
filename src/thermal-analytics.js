@@ -138,12 +138,19 @@ class ThermalAnalytics {
       };
     }
 
-    const supplyVal = typeof bosch.supplyTempC === 'number'
-      ? Number(bosch.supplyTempC)
-      : (typeof bosch.boiler?.supplyTemp === 'number' ? Number(bosch.boiler.supplyTemp) : null);
-    const modVal = typeof bosch.modulationPct === 'number'
-      ? Number(bosch.modulationPct)
-      : (typeof bosch.boiler?.modulation === 'number' ? Number(bosch.boiler.modulation) : null);
+    const rawSupply = typeof bosch.supplyTempC === 'number'
+      ? bosch.supplyTempC
+      : (typeof bosch.supplyTemp === 'number'
+        ? bosch.supplyTemp
+        : (typeof bosch.actualSupplyTemp === 'number' ? bosch.actualSupplyTemp : bosch.boiler?.supplyTemp));
+    const supplyVal = typeof rawSupply === 'number' ? Number(rawSupply) : null;
+
+    const rawMod = typeof bosch.modulationPct === 'number'
+      ? bosch.modulationPct
+      : (typeof bosch.modulation === 'number'
+        ? bosch.modulation
+        : (typeof bosch.currentModulation === 'number' ? bosch.currentModulation : bosch.boiler?.modulation));
+    const modVal = typeof rawMod === 'number' ? Number(rawMod) : null;
 
     const snapshot = {
       ts: nowMs,
@@ -313,7 +320,9 @@ class ThermalAnalytics {
       return {
         correlatedHours: 0,
         totalGasHeatingM3: 0,
-        avgValveOpenWhenHeatingPct: null
+        avgValveOpenWhenHeatingPct: null,
+        activeZonesAvgValvePct: null,
+        concurrentOpenZonesAvg: null
       };
     }
 
@@ -336,14 +345,19 @@ class ThermalAnalytics {
     const sampleHourKeys = new Set();
     let matched = 0;
     let valveSum = 0;
+    let openCountSum = 0;
     for (const s of samples) {
       const key = this._toRomeHourKey(s.ts);
       sampleHourKeys.add(key);
       const gas = gasByHourKey.get(key);
       if (typeof gas === 'number' && gas > 0 && s.zones) {
         const zVals = Object.values(s.zones).map((z) => Number(z.valvePos) || 0);
+        const openVals = zVals.filter((v) => v > 0);
         if (zVals.length > 0) {
-          valveSum += zVals.reduce((a, b) => a + b, 0) / zVals.length;
+          if (openVals.length > 0) {
+            valveSum += openVals.reduce((a, b) => a + b, 0) / openVals.length;
+            openCountSum += openVals.length;
+          }
           matched++;
         }
       }
@@ -355,10 +369,13 @@ class ThermalAnalytics {
       if (typeof g === 'number') totalGasHeatingM3 += g;
     }
 
+    const activeZonesAvgValvePct = matched > 0 && openCountSum > 0 ? Math.round(valveSum / matched) : null;
     return {
       correlatedHours: matched,
       totalGasHeatingM3: +totalGasHeatingM3.toFixed(2),
-      avgValveOpenWhenHeatingPct: matched > 0 ? Math.round(valveSum / matched) : null
+      avgValveOpenWhenHeatingPct: activeZonesAvgValvePct,
+      activeZonesAvgValvePct,
+      concurrentOpenZonesAvg: matched > 0 ? +(openCountSum / matched).toFixed(2) : null
     };
   }
 
