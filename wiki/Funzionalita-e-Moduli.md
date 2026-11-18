@@ -249,6 +249,13 @@ Riorganizzata con un'architettura **modulare responsive**: su desktop/tablet ori
 - **Override Esterni Bosch & Telemetria Gas Reale (`src/climate-optimizer.js`, `src/thermal-analytics.js`)**: rilevamento automatico override manuali da valvola/app Bosch (`source: 'bosch_external'`), calcolo onesto `savedGasM3` (`wouldHaveCalledHeat`) e metriche `activeZonesAvgValvePct` / `concurrentOpenZonesAvg` sulle sole valvole aperte.
 - **Anti-Drift & Valvole Reali (`#108`)**: ordine `evClimate` prima di `spatial` in `GET /api/home` (`src/routes/hue-appliances-spatial.routes.js`), rimozione fallback finti in `src/spatial-engine.js`, priorità `matchingZone` in `public/js/admin/admin-climate.js`, pavimento `MIN_TRIM_FLOOR_C = 19.0` su `solar_trim`, persistenza `baselineByZone` su TiDB e protezione stale-cache (`previousSetpoint`/`appliedAt`) sugli override esterni in `src/climate-optimizer.js`.
 
+---
+
+## 📅 21. Integrazione Google Calendar (Account Alex, `#110`)
+- **OAuth Differenziato (`src/gmail-hub.js`)**: lo scope `https://www.googleapis.com/auth/calendar.events` è richiesto **solo per `alex`** (lasciando `cinzia` su `gmail.readonly`), con salvataggio `scope` in `gmail_token_alex` e helper `getValidAccessToken('alex')` / `hasCalendarAccess('alex')`.
+- **CalendarHub (`src/calendar-hub.js`)**: polling leggero ogni `30m` (0 token AI), cache TiDB `calendar-events-cache`, motore promemoria ogni `5m` (`checkUpcomingReminders` con deduplica `notifiedEventIds`), `formatAgendaText()` e `createEventFromMailItem(type, itemId)` anti-duplicato.
+- **Azioni 1-Tap, `/agenda` & Assistente (`src/delivery-billing-parser.js`, `src/telegram-bot.js`, `src/assistant.js`, `public/js/notifications.js`, `public/js/admin/admin-system-backbone.js`)**: comando `/agenda` su Telegram e query dirette in `Assistant` (0 token AI), callback `cal_add:*`, bottone **`📅 Aggiungi al Calendario`** su Telegram/Centro Notifiche e card **Google Calendar (Alex)** in Amministrazione.
+
 
 
 

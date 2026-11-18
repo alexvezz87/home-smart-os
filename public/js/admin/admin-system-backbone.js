@@ -536,9 +536,114 @@ AdminManager.prototype.loadGmailHubPanel = async function() {
         ${renderAccountCard('alex', 'Alex')}
         ${renderAccountCard('cinzia', 'Cinzia')}
       </div>
+
+      <div id="admin-calendar-alex-card" class="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2.5">
+        <div class="text-xs text-slate-400">Caricamento Google Calendar (Alex)...</div>
+      </div>
     `;
+    this.loadCalendarAlexCard();
   } catch (err) {
     el.innerHTML = `<span class="text-xs text-rose-400">Errore Hub Posta: ${this.escapeHtml(err.message)}</span>`;
+  }
+};
+
+AdminManager.prototype.loadCalendarAlexCard = async function() {
+  const card = document.getElementById('admin-calendar-alex-card');
+  if (!card) return;
+  try {
+    const res = await fetch('/api/calendar/status').then((r) => r.json());
+    const cal = res.data || {};
+    const cfg = cal.config || { enabled: true, reminderMinutesBefore: 30 };
+    const events = Array.isArray(cal.upcomingEvents) ? cal.upcomingEvents.slice(0, 6) : [];
+    const scopeOk = Boolean(cal.hasCalendarScope);
+
+    card.innerHTML = `
+      <div class="flex items-center justify-between flex-wrap gap-2">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-bold text-white"><i class="fa-regular fa-calendar text-sky-400 mr-1.5"></i>Google Calendar (Alex)</span>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${scopeOk ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}">
+            ${scopeOk ? 'Connesso con Calendar' : 'Riconnessione richiesta per scope Calendar'}
+          </span>
+        </div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          ${!scopeOk ? `<button onclick="window.adminManager.connectGmailAccount('alex')" class="px-2.5 py-1 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-[11px] font-semibold">Riconnetti Alex con Calendar</button>` : ''}
+          <button onclick="window.adminManager.syncCalendarNow()" class="px-2.5 py-1 rounded-lg bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 text-[11px] font-semibold">Sincronizza</button>
+        </div>
+      </div>
+      <div class="flex items-center gap-3 flex-wrap text-[11px] text-slate-300">
+        <label class="flex items-center gap-1.5 cursor-pointer">
+          <input id="admin-cal-enabled" type="checkbox" ${cfg.enabled !== false ? 'checked' : ''} onchange="window.adminManager.updateCalendarConfig()" class="accent-sky-500" />
+          Promemoria automatici
+        </label>
+        <label class="flex items-center gap-1.5">
+          Anticipo:
+          <select id="admin-cal-reminder-min" onchange="window.adminManager.updateCalendarConfig()" class="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-white">
+            ${[10, 15, 30, 60].map((m) => `<option value="${m}" ${Number(cfg.reminderMinutesBefore || 30) === m ? 'selected' : ''}>${m} min</option>`).join('')}
+          </select>
+        </label>
+      </div>
+      <div class="space-y-1 max-h-36 overflow-y-auto pr-1">
+        ${events.length === 0
+          ? '<div class="text-[11px] text-slate-500">Nessun evento nei prossimi giorni.</div>'
+          : events.map((ev) => `
+              <div class="flex items-center justify-between gap-2 text-[11px] px-2 py-1 rounded bg-slate-900/70 border border-slate-800/80">
+                <span class="text-slate-200 truncate font-medium">${this.escapeHtml(ev.summary)}</span>
+                <span class="text-slate-400 font-mono shrink-0">${this.escapeHtml(String(ev.start || '').replace('T', ' ').slice(0, 16))}</span>
+              </div>
+            `).join('')
+        }
+      </div>
+    `;
+  } catch (err) {
+    card.innerHTML = `<span class="text-xs text-rose-400">Errore Google Calendar: ${this.escapeHtml(err.message)}</span>`;
+  }
+};
+
+AdminManager.prototype.syncCalendarNow = async function() {
+  try {
+    window.showToast?.('Sincronizzazione Google Calendar in corso...', 'info');
+    const res = await fetch('/api/calendar/sync', { method: 'POST' });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Errore sync Calendar');
+    window.showToast?.(json.synced ? `Calendar sincronizzato (${json.count} eventi)` : 'Scope Calendar mancante su Alex', json.synced ? 'success' : 'warning');
+    this.loadCalendarAlexCard();
+  } catch (err) {
+    window.showToast?.(this.escapeHtml(err.message), 'error');
+  }
+};
+
+AdminManager.prototype.updateCalendarConfig = async function() {
+  try {
+    const enabled = Boolean(document.getElementById('admin-cal-enabled')?.checked);
+    const reminderMinutesBefore = Number(document.getElementById('admin-cal-reminder-min')?.value || 30);
+    await fetch('/api/calendar/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled, reminderMinutesBefore })
+    });
+    window.showToast?.('Impostazioni Google Calendar aggiornate', 'success');
+  } catch (err) {
+    window.showToast?.(this.escapeHtml(err.message), 'error');
+  }
+};
+
+AdminManager.prototype.addMailItemToCalendar = async function(type, id, btnEl = null) {
+  try {
+    const res = await fetch('/api/calendar/from-mail', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, id })
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Errore salvataggio Calendar');
+    window.showToast?.(json.alreadyExists ? '📅 Evento già presente su Google Calendar' : '✅ Salvato su Google Calendar (Alex)!', 'success');
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.textContent = '✅ In Calendario';
+    }
+    this.loadCalendarAlexCard();
+  } catch (err) {
+    window.showToast?.(this.escapeHtml(err.message), 'error');
   }
 };
 

@@ -6,10 +6,17 @@ const GMAIL_PRIVACY_QUERY =
   'from:(amazon OR iliad OR dhl OR brt OR gls OR poste OR sda OR ups OR zara OR comune OR unipol OR acda) OR ' +
   'subject:(fattura OR bolletta OR scadenza OR consegna OR spedizione OR ordine OR tracking OR TARI OR assicurazione OR bollo)';
 
-const GMAIL_SCOPES = [
+const GMAIL_BASE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/userinfo.email'
-].join(' ');
+];
+const CALENDAR_EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+
+function getScopesForAccount(account) {
+  return account === 'alex'
+    ? [...GMAIL_BASE_SCOPES, CALENDAR_EVENTS_SCOPE].join(' ')
+    : GMAIL_BASE_SCOPES.join(' ');
+}
 
 const TOKEN_KEYS = {
   alex: 'gmail_token_alex',
@@ -185,7 +192,7 @@ class GmailHub {
       client_id: clientId,
       redirect_uri: redirectUri,
       response_type: 'code',
-      scope: GMAIL_SCOPES,
+      scope: getScopesForAccount(account),
       access_type: 'offline',
       prompt: 'consent',
       state: `gmail_sync:${account}`
@@ -233,6 +240,7 @@ class GmailHub {
       accessToken: data.access_token || '',
       refreshToken: data.refresh_token || prev.refreshToken || '',
       expiresAt: Date.now() + (Number(data.expires_in || 3600) * 1000),
+      scope: String(data.scope || prev.scope || ''),
       authExpired: false,
       connectedAt: new Date().toISOString(),
       lastSyncAt: prev.lastSyncAt || null
@@ -251,6 +259,16 @@ class GmailHub {
     this.tokens[account] = null;
     await db.delete(TOKEN_KEYS[account]);
     return { disconnected: account };
+  }
+
+  async getValidAccessToken(account = 'alex') {
+    return this._getValidAccessToken(account);
+  }
+
+  hasCalendarAccess(account = 'alex') {
+    const tok = this.tokens[account];
+    if (!tok || (!tok.accessToken && !tok.refreshToken) || tok.authExpired) return false;
+    return String(tok.scope || '').includes('calendar');
   }
 
   async _getValidAccessToken(account) {
@@ -385,6 +403,7 @@ class GmailHub {
         connected,
         email: connected ? (t.email || '') : '',
         authExpired: Boolean(t?.authExpired),
+        calendarEnabled: this.hasCalendarAccess(acc),
         lastSyncAt: t?.lastSyncAt || null
       };
     };

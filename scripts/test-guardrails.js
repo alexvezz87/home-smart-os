@@ -2985,6 +2985,139 @@ test('Fix Baseline Drift, Persistenza baselineByZone, Stale-Cache Override & Spa
   }
 });
 
+test('Google Calendar (Alex): scope differenziato, promemoria, 1-tap da Gmail e /agenda (#110)', async () => {
+  const axios = require('axios');
+  const { GmailHub } = require('../src/gmail-hub');
+  const { CalendarHub } = require('../src/calendar-hub');
+  const { DeliveryBillingParser } = require('../src/delivery-billing-parser');
+  const telegramBot = require('../src/telegram-bot');
+
+  // 1. Scope OAuth differenziato Alex vs Cinzia
+  const gmail = new GmailHub();
+  gmail.oauthClient = { clientId: 'test-client-id', clientSecret: 'test-client-secret' };
+  const urlAlex = await gmail.getAuthUrl('alex');
+  const urlCinzia = await gmail.getAuthUrl('cinzia');
+  assert.ok(decodeURIComponent(urlAlex).includes('calendar.events'), 'Alex deve includere scope calendar.events');
+  assert.ok(decodeURIComponent(urlCinzia).includes('gmail.readonly'), 'Cinzia deve includere gmail.readonly');
+  assert.ok(!decodeURIComponent(urlCinzia).includes('calendar.events'), 'Cinzia NON deve includere calendar.events');
+
+  // 2. CalendarHub.checkUpcomingReminders(nowMs): evento +20m inviato una sola volta, evento +90m ignorato
+  const cal = new CalendarHub();
+  const sentNotifs = [];
+  cal.notifier = { send: async (p) => { sentNotifs.push(p); return { sent: 1 }; } };
+  const nowMs = Date.now();
+  cal.events = [
+    {
+      id: 'ev-soon',
+      summary: 'Visita Pediatrica',
+      start: new Date(nowMs + 20 * 60_000).toISOString(),
+      end: new Date(nowMs + 50 * 60_000).toISOString(),
+      allDay: false,
+      htmlLink: 'https://calendar.google.com/event?eid=1'
+    },
+    {
+      id: 'ev-later',
+      summary: 'Riunione Lontana',
+      start: new Date(nowMs + 90 * 60_000).toISOString(),
+      end: new Date(nowMs + 120 * 60_000).toISOString(),
+      allDay: false,
+      htmlLink: ''
+    }
+  ];
+
+  const trig1 = await cal.checkUpcomingReminders(nowMs);
+  assert.equal(trig1.length, 1);
+  assert.equal(sentNotifs.length, 1);
+  assert.ok(sentNotifs[0].message.includes('Visita Pediatrica'));
+
+  // Seconda chiamata nello stesso intervallo -> deduplicato
+  const trig2 = await cal.checkUpcomingReminders(nowMs + 60_000);
+  assert.equal(trig2.length, 0);
+  assert.equal(sentNotifs.length, 1);
+
+  // 3. CalendarHub.createEventFromMailItem('bill', id): all-day nextDay + anti-duplicato
+  const parser = new DeliveryBillingParser();
+  parser.bills = [{
+    id: 'bill:iliad:2026-11-25',
+    provider: 'Iliad Fibra',
+    amountEur: 19.99,
+    dueDate: '2026-11-25',
+    recipient: 'Casa',
+    status: 'pending'
+  }];
+
+  gmail.tokens.alex = {
+    accessToken: 'fake-access-token',
+    refreshToken: 'fake-refresh-token',
+    expiresAt: Date.now() + 3600_000,
+    scope: 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.events',
+    authExpired: false
+  };
+  cal.gmailHub = gmail;
+  cal.deliveryBillingParser = parser;
+
+  const origPost = axios.post;
+  const postCalls = [];
+  axios.post = async (url, body) => {
+    postCalls.push({ url, body });
+    return { data: { id: 'gcal-evt-110', htmlLink: 'https://calendar.google.com/event?eid=110', status: 'confirmed' } };
+  };
+  try {
+    const res1 = await cal.createEventFromMailItem('bill', 'bill:iliad:2026-11-25');
+    assert.equal(res1.created, true);
+    assert.equal(res1.eventId, 'gcal-evt-110');
+    assert.equal(postCalls.length, 1);
+    assert.equal(postCalls[0].body.start.date, '2026-11-25');
+    assert.equal(postCalls[0].body.end.date, '2026-11-26');
+    assert.equal(parser.bills[0].calendarEventId, 'gcal-evt-110');
+
+    // Seconda chiamata: alreadyExists: true senza chiamare Google API
+    const res2 = await cal.createEventFromMailItem('bill', 'bill:iliad:2026-11-25');
+    assert.equal(res2.alreadyExists, true);
+    assert.equal(postCalls.length, 1);
+
+    // 4. TelegramBotManager: /agenda (0 AI) e callback cal_add:bill:<id>
+    const origDeps = telegramBot.deps;
+    const origIsAuth = telegramBot.isAuthorized;
+    const origSendMsg = telegramBot.sendMessage;
+    const origAnsCb = telegramBot.answerCallbackQuery;
+    const tgSent = [];
+    let cbCalls = 0;
+
+    telegramBot.deps = { ...origDeps, calendarHub: cal };
+    telegramBot.isAuthorized = (id) => String(id) === 'chat-cal-1';
+    telegramBot.sendMessage = async (txt) => { tgSent.push(txt); return { ok: true }; };
+    telegramBot.answerCallbackQuery = async () => ({ ok: true });
+
+    const origCreateFromMail = cal.createEventFromMailItem.bind(cal);
+    cal.createEventFromMailItem = async (t, id) => {
+      cbCalls++;
+      return origCreateFromMail(t, id);
+    };
+
+    try {
+      const agendaRes = await telegramBot._handleSlashCommand('chat-cal-1', '/agenda');
+      assert.equal(agendaRes.handled, true);
+      assert.ok(tgSent.some((m) => m.includes('Agenda di Alex') && m.includes('Visita Pediatrica')));
+
+      const cbRes = await telegramBot._handleCallback({
+        id: 'cb-cal-1',
+        data: 'cal_add:bill:bill:iliad:2026-11-25',
+        message: { chat: { id: 'chat-cal-1' } }
+      });
+      assert.equal(cbRes.handled, true);
+      assert.equal(cbCalls, 1);
+    } finally {
+      telegramBot.deps = origDeps;
+      telegramBot.isAuthorized = origIsAuth;
+      telegramBot.sendMessage = origSendMsg;
+      telegramBot.answerCallbackQuery = origAnsCb;
+    }
+  } finally {
+    axios.post = origPost;
+  }
+});
+
 
 
 

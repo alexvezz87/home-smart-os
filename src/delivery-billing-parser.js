@@ -437,7 +437,11 @@ Rispondi SOLO con JSON valido: {"items":[ ... ]}\n\n${digest}`;
           mailSubject: d.mailSubject || '',
           mailFrom: d.mailFrom || '',
           mailDate: d.mailDate || '',
-          mailSnippet: d.mailSnippet || ''
+          mailSnippet: d.mailSnippet || '',
+          calendarEventId: d.calendarEventId || null,
+          calendarHtmlLink: d.calendarHtmlLink || null,
+          calendarAdded: Boolean(d.calendarEventId),
+          calendarAction: d.expectedDate ? { type: 'delivery', itemId: d.id, date: d.expectedDate } : null
         }
       }).catch(() => {});
     }
@@ -461,7 +465,11 @@ Rispondi SOLO con JSON valido: {"items":[ ... ]}\n\n${digest}`;
           mailSubject: b.mailSubject || '',
           mailFrom: b.mailFrom || '',
           mailDate: b.mailDate || '',
-          mailSnippet: b.mailSnippet || ''
+          mailSnippet: b.mailSnippet || '',
+          calendarEventId: b.calendarEventId || null,
+          calendarHtmlLink: b.calendarHtmlLink || null,
+          calendarAdded: Boolean(b.calendarEventId),
+          calendarAction: b.dueDate ? { type: 'bill', itemId: b.id, date: b.dueDate } : null
         }
       }).catch(() => {});
     }
@@ -509,7 +517,16 @@ Rispondi SOLO con JSON valido: {"items":[ ... ]}\n\n${digest}`;
             title: `Scadenza ${bill.provider}`,
             message: msgText,
             dedupKey: `bill_due:${bill.id}:${todayStr}`,
-            targetUrl: '/#energy'
+            targetUrl: '/#energy',
+            actionButtons: !bill.calendarEventId
+              ? [{ text: '📅 Aggiungi al Calendario', callback_data: `cal_add:bill:${bill.id}` }]
+              : [],
+            data: {
+              billId: bill.id,
+              dueDate: bill.dueDate,
+              calendarAdded: Boolean(bill.calendarEventId),
+              calendarAction: { type: 'bill', itemId: bill.id, date: bill.dueDate }
+            }
           });
         }
         if (this.telegramBot && this.telegramBot.token) {
@@ -568,6 +585,23 @@ Rispondi SOLO con JSON valido: {"items":[ ... ]}\n\n${digest}`;
     target.updatedAt = new Date().toISOString();
     await db.set(BILLS_KEY, this.bills, false);
     return target;
+  }
+
+  async markCalendarLinked(type, id, { eventId = null, htmlLink = '' } = {}) {
+    const cleanType = type === 'delivery' ? 'delivery' : 'bill';
+    const list = cleanType === 'bill' ? this.bills : this.deliveries;
+    const item = list.find((x) => x.id === id);
+    if (!item) return null;
+
+    item.calendarEventId = eventId || item.calendarEventId || null;
+    item.calendarHtmlLink = htmlLink || item.calendarHtmlLink || '';
+    item.updatedAt = new Date().toISOString();
+
+    await db.set(cleanType === 'bill' ? BILLS_KEY : DELIVERIES_KEY, list, false).catch(() => {});
+    if (this.notifier && typeof this.notifier.upsertFeedItem === 'function') {
+      await this._syncDeliveriesAndBillsToNotifierFeed().catch(() => {});
+    }
+    return item;
   }
 
   getDeliveries(recipient = 'all') {

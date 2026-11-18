@@ -9,6 +9,7 @@ const dysonPurifier = require('./dyson-purifier');
 const aiGateway = require('./ai-gateway');
 const evClimateHub = require('./ev-climate-hub');
 const aiOrchestrator = require('./ai-orchestrator');
+const calendarHub = require('./calendar-hub');
 
 /**
  * Interprete di comandi in linguaggio naturale (italiano) per la Smart Home.
@@ -21,6 +22,19 @@ async function processAssistantCommand(input, options = {}) {
     return {
       success: false,
       reply: 'Non ho ricevuto nessun comando. Prova a dirmi: "Accendi salone" o "Spegni tutto".'
+    };
+  }
+
+  // 0. Consultazione diretta Google Calendar / Agenda (0 token AI)
+  if (
+    /(?:calendario|agenda|appuntament[oi]|impegn[oi])/i.test(text)
+    && /(?:oggi|domani|settimana|prossim|cosa\s+ho|quali|ho\s+in|dimmi|mostra|leggi)/i.test(text)
+  ) {
+    const days = text.includes('oggi') ? 1 : text.includes('domani') ? 2 : 7;
+    return {
+      success: true,
+      action: 'calendar_agenda',
+      reply: calendarHub.formatAgendaText({ days, html: false })
     };
   }
 
