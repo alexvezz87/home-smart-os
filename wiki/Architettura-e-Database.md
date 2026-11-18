@@ -229,6 +229,21 @@ Per mantenere `server.js` snello (`< 400` righe) e separare le responsabilità p
    - `mail-notifications.routes.js`: Gmail Hub, consegne/bollette, Web Push VAPID, Centro Notifiche Intelligente e pairing Telegram.
    - `admin-system.routes.js`: EventBus SSE, presenza Iliadbox, avatar casa, ambiente duale/sandbox, audit log/archivi, `/api/ai/*`, `/api/system/status` e `/api/history*`.
 
+---
+
+## 10. Architettura a Provider Modulari per `EvClimateHub` (`src/providers/*`, `#99`)
+
+Per ridurre `src/ev-climate-hub.js` da `3.038` a `< 500` righe mantenendo **100% compatibilità** con tutte le chiamate esistenti e i monkey-patch dei test su `evClimateHub` / `EvClimateHub.prototype`:
+
+1. **Core Orchestrator (`src/ev-climate-hub.js`)**:
+   - Mantiene stato centrale (`wallboxState`, `volvoState`, `boschState`), caricamento/salvataggio cifrato su TiDB (`loadConfig`, `_persistConfig`, `saveConfig`, `getMaskedConfig`), `startPolling()`, mutex `_runSingleFlight()`, `syncAll()` e `getUnifiedStatus()`.
+   - Aggancia i 4 provider direttamente su `EvClimateHub.prototype` via `Object.assign(EvClimateHub.prototype, ...)`.
+2. **I 4 Provider in `src/providers/`**:
+   - `abb-wallbox.provider.js`: autenticazione ChargerSync, sync telemetria REST, framing DES-ECB-PKCS5 e controllo WebSocket ABB Terra AC (`_abbGetToken`, `syncAbbChargerSync`, `controlWallbox`).
+   - `volvo-ex30.provider.js`: OAuth2 PKCE Volvo ID, polling adattivo, sync stato batteria/ricarica/porte/climatizzazione e comandi remoti (`_volvoGetToken`, `syncVolvoEx30`, `controlVolvo`).
+   - `bosch-oauth-transport.provider.js`: OAuth2 SingleKey ID (PointT API), cattura browser Playwright opzionale e fallback XMPP `bosch-xmpp` (`_ensureBoschPointtToken`, `_boschPointtGet`/`Put`/`Bulk`, `_getBoschClient`).
+   - `bosch-climate-energy.provider.js`: storico giornaliero/orario caldaia gas, sync 9 zone CT200, setpoint, profili Baby Comfort e programmazione settimanale (`syncBoschEasyControl`, `setBoschZoneSetpoint`, `fetchBoschFullEnergyHistory`).
+
 
 
 

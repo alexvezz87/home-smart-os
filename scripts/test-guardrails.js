@@ -2469,4 +2469,57 @@ test('Server Modular Routes & Deferred Bootstrap Services (#97)', () => {
   }
 });
 
+test('EvClimateHub Modular Providers on Prototype (#99)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+
+  // 1. Verifica che src/ev-climate-hub.js abbia < 500 righe
+  const hubSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'ev-climate-hub.js'), 'utf8');
+  const lineCount = hubSrc.split(/\r?\n/).length;
+  assert.ok(lineCount < 500, `src/ev-climate-hub.js deve avere < 500 righe (trovate ${lineCount})`);
+
+  // 2. Verifica esistenza e caricamento dei 4 provider in src/providers/
+  const providerFiles = [
+    'abb-wallbox.provider.js',
+    'volvo-ex30.provider.js',
+    'bosch-oauth-transport.provider.js',
+    'bosch-climate-energy.provider.js'
+  ];
+  for (const file of providerFiles) {
+    const fullPath = path.join(__dirname, '..', 'src', 'providers', file);
+    assert.ok(fs.existsSync(fullPath), `${file} deve esistere`);
+    const mod = require(fullPath);
+    assert.equal(typeof mod, 'object', `${file} deve esportare un oggetto`);
+  }
+
+  // 3. Verifica che tutti i metodi chiave siano agganciati a EvClimateHub.prototype e funzionanti sull'istanza
+  const evClimateHub = require('../src/ev-climate-hub');
+  assert.equal(typeof evClimateHub.EvClimateHub, 'function');
+  assert.equal(evClimateHub.EvClimateHub.BOSCH_KWH_PER_M3, 8.125);
+
+  const expectedMethods = [
+    '_abbGetToken', '_abbGet', 'syncAbbChargerSync', '_abbSendWsFrame', 'controlWallbox',
+    '_volvoGetToken', 'getVolvoPollingIntervalMs', 'syncVolvoEx30', 'controlVolvo',
+    'getVolvoOAuthUrl', 'exchangeVolvoOAuthCode', 'setVolvoDirectToken',
+    'getBoschOAuthUrl', 'exchangeBoschOAuthCode', 'launchBoschBrowserCapture',
+    '_ensureBoschPointtToken', '_boschPointtGet', '_boschPointtPut', '_boschPointtBulk',
+    '_closeBoschClient', '_getBoschClient', '_boschGet', '_boschPut', '_boschSafeGet',
+    '_parseBoschDateTimestamp', '_fetchBoschDailyArchive', 'fetchBoschFullEnergyHistory',
+    'syncBoschEasyControl', '_resolveZoneId', 'setBoschZoneSetpoint', 'getSystemAlerts',
+    'applyBabyComfortProfile', 'syncBabyComfortToBoschPrograms', 'controlBosch',
+    'getBoschProgramSchedule', 'setBoschProgramDaySchedule', 'queryBoschRawEndpoint'
+  ];
+  for (const methodName of expectedMethods) {
+    assert.equal(typeof evClimateHub.EvClimateHub.prototype[methodName], 'function', `Prototype manca ${methodName}`);
+    assert.equal(typeof evClimateHub[methodName], 'function', `Istanza manca ${methodName}`);
+  }
+
+  // Smoke check funzionale offline
+  assert.ok(evClimateHub.getBoschOAuthUrl().includes('singlekey-id.com'));
+  assert.ok(evClimateHub.getVolvoOAuthUrl('https://example.local/callback').includes('auth.volvocars.com'));
+  assert.equal(typeof evClimateHub.getVolvoPollingIntervalMs(), 'number');
+  assert.ok(Array.isArray(evClimateHub.getSystemAlerts()));
+});
+
+
 
