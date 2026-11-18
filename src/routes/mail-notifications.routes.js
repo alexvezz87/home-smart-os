@@ -289,6 +289,15 @@ module.exports = function registerMailNotificationsRoutes(app, services) {
     }
   });
 
+  app.get('/api/calendar/overview', (req, res) => {
+    try {
+      const days = Number(req.query.days) || 45;
+      res.json({ success: true, data: services.calendarHub.getCalendarOverview({ days }) });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   app.post('/api/calendar/sync', async (req, res) => {
     try {
       const days = Number(req.body?.days || 7);
