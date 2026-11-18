@@ -95,6 +95,9 @@ module.exports = function registerPublicAuthRoutes(app, services) {
       }
       if (typeof state === 'string' && state.startsWith('gmail_sync:') && gmailHub) {
         const info = await gmailHub.handleOAuthCallback(code, state, req);
+        if (info?.account === 'alex' && services.calendarHub) {
+          services.calendarHub.syncEvents().catch(() => {});
+        }
         return res.redirect(`/?area=admin&tab=system&gmail_connected=${encodeURIComponent(info.account)}`);
       }
       const result = await auth.handleGoogleCallback(code, req);

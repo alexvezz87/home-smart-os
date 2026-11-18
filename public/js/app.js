@@ -116,6 +116,7 @@ function switchArea(area) {
   window.currentArea = area;
 
   const areaHome = document.getElementById('area-home');
+  const areaCalendar = document.getElementById('area-calendar');
   const areaEnergy = document.getElementById('area-energy');
   const areaMobility = document.getElementById('area-mobility');
   const areaAdmin = document.getElementById('area-admin');
@@ -124,6 +125,7 @@ function switchArea(area) {
 
   // Gestione visibilità sezioni
   if (areaHome) areaHome.classList.toggle('hidden', area !== 'home');
+  if (areaCalendar) areaCalendar.classList.toggle('hidden', area !== 'calendar');
   if (areaEnergy) areaEnergy.classList.toggle('hidden', area !== 'energy');
   if (areaMobility) areaMobility.classList.toggle('hidden', area !== 'mobility');
   if (areaAdmin) areaAdmin.classList.toggle('hidden', area !== 'admin');
@@ -160,6 +162,8 @@ function switchArea(area) {
   // Renderizza modulo di destinazione
   if (area === 'home' && window.floorplan) {
     window.floorplan.render();
+  } else if (area === 'calendar' && window.calendarManager) {
+    window.calendarManager.renderView();
   } else if (area === 'energy' && window.energyManager) {
     window.energyManager.renderView();
   } else if (area === 'mobility' && window.mobilityManager) {
@@ -260,6 +264,8 @@ async function loadDashboard() {
 
     if (window.currentArea === 'home' && window.floorplan) {
       window.floorplan.render();
+    } else if (window.currentArea === 'calendar' && window.calendarManager) {
+      window.calendarManager.renderView();
     } else if (window.currentArea === 'energy' && window.energyManager) {
       window.energyManager.renderView();
     } else if (window.currentArea === 'mobility' && window.mobilityManager) {

@@ -68,7 +68,7 @@ class CalendarHub {
     this.config = {
       enabled: true,
       reminderMinutesBefore: 30,
-      daysAhead: 7
+      daysAhead: 45
     };
     this.events = [];
     this.notifiedEventIds = [];
@@ -140,7 +140,7 @@ class CalendarHub {
       this.config.reminderMinutesBefore = Math.max(5, Math.min(180, Math.round(Number(patch.reminderMinutesBefore))));
     }
     if (patch.daysAhead !== undefined && Number.isFinite(Number(patch.daysAhead))) {
-      this.config.daysAhead = Math.max(1, Math.min(30, Math.round(Number(patch.daysAhead))));
+      this.config.daysAhead = Math.max(1, Math.min(90, Math.round(Number(patch.daysAhead))));
     }
     await db.set(CONFIG_DB_KEY, this.config, false).catch(() => {});
     return this.getStatus();
@@ -160,11 +160,11 @@ class CalendarHub {
       lastSyncAt: this.lastSyncAt,
       lastError: this.lastError,
       eventCount: this.events.length,
-      upcomingEvents: this.getUpcomingEvents(this.config.daysAhead || 7)
+      upcomingEvents: this.getUpcomingEvents(this.config.daysAhead || 45)
     };
   }
 
-  async syncEvents({ days = this.config.daysAhead || 7 } = {}) {
+  async syncEvents({ days = this.config.daysAhead || 45 } = {}) {
     if (!this.gmailHub || !this.gmailHub.hasCalendarAccess('alex')) {
       return { synced: false, reason: 'calendar_scope_missing' };
     }
@@ -175,14 +175,14 @@ class CalendarHub {
 
     try {
       const now = new Date();
-      const maxDate = new Date(now.getTime() + Number(days || 7) * 86400 * 1000);
+      const maxDate = new Date(now.getTime() + Number(days || 45) * 86400 * 1000);
       const res = await axios.get('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
         params: {
           timeMin: now.toISOString(),
           timeMax: maxDate.toISOString(),
           singleEvents: true,
           orderBy: 'startTime',
-          maxResults: 40
+          maxResults: 100
         },
         headers: { Authorization: `Bearer ${token}` },
         timeout: 12000
@@ -212,15 +212,130 @@ class CalendarHub {
     return Date.parse(ev.start);
   }
 
-  getUpcomingEvents(days = 7, nowMs = Date.now()) {
+  getUpcomingEvents(days = 45, nowMs = Date.now()) {
     const minMs = nowMs - 60 * 60 * 1000;
-    const maxMs = nowMs + Number(days || 7) * 86400 * 1000;
+    const maxMs = nowMs + Number(days || 45) * 86400 * 1000;
     return this.events
       .filter((ev) => {
         const ms = this._parseEventStartMs(ev);
         return Number.isFinite(ms) && ms >= minMs && ms <= maxMs;
       })
       .sort((a, b) => this._parseEventStartMs(a) - this._parseEventStartMs(b));
+  }
+
+  _toDateKey(raw) {
+    if (!raw) return null;
+    const s = String(raw).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    const ms = Date.parse(s);
+    if (!Number.isFinite(ms)) return null;
+    return getRomeTodayDateStr(ms);
+  }
+
+  getCalendarOverview({ days = 45, nowMs = Date.now() } = {}) {
+    const calendarItems = this.getUpcomingEvents(days, nowMs).map((ev) => {
+      let dateKey = this._toDateKey(ev.start);
+      let timeLabel = 'Tutto il giorno';
+      let sortTime = '00:00';
+      if (!ev.allDay && ev.start) {
+        try {
+          const d = new Date(ev.start);
+          dateKey = getRomeTodayDateStr(d.getTime());
+          const hm = new Intl.DateTimeFormat('it-IT', {
+            timeZone: 'Europe/Rome',
+            hour: '2-digit',
+            minute: '2-digit'
+          }).format(d);
+          sortTime = hm;
+          if (ev.end) {
+            const endHm = new Intl.DateTimeFormat('it-IT', {
+              timeZone: 'Europe/Rome',
+              hour: '2-digit',
+              minute: '2-digit'
+            }).format(new Date(ev.end));
+            timeLabel = `${hm}–${endHm}`;
+          } else {
+            timeLabel = hm;
+          }
+        } catch (_) {}
+      }
+      return {
+        id: `gcal:${ev.id}`,
+        itemId: ev.id,
+        source: 'google_calendar',
+        type: 'event',
+        dateKey,
+        timeLabel,
+        sortTime,
+        allDay: Boolean(ev.allDay),
+        summary: ev.summary || '(Senza titolo)',
+        description: ev.description || '',
+        location: ev.location || '',
+        htmlLink: ev.htmlLink || ''
+      };
+    }).filter((x) => Boolean(x.dateKey));
+
+    const billItems = [];
+    const deliveryItems = [];
+    if (this.deliveryBillingParser) {
+      const bills = typeof this.deliveryBillingParser.getBills === 'function'
+        ? this.deliveryBillingParser.getBills('all')
+        : [];
+      for (const b of bills) {
+        const dateKey = this._toDateKey(b.dueDate);
+        if (!dateKey) continue;
+        billItems.push({
+          id: `bill:${b.id}`,
+          itemId: b.id,
+          source: 'gmail_bill',
+          type: 'bill',
+          dateKey,
+          timeLabel: 'Scadenza',
+          sortTime: '08:00',
+          summary: b.provider || b.title || 'Bolletta',
+          amount: b.amountEur ?? b.amount ?? null,
+          status: b.status || 'pending',
+          dueDate: b.dueDate,
+          calendarEventId: b.calendarEventId || null,
+          calendarHtmlLink: b.calendarHtmlLink || null,
+          subject: b.mailSubject || b.subject || ''
+        });
+      }
+
+      const deliveries = typeof this.deliveryBillingParser.getDeliveries === 'function'
+        ? this.deliveryBillingParser.getDeliveries('all')
+        : [];
+      for (const d of deliveries) {
+        const dateKey = this._toDateKey(d.expectedDate);
+        if (!dateKey) continue;
+        deliveryItems.push({
+          id: `delivery:${d.id}`,
+          itemId: d.id,
+          source: 'gmail_delivery',
+          type: 'delivery',
+          dateKey,
+          timeLabel: 'Consegna',
+          sortTime: '09:00',
+          summary: d.itemsDescription || d.item || d.mailSubject || d.subject || 'Consegna',
+          courier: d.courier || 'Corriere',
+          status: d.status || 'in_transit',
+          expectedDate: d.expectedDate,
+          calendarEventId: d.calendarEventId || null,
+          calendarHtmlLink: d.calendarHtmlLink || null
+        });
+      }
+    }
+
+    const items = [...calendarItems, ...billItems, ...deliveryItems].sort((a, b) => {
+      const cmp = String(a.dateKey).localeCompare(String(b.dateKey));
+      if (cmp !== 0) return cmp;
+      return String(a.sortTime || '').localeCompare(String(b.sortTime || ''));
+    });
+
+    return {
+      status: this.getStatus(),
+      items
+    };
   }
 
   formatAgendaText({ days = 7, nowMs = Date.now(), html = false } = {}) {
