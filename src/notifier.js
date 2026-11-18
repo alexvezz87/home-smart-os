@@ -217,7 +217,7 @@ class Notifier {
       message,
       elaboratedText: payload.elaboratedText,
       actionHints: payload.actionHints,
-      metadata: { ...data, targetUrl }
+      metadata: { ...data, targetUrl, ...(category === 'security' ? { canTrustGuest: true } : {}) }
     }).catch(() => {});
 
     eventBus.publish('alert:triggered', {
@@ -323,6 +323,10 @@ class Notifier {
     eventBus.on('sensor:motion', (evt = {}) => {
       const payload = unwrap(evt);
       if (payload && payload.away === true) {
+        try {
+          const sec = this.deps.securitySystem || require('./security-system');
+          if (sec && typeof sec.isTrustedGuestActive === 'function' && sec.isTrustedGuestActive()) return;
+        } catch (_) {}
         this.send({
           level: 'warning',
           category: 'security',
@@ -331,6 +335,7 @@ class Notifier {
           dedupKey: `motion:away:${payload.sensorId || payload.sensorName || 'hue'}`,
           cooldownMs: 2 * 60 * 1000,
           actionButtons: [
+            { text: '🤝 Persona Fidata (fino al rientro)', callback_data: 'trust_guest_away' },
             { text: '🔕 Silenzia 1h', callback_data: 'mute_alert:security' }
           ],
           targetUrl: '/#security'
@@ -341,6 +346,10 @@ class Notifier {
     const handleVisionEvt = (evt = {}) => {
       const payload = unwrap(evt);
       if (payload.anomaly || payload.severity === 'warning' || payload.severity === 'critical') {
+        try {
+          const sec = this.deps.securitySystem || require('./security-system');
+          if (sec && typeof sec.isTrustedGuestActive === 'function' && sec.isTrustedGuestActive()) return;
+        } catch (_) {}
         this.upsertFeedItem({
           sourceKey: `vision:${payload.cameraId || 'cam'}:${payload.timestamp || Date.now()}`,
           sourceType: 'security',
@@ -349,7 +358,7 @@ class Notifier {
           title: `Analisi Telecamera ${payload.cameraName || payload.cameraId || ''}`.trim(),
           message: payload.summary || payload.analysis || 'Anomalia rilevata dalla visione AI.',
           elaboratedText: payload.analysis || payload.summary || 'Verifica il feed video dalla sezione Sicurezza.',
-          metadata: payload
+          metadata: { ...payload, canTrustGuest: true }
         }).catch(() => {});
       }
     };

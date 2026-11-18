@@ -538,6 +538,14 @@ class TelegramBotManager {
     const data = String(cb.data || '');
     eventBus.publish('telegram:command', { chatId, callback: data });
 
+    if (data === 'trust_guest_away' || data.startsWith('trust_guest')) {
+      const securitySystem = this.deps.securitySystem || require('./security-system');
+      await securitySystem.setTrustedGuest(true, { source: 'telegram' });
+      await this.answerCallbackQuery(cb.id, 'Persona fidata accreditata fino al rientro');
+      await this.sendMessage('🤝 <b>Persona Fidata accreditata</b>: notifiche di sicurezza e analisi AI Sentinella sospese fino al rientro a casa di Alex o Cinzia.', { chatId, silent: true });
+      return { handled: true };
+    }
+
     if (data.startsWith('mute_alert')) {
       const category = data.split(':')[1] || 'all';
       if (this.deps.notifier) {

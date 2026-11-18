@@ -225,6 +225,13 @@ Riorganizzata con un'architettura **modulare responsive**: su desktop/tablet ori
 - **Audit Completo (`src/logger.js`, `src/notifier.js`, `server.js`)**: tracciamento unificato su file live + TiDB `activity_logs` per mutazioni/errori HTTP, notifiche/alert, eventi critici `eventBus` e chiamate Google Smart Home (`POST /api/google/fulfillment` e `/api/google/oauth/token`) senza mai esporre token in chiaro.
 - **Backup Notturno & Consultazione UI (`src/log-archiver.js`, `public/js/admin.js`, `server.js`)**: scheduler alle `01:00 Europe/Rome` (con catch-up al riavvio) che archivia i log > 2 giorni in `data/logs-archive/YYYY-MM/audit-YYYY-MM-DD.log`; in **Amministrazione → Registro Eventi & Audit Log** aggiunto selettore sorgente (`Live (RAM)` / `Database TiDB (Ultimi 2gg)` / `Archivio Giornaliero (.log)`), anteprima, download `.log`/`.txt` e pulsante **"🗄️ Archivia Ora"** (`/api/admin/logs/archives*`, `/api/admin/logs/archive-now`).
 
+---
+
+## 🤝 18. Accredito Temporaneo "Persona Fidata" & Risparmio Token AI (`#92`)
+- **Persona Fidata Temporanea (`src/security-system.js`, `server.js`)**: stato `trustedGuest` persistito in `sentinel-config` su TiDB (`setTrustedGuest`, `isTrustedGuestActive`, `POST /api/security/sentinel/trust-guest`). Quando attivo, sospende istantaneamente la ronda AI `runSentinelPatrol`, l'analisi ONVIF/temporale Gemini Vision e gli alert di movimento fuori casa (Hue SSE e `Notifier`), fino al rientro automatico (`presence:changed` `away -> home` di Alex o Cinzia). Supporta attivazione preventiva mentre ancora in casa (`armedWhileHome: true`) che sopravvive all'uscita `Casa -> away`.
+- **Azioni Rapide Telegram & Web UI (`src/telegram-bot.js`, `src/notifier.js`, `public/js/notifications.js`, `public/js/admin.js`)**: pulsante inline **`🤝 Persona Fidata (fino al rientro)`** su tutti gli alert Sentinella/movimento (`trust_guest_away`), pulsante **`🤝 Persona Fidata`** nel Centro Notifiche (popover, card e modale) e badge/toggle in **Amministrazione → Sentinella Fuori Casa** con opzione intervallo `0` (*Solo evento, 0 AI timer*).
+- **Risparmio Token AI, Dedup Polling & LogArchiver (`src/security-system.js`, `src/ev-climate-hub.js`, `src/log-archiver.js`)**: blocco analisi AI quando i proprietari sono in casa o su telecamere in `privacyMode`/offline; deduplicazione log `eventLogger` per polling 60s Wallbox/Bosch; cache `lineCount` in `LogArchiver.listArchives()`, idratazione stato da DB e preservazione contatori su run vuoti.
+
 
 
 

@@ -1839,6 +1839,20 @@ app.post('/api/security/sentinel/patrol', async (req, res) => {
   }
 });
 
+app.post('/api/security/sentinel/trust-guest', async (req, res) => {
+  try {
+    const active = req.body?.active !== undefined ? Boolean(req.body.active) : true;
+    const label = req.body?.label || 'Persona fidata';
+    const data = await securitySystem.setTrustedGuest(active, {
+      source: req.user?.email || 'web_app',
+      label
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // 1g-bis. Spina Dorsale EventBus, Presenza Iliadbox & AI Gateway
 app.get('/api/events/stream', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -2557,7 +2571,7 @@ async function bootstrap() {
     gmailHub,
     go2rtc: require('./src/go2rtc-manager')
   }).catch((err) => console.warn('⚠️ [Sandbox] Init background:', err.message));
-  notifier.init({ telegramBot, webPushManager, deliveryBillingParser }).catch((err) => console.warn('⚠️ [Notifier] Init background:', err.message));
+  notifier.init({ telegramBot, webPushManager, deliveryBillingParser, securitySystem }).catch((err) => console.warn('⚠️ [Notifier] Init background:', err.message));
   nestCaster.init().catch((err) => console.warn('⚠️ [NestCaster] Init background:', err.message));
   securitySystem.initSentinel({ notifier, iliadboxClient }).catch((err) => console.warn('⚠️ [Sentinel] Init background:', err.message));
   gmailHub.init().catch((err) => console.warn('⚠️ [GmailHub] Init background:', err.message));
