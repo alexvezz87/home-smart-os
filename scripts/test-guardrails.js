@@ -2360,3 +2360,113 @@ test('Hotfix Sentinella Priorità Presenza Wi-Fi & Stop falsi alert Cooldown (#9
   }
 });
 
+test('Server Modular Routes & Deferred Bootstrap Services (#97)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+
+  // 1. Verifica che server.js sia ridotto sotto le 400 righe e mantenga l'ordine middleware/bootstrap
+  const serverSrc = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const lineCount = serverSrc.split(/\r?\n/).length;
+  assert.ok(lineCount < 400, `server.js deve avere < 400 righe (trovate ${lineCount})`);
+  assert.ok(serverSrc.includes('registerPublicAuthRoutes(app, services)'));
+  assert.ok(serverSrc.includes('app.use(auth.middleware())'));
+  assert.ok(serverSrc.indexOf('registerPublicAuthRoutes(app, services)') < serverSrc.indexOf('app.use(auth.middleware())'));
+  assert.ok(serverSrc.indexOf('app.use(auth.middleware())') < serverSrc.indexOf('registerHueAppliancesSpatialRoutes(app, services)'));
+
+  // 2. Verifica caricamento e registrazione rotte dei 6 moduli su mock app
+  function createMockApp() {
+    const routes = { get: new Set(), post: new Set(), delete: new Set(), ws: new Set() };
+    const record = (method, routePath) => {
+      if (Array.isArray(routePath)) {
+        for (const p of routePath) routes[method].add(p);
+      } else {
+        routes[method].add(routePath);
+      }
+    };
+    return {
+      routes,
+      get: (p) => record('get', p),
+      post: (p) => record('post', p),
+      delete: (p) => record('delete', p),
+      ws: (p) => record('ws', p)
+    };
+  }
+
+  const mockServices = {
+    db: {},
+    auth: {},
+    logger: { recordAudit: () => {} },
+    logArchiver: {},
+    getRequestBaseUrl: () => 'https://example.local',
+    proxy: () => () => {},
+    scriptUrl: ''
+  };
+
+  const modules = [
+    {
+      name: 'public-auth.routes.js',
+      fn: require('../src/routes/public-auth.routes'),
+      expect: {
+        get: ['/api/status/health', '/healthz', '/api/auth/status', '/api/google/oauth/authorize'],
+        post: ['/api/auth/kiosk-login', '/api/google/oauth/token', '/api/google/fulfillment']
+      }
+    },
+    {
+      name: 'hue-appliances-spatial.routes.js',
+      fn: require('../src/routes/hue-appliances-spatial.routes'),
+      expect: {
+        get: ['/api/hue/status', '/api/printer/status', '/api/thinq/status', '/api/dyson/status', '/api/home', '/api/dashboard'],
+        post: ['/api/spatial/chandelier', '/api/device/:id/toggle', '/api/room/:roomName/toggle', '/api/all-off', '/api/assistant', '/api/assistant/audio'],
+        delete: ['/api/spatial/pin/:pin']
+      }
+    },
+    {
+      name: 'ev-climate-energy.routes.js',
+      fn: require('../src/routes/ev-climate-energy.routes'),
+      expect: {
+        get: ['/api/ev-climate/status', '/callback', '/api/climate/optimizer/status', '/api/climate/analytics/summary', '/api/energy', '/api/energy/export-csv'],
+        post: ['/api/ev-climate/bosch/setpoint', '/api/ev-climate/wallbox', '/api/ev-climate/volvo', '/api/climate/optimizer/toggle']
+      }
+    },
+    {
+      name: 'security-vision-nest.routes.js',
+      fn: require('../src/routes/security-vision-nest.routes'),
+      expect: {
+        get: ['/api/security/status', '/api/vision/status', '/api/system/nest-ips', '/api/nest/config'],
+        post: ['/api/security/mode', '/api/security/sentinel/patrol', '/api/security/sentinel/trust-guest', '/api/camera/:id/analyze', '/api/nest/speak'],
+        delete: ['/api/security/pet-refs/:id'],
+        ws: ['/api/stream/:cameraId']
+      }
+    },
+    {
+      name: 'mail-notifications.routes.js',
+      fn: require('../src/routes/mail-notifications.routes'),
+      expect: {
+        get: ['/api/mail/status', '/api/mail/deliveries', '/api/push/vapid-public-key', '/api/notifications/feed'],
+        post: ['/api/mail/sync', '/api/push/subscribe', '/api/notifications/read-all', '/api/telegram/pairing-link'],
+        delete: ['/api/notifications/:id']
+      }
+    },
+    {
+      name: 'admin-system.routes.js',
+      fn: require('../src/routes/admin-system.routes'),
+      expect: {
+        get: ['/api/events/stream', '/api/presence', '/api/avatars', '/api/admin/environment', '/api/admin/logs', '/api/admin/logs/archives', '/api/system/status', '/api/history'],
+        post: ['/api/avatars/:person', '/api/admin/environment', '/api/admin/system/pause', '/api/admin/logs/archive-now', '/api/ai/tts/test', '/api/history/clear']
+      }
+    }
+  ];
+
+  for (const mod of modules) {
+    const mockApp = createMockApp();
+    assert.equal(typeof mod.fn, 'function', `${mod.name} deve esportare una funzione`);
+    mod.fn(mockApp, mockServices);
+    for (const [method, paths] of Object.entries(mod.expect)) {
+      for (const p of paths) {
+        assert.ok(mockApp.routes[method].has(p), `${mod.name} deve registrare ${method.toUpperCase()} ${p}`);
+      }
+    }
+  }
+});
+
+

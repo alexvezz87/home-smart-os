@@ -212,6 +212,23 @@ Per isolare completamente lo sviluppo locale (`staging`) dalla produzione H24 su
    - `LogArchiver` mantiene caldi su TiDB gli ultimi `DB_LOG_RETENTION_DAYS=2` giorni (oggi + ieri), esporta i giorni precedenti in `data/logs-archive/YYYY-MM/audit-YYYY-MM-DD.log`, esegue verifica su disco (*Write → Verify → Delete*) e solo dopo elimina in batch da `activity_logs`.
    - Volume `./logs:/app/logs` aggiunto in `docker-compose.yml` per persistere i log live tra i deploy.
 
+---
+
+## 9. Architettura Modulare delle Route Express (`src/routes/*`, `#97`)
+
+Per mantenere `server.js` snello (`< 400` righe) e separare le responsabilità per dominio senza alterare l'idratazione differita post-TiDB (`bootstrap()`):
+
+1. **Oggetto Condiviso `services` (`server.js`)**:
+   - `server.js` dichiara l'oggetto `services` con le dipendenze core (`db`, `auth`, `logger`, `logArchiver`, `getRequestBaseUrl`, `proxy`, `scriptUrl`) e i placeholder `null` per i moduli di dominio.
+   - Dopo `await db.initDb()` e `db.syncAndSeed()`, `bootstrap()` popola `services.*` nello stesso ordine di inizializzazione. Ogni route handler accede ai servizi tramite `services.<modulo>` a runtime (mai destrutturato fuori dagli handler al momento del mount).
+2. **I 6 Moduli di Route in `src/routes/`**:
+   - `public-auth.routes.js` *(montato **prima** di `auth.middleware()`)*: healthcheck (`/api/status/health`, `/healthz`), auth Google/Kiosk, callback OAuth esterni (`/api/ev-climate/bosch/oauth-*`) e webhook Google Smart Home (`/api/google/oauth/*`, `/api/google/fulfillment`).
+   - `hue-appliances-spatial.routes.js`: Philips Hue, Pantum, LG ThinQ, Dyson HP11, `/api/home`/`/api/dashboard`, domotica spaziale, controllo stanze/dispositivi e assistente AI (`/api/assistant*`).
+   - `ev-climate-energy.routes.js`: garage EV (ABB Wallbox, Volvo EX30, `/callback`), Bosch CT200, `climate-optimizer`, `thermal-analytics`, Dolomiti Energia e telemetria Meross (`/api/energy*`).
+   - `security-vision-nest.routes.js`: sicurezza, telecamere Tapo/ONVIF, Gemini Vision, Nest Cast/TTS e stream WebSocket `WS /api/stream/:cameraId`.
+   - `mail-notifications.routes.js`: Gmail Hub, consegne/bollette, Web Push VAPID, Centro Notifiche Intelligente e pairing Telegram.
+   - `admin-system.routes.js`: EventBus SSE, presenza Iliadbox, avatar casa, ambiente duale/sandbox, audit log/archivi, `/api/ai/*`, `/api/system/status` e `/api/history*`.
+
 
 
 
