@@ -254,7 +254,7 @@ class MerossEnergyService {
         st.peakWatts = powerW;
         eventLogger.log('appliance', `🧺 Lavatrice: Inizio ciclo di lavaggio rilevato (${powerW} W)`, {
           device: 'Lavatrice',
-          room: 'Bagno',
+          room: 'Bagno Alex',
           source: 'Smart Energy AI'
         });
       }
@@ -288,7 +288,7 @@ class MerossEnergyService {
 
           eventLogger.log('appliance', `✅ Lavatrice ha terminato il lavaggio! Durata: ${durationMin} min · Consumo: ${kwh} kWh (${costEur} € in ${tariff.band})`, {
             device: 'Lavatrice',
-            room: 'Bagno',
+            room: 'Bagno Alex',
             source: 'Smart Energy AI'
           });
 
@@ -384,7 +384,7 @@ class MerossEnergyService {
     const washerMetric = this.metricsByName.get('lavatrice');
     smartAppliances.push({
       name: 'Lavatrice (Meross Smart)',
-      room: 'Bagno',
+      room: 'Bagno Alex',
       type: 'washer',
       status: this.washerState.status === 'idle' ? 'Pronta / Standby' : this.washerState.status === 'finishing' ? 'Scarico / Fine Ciclo' : 'Lavaggio in corso',
       isRunning: this.washerState.status !== 'idle',
@@ -571,7 +571,7 @@ class MerossEnergyService {
 
   getPlugRoomName(deviceName) {
     const n = (deviceName || '').toLowerCase();
-    if (n.includes('lavatrice')) return 'Bagno';
+    if (n.includes('lavatrice')) return 'Bagno Alex';
     if (n.includes('cucina')) return 'Cucina';
     if (n.includes('computer')) return 'Cameretta';
     if (n.includes('monitor')) return 'Camera da letto';

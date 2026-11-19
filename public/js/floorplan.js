@@ -93,6 +93,7 @@ if (typeof window !== 'undefined') window.HOME_DAY_PHASES = DAY_PHASES;
 const ARCHITECTURAL_ROOMS = [
   {
     id: 'Camera da letto',
+    shortLabel: 'Camera',
     label: 'CAMERA DA LETTO',
     subLabel: 'Zona Notte Padronale · 16.5 m²',
     icon: 'fa-bed',
@@ -116,9 +117,10 @@ const ARCHITECTURAL_ROOMS = [
     interactive: false
   },
   {
-    id: 'Bagno',
-    label: 'BAGNO LAVANDERIA',
-    subLabel: 'Bagno Notte · 5.4 m²',
+    id: 'Bagno Alex',
+    shortLabel: 'Bagno Alex',
+    label: 'BAGNO ALEX',
+    subLabel: 'Lavanderia & Doccia · 5.4 m²',
     icon: 'fa-soap',
     floorType: 'tile',
     path: 'M 240 320 L 390 320 L 390 492 L 240 492 Z',
@@ -129,8 +131,9 @@ const ARCHITECTURAL_ROOMS = [
   },
   {
     id: 'Cameretta',
-    label: 'CAMERETTA / STUDIO',
-    subLabel: 'Studio & Smart Working · 12.8 m²',
+    shortLabel: 'Cameretta',
+    label: 'CAMERETTA',
+    subLabel: 'Camera & Studio · 12.8 m²',
     icon: 'fa-laptop-code',
     floorType: 'parquet',
     path: 'M 492 252 L 735 252 L 735 455 L 492 455 Z',
@@ -140,9 +143,10 @@ const ARCHITECTURAL_ROOMS = [
     interactive: true
   },
   {
-    id: 'Bagno Principale',
-    label: 'BAGNO PRINCIPALE',
-    subLabel: 'Vasca & Doccia · 6.0 m²',
+    id: 'Bagno Cinzia',
+    shortLabel: 'Bagno Cinzia',
+    label: 'BAGNO CINZIA',
+    subLabel: 'Vasca & Doppio Lavabo · 6.0 m²',
     icon: 'fa-bath',
     floorType: 'tile',
     path: 'M 600 455 L 815 455 L 815 592 L 600 592 Z',
@@ -165,6 +169,7 @@ const ARCHITECTURAL_ROOMS = [
   },
   {
     id: 'Cabina armadio',
+    shortLabel: 'Cabina',
     label: 'CABINA ARMADIO',
     subLabel: 'Walk-in Closet · 9.2 m²',
     icon: 'fa-shirt',
@@ -177,19 +182,34 @@ const ARCHITECTURAL_ROOMS = [
   },
   {
     id: 'Corridoio',
-    label: 'CORRIDOIO & INGRESSO',
-    subLabel: 'Spina Dorsale & Snodo · 11.5 m²',
+    shortLabel: 'Corridoio',
+    label: 'CORRIDOIO',
+    subLabel: 'Disimpegno Zona Notte · 7.0 m²',
     icon: 'fa-route',
     floorType: 'parquet',
-    path: 'M 390 320 L 492 320 L 492 455 L 600 455 L 600 592 L 538 592 L 538 518 L 452 518 L 452 665 L 538 665 L 538 768 L 390 768 Z',
+    path: 'M 390 320 L 492 320 L 492 455 L 600 455 L 600 592 L 538 592 L 538 518 L 452 518 L 452 665 L 390 665 Z',
     labelX: 442,
     labelY: 390,
-    viewBoxZoom: '330 280 320 520',
+    viewBoxZoom: '330 280 320 410',
+    interactive: true
+  },
+  {
+    id: 'Ingresso',
+    shortLabel: 'Ingresso',
+    label: 'INGRESSO',
+    subLabel: 'Porta Blindata & Accoglienza · 4.5 m²',
+    icon: 'fa-door-open',
+    floorType: 'parquet',
+    path: 'M 390 665 L 538 665 L 538 768 L 390 768 Z',
+    labelX: 464,
+    labelY: 742,
+    viewBoxZoom: '330 620 270 210',
     interactive: true
   },
   {
     id: 'Salone',
-    label: 'SALONE LIVING',
+    shortLabel: 'Salone',
+    label: 'SALONE',
     subLabel: 'Divano, Cinema TV & Libreria · 28.5 m²',
     icon: 'fa-couch',
     floorType: 'parquet',
@@ -201,7 +221,8 @@ const ARCHITECTURAL_ROOMS = [
   },
   {
     id: 'Cucina',
-    label: 'CUCINA ABITABILE',
+    shortLabel: 'Cucina',
+    label: 'CUCINA',
     subLabel: 'Isola Cottura & Pranzo · 13.4 m²',
     icon: 'fa-utensils',
     floorType: 'tile',
@@ -543,6 +564,7 @@ class FloorplanEngine {
     else if (rNorm.includes('letto')) targetGroup = 'Camera da letto';
     else if (rNorm.includes('studio') || rNorm.includes('cameretta')) targetGroup = 'Studio';
     else if (rNorm.includes('cucina')) targetGroup = 'Cucina';
+    else if (rNorm.includes('ingresso')) targetGroup = data.byRoom['Ingresso'] ? 'Ingresso' : (data.byRoom['Salone'] ? 'Salone' : 'Corridoio');
     else if (rNorm.includes('corridoio')) targetGroup = 'Corridoio';
 
     if (targetGroup && data.byRoom[targetGroup]) {
@@ -873,7 +895,7 @@ class FloorplanEngine {
         <text x="557" y="226" text-anchor="middle" fill="${strokeCol}" font-size="13" font-weight="bold" stroke="none">C.T.</text>
         <rect x="716" y="72" width="14" height="155" rx="4" fill="rgba(16, 185, 129, 0.25)" stroke="#10b981" />
 
-        <!-- Bagno Lavanderia -->
+        <!-- Bagno Alex -->
         <rect x="246" y="326" width="68" height="62" rx="4" fill="${fillAccent}" />
         <line x1="246" y1="326" x2="314" y2="388" stroke-opacity="0.4" />
         <line x1="314" y1="326" x2="246" y2="388" stroke-opacity="0.4" />
@@ -882,13 +904,13 @@ class FloorplanEngine {
         <rect x="318" y="424" width="58" height="58" rx="6" fill="${fillAccent}" stroke-width="1.8" />
         <circle cx="347" cy="453" r="18" fill="none" stroke-dasharray="4 2" />
 
-        <!-- Cameretta / Studio -->
+        <!-- Cameretta -->
         <path d="M 500 258 L 635 258 L 635 302 L 548 302 L 548 335 L 500 335 Z" fill="${fillAccent}" />
         <circle cx="585" cy="316" r="14" />
         <rect x="668" y="264" width="60" height="115" rx="5" fill="${fillAccent}" />
         <rect x="674" y="270" width="48" height="24" rx="4" />
 
-        <!-- Bagno Principale -->
+        <!-- Bagno Cinzia -->
         <rect x="742" y="462" width="66" height="122" rx="10" fill="${fillAccent}" />
         <rect x="750" y="472" width="50" height="102" rx="18" />
         <rect x="625" y="460" width="82" height="34" rx="4" fill="${fillAccent}" />
@@ -902,7 +924,7 @@ class FloorplanEngine {
         <rect x="550" y="718" width="255" height="34" rx="3" fill="${fillAccent}" />
         <rect x="645" y="660" width="65" height="30" rx="8" />
 
-        <!-- Salone Living -->
+        <!-- Salone -->
         <rect x="285" y="815" width="135" height="135" rx="8" fill="${fillSoft}" stroke-dasharray="4 4" />
         <path d="M 244 785 L 405 785 L 405 832 L 292 832 L 292 945 L 244 945 Z" fill="${fillAccent}" stroke-width="2" />
         <rect x="322" y="855" width="68" height="44" rx="6" fill="${fillAccent}" />
@@ -1081,7 +1103,7 @@ class FloorplanEngine {
               if (roomWatts > 0) infoParts.push(`⚡ ${roomWatts.toFixed(0)}W`);
               if (infoParts.length === 0 && roomPins.length > 0) infoParts.push(`${roomPins.length} disp.`);
               const hasSubLine = r.interactive && infoParts.length > 0;
-              const boxW = Math.max(156, infoParts.join(' · ').length * 6.8 + 20);
+              const boxW = Math.max(118, r.label.length * 8.4 + 24, infoParts.join(' · ').length * 6.8 + 20);
               return `
                 <rect x="${-Math.round(boxW / 2)}" y="-22" width="${Math.round(boxW)}" height="${hasSubLine ? '44' : '28'}" rx="8"
                       fill="${isSelected ? 'rgba(8, 47, 73, 0.95)' : (isLight ? 'rgba(255, 255, 255, 0.88)' : 'rgba(2, 6, 23, 0.82)')}"
@@ -1882,7 +1904,7 @@ class FloorplanEngine {
               </button>
               ${ARCHITECTURAL_ROOMS.filter(r => r.interactive).map(r => `
                 <button onclick="window.floorplan.selectRoom('${r.id}')" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${this.selectedRoom === r.id ? 'bg-indigo-600 text-white ring-1 ring-cyan-400' : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'}">
-                  <i class="fa-solid ${r.icon} mr-1"></i>${r.label.split(' ')[0]}
+                  <i class="fa-solid ${r.icon} mr-1"></i>${r.shortLabel || r.id}
                 </button>
               `).join('')}
             </div>

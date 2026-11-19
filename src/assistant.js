@@ -168,7 +168,7 @@ async function processAssistantCommand(input, options = {}) {
 
     // Riconoscimento stanza
     const isSalone = text.includes('salone') || text.includes('soggiorno') || text.includes('sala');
-    const isStudio = text.includes('studio');
+    const isStudio = text.includes('studio') || text.includes('cameretta');
     const isLetto = text.includes('letto') || text.includes('camera');
     const isCucina = text.includes('cucina');
     const isCorridoio = text.includes('corridoio');
@@ -216,7 +216,7 @@ async function processAssistantCommand(input, options = {}) {
     
     // Riconoscimento stanza
     const isSalone = text.includes('salone') || text.includes('soggiorno') || text.includes('sala');
-    const isStudio = text.includes('studio');
+    const isStudio = text.includes('studio') || text.includes('cameretta');
     const isLetto = text.includes('letto') || text.includes('camera');
     const isCucina = text.includes('cucina');
     const isCorridoio = text.includes('corridoio');
@@ -251,10 +251,10 @@ async function processAssistantCommand(input, options = {}) {
   if (hueLocal.isPaired) {
     const colorMatch = text.match(/\b(bianco\s+caldo|bianco\s+naturale|bianco\s+freddo|blu|azzurro|ciano|rosso|verde|smeraldo|viola|lavanda|malva|arancione|ambra|giallo|oro|rosa|magenta|calda|caldo|naturale|fredda|freddo)\b/i);
     const brightMatch = text.match(/(\d{1,3})\s*%/);
-    const hasLightContext = text.includes('luce') || text.includes('luci') || text.includes('lampadario') || text.includes('nuvoletta') || text.includes('piantana') || text.includes('abajour') || text.includes('abat-jour') || text.includes('salone') || text.includes('cucina') || text.includes('camera') || text.includes('studio') || text.includes('corridoio');
+    const hasLightContext = text.includes('luce') || text.includes('luci') || text.includes('lampadario') || text.includes('nuvoletta') || text.includes('piantana') || text.includes('abajour') || text.includes('abat-jour') || text.includes('salone') || text.includes('cucina') || text.includes('camera') || text.includes('cameretta') || text.includes('studio') || text.includes('corridoio') || text.includes('ingresso');
     if ((colorMatch || brightMatch) && hasLightContext && !text.includes('temperatura')) {
       const isSalone = text.includes('salone') || text.includes('soggiorno') || text.includes('sala');
-      const isStudio = text.includes('studio');
+      const isStudio = text.includes('studio') || text.includes('cameretta');
       const isLetto = text.includes('letto') || text.includes('camera');
       const isCucina = text.includes('cucina');
       const isCorridoio = text.includes('corridoio');
