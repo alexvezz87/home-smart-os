@@ -4,6 +4,91 @@
  * glow luci in tempo reale, radar telecamere, badge telemetria e layer heatmap energetica.
  */
 
+// Fasi della giornata (modello estensibile per illuminazione piantina & automazioni future)
+const DAY_PHASES = {
+  morning: {
+    id: 'morning',
+    label: 'Mattino',
+    hoursRange: '06:00–12:00',
+    icon: 'fa-sun',
+    ambientLightLevel: 1.0,
+    viewportBg: 'radial-gradient(circle at 28% 12%, rgba(125,211,252,0.28) 0%, rgba(15,35,64,0.96) 58%, #09172e 100%)',
+    parquetFill: '#1e3554',
+    parquetLine: 'rgba(186,230,253,0.08)',
+    tileFill: '#243c5e',
+    tileLine: 'rgba(186,230,253,0.12)',
+    deckFill: '#122640',
+    sunlightColor: '#bae6fd',
+    sunlightOpacity: 0.44,
+    ambientWash: 'rgba(186,230,253,0.09)',
+    glowMultiplier: 0.65,
+    badgeCls: 'bg-sky-500/20 text-sky-200 border-sky-400/40',
+    handAccent: '#38bdf8',
+    clockBorder: 'border-sky-400/40'
+  },
+  afternoon: {
+    id: 'afternoon',
+    label: 'Pomeriggio',
+    hoursRange: '12:00–18:00',
+    icon: 'fa-cloud-sun',
+    ambientLightLevel: 0.85,
+    viewportBg: 'radial-gradient(circle at 75% 82%, rgba(251,191,36,0.22) 0%, rgba(17,29,52,0.96) 56%, #0b1426 100%)',
+    parquetFill: '#1a2c47',
+    parquetLine: 'rgba(253,230,138,0.06)',
+    tileFill: '#1e324f',
+    tileLine: 'rgba(253,230,138,0.10)',
+    deckFill: '#101d33',
+    sunlightColor: '#fde68a',
+    sunlightOpacity: 0.36,
+    ambientWash: 'rgba(254,240,138,0.07)',
+    glowMultiplier: 0.78,
+    badgeCls: 'bg-amber-500/20 text-amber-200 border-amber-400/40',
+    handAccent: '#fbbf24',
+    clockBorder: 'border-amber-400/40'
+  },
+  evening: {
+    id: 'evening',
+    label: 'Sera',
+    hoursRange: '18:00–22:00',
+    icon: 'fa-cloud-moon',
+    ambientLightLevel: 0.45,
+    viewportBg: 'radial-gradient(circle at 60% 25%, rgba(139,92,246,0.16) 0%, rgba(12,18,38,0.98) 55%, #060b19 100%)',
+    parquetFill: '#10192e',
+    parquetLine: 'rgba(167,139,250,0.04)',
+    tileFill: '#141f36',
+    tileLine: 'rgba(148,163,184,0.08)',
+    deckFill: '#070d1c',
+    sunlightColor: '#a78bfa',
+    sunlightOpacity: 0.16,
+    ambientWash: 'rgba(99,102,241,0.06)',
+    glowMultiplier: 1.0,
+    badgeCls: 'bg-purple-500/20 text-purple-200 border-purple-400/40',
+    handAccent: '#c084fc',
+    clockBorder: 'border-purple-400/40'
+  },
+  night: {
+    id: 'night',
+    label: 'Notte',
+    hoursRange: '22:00–06:00',
+    icon: 'fa-moon',
+    ambientLightLevel: 0.15,
+    viewportBg: 'radial-gradient(circle at 50% 0%, rgba(15,23,42,0.85) 0%, #020617 70%, #01030d 100%)',
+    parquetFill: '#070b15',
+    parquetLine: 'rgba(255,255,255,0.025)',
+    tileFill: '#0a101e',
+    tileLine: 'rgba(148,163,184,0.05)',
+    deckFill: '#02040a',
+    sunlightColor: '#1e3a8a',
+    sunlightOpacity: 0.06,
+    ambientWash: 'rgba(2,6,23,0.30)',
+    glowMultiplier: 1.25,
+    badgeCls: 'bg-indigo-950/90 text-indigo-200 border-indigo-400/40',
+    handAccent: '#22d3ee',
+    clockBorder: 'border-indigo-400/40'
+  }
+};
+if (typeof window !== 'undefined') window.HOME_DAY_PHASES = DAY_PHASES;
+
 // Geometria architettonica vettoriale delle stanze (viewBox 0 0 1000 1300)
 const ARCHITECTURAL_ROOMS = [
   {
@@ -210,6 +295,161 @@ class FloorplanEngine {
     this.startClient = { x: 0, y: 0 };
     this.touchStartDist = 0;
     this._windowListenersBound = false;
+
+    // Fase del giorno & orologio live
+    const savedOverride = localStorage.getItem('fp_day_phase_override') || 'auto';
+    this.dayPhaseOverride = ['auto', 'morning', 'afternoon', 'evening', 'night'].includes(savedOverride) ? savedOverride : 'auto';
+    this._lastAutoDayPhase = this.getAutoDayPhase();
+    this._clockTimer = null;
+    this.startClockLoop();
+  }
+
+  getAutoDayPhase(date = new Date()) {
+    const h = date.getHours();
+    if (h >= 6 && h < 12) return 'morning';
+    if (h >= 12 && h < 18) return 'afternoon';
+    if (h >= 18 && h < 22) return 'evening';
+    return 'night';
+  }
+
+  getActiveDayPhase(date = new Date()) {
+    const key = this.dayPhaseOverride === 'auto' ? this.getAutoDayPhase(date) : this.dayPhaseOverride;
+    const base = DAY_PHASES[key] || DAY_PHASES.night;
+    return { ...base, isAuto: this.dayPhaseOverride === 'auto', mode: this.dayPhaseOverride };
+  }
+
+  setDayPhaseOverride(mode) {
+    if (!['auto', 'morning', 'afternoon', 'evening', 'night'].includes(mode)) return;
+    this.dayPhaseOverride = mode;
+    localStorage.setItem('fp_day_phase_override', mode);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('home:dayphase-changed', {
+        detail: { mode, phase: this.getActiveDayPhase() }
+      }));
+    }
+    this.render();
+  }
+
+  cycleDayPhase() {
+    const order = ['auto', 'morning', 'afternoon', 'evening', 'night'];
+    const next = order[(order.indexOf(this.dayPhaseOverride) + 1) % order.length];
+    this.setDayPhaseOverride(next);
+    if (typeof showToast === 'function') {
+      const active = this.getActiveDayPhase();
+      showToast(
+        next === 'auto'
+          ? `🕒 Vista giornata: Automatica (${active.label})`
+          : `🌤️ Anteprima vista: ${active.label} (${active.hoursRange})`,
+        'info'
+      );
+    }
+  }
+
+  startClockLoop() {
+    if (this._clockTimer || typeof window === 'undefined') return;
+    this._clockTimer = window.setInterval(() => this.updateClockDom(), 1000);
+  }
+
+  updateClockDom() {
+    const now = new Date();
+    const hh = now.getHours();
+    const mm = now.getMinutes();
+    const ss = now.getSeconds();
+
+    const elTime = document.getElementById('fp-clock-time');
+    if (elTime) {
+      elTime.textContent = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+    }
+    const elSecTxt = document.getElementById('fp-clock-sec-text');
+    if (elSecTxt) {
+      elSecTxt.textContent = `:${String(ss).padStart(2, '0')}`;
+    }
+    const elDate = document.getElementById('fp-clock-date');
+    if (elDate) {
+      const DAYS = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
+      const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
+      elDate.textContent = `${DAYS[now.getDay()]} ${now.getDate()} ${MONTHS[now.getMonth()]}`;
+    }
+
+    const secDeg = ss * 6;
+    const minDeg = mm * 6 + ss * 0.1;
+    const hourDeg = ((hh % 12) * 30) + (mm * 0.5);
+
+    const hHand = document.getElementById('fp-clock-hour');
+    const mHand = document.getElementById('fp-clock-min');
+    const sHand = document.getElementById('fp-clock-sec');
+    if (hHand) hHand.setAttribute('transform', `rotate(${hourDeg.toFixed(1)} 20 20)`);
+    if (mHand) mHand.setAttribute('transform', `rotate(${minDeg.toFixed(1)} 20 20)`);
+    if (sHand) sHand.setAttribute('transform', `rotate(${secDeg.toFixed(1)} 20 20)`);
+
+    const autoNow = this.getAutoDayPhase(now);
+    if (autoNow !== this._lastAutoDayPhase) {
+      this._lastAutoDayPhase = autoNow;
+      if (this.dayPhaseOverride === 'auto') {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('home:dayphase-changed', {
+            detail: { mode: 'auto', phase: this.getActiveDayPhase(now) }
+          }));
+        }
+        const areaHome = document.getElementById('area-home');
+        if (areaHome && !areaHome.classList.contains('hidden')) {
+          this.render();
+        }
+      }
+    }
+  }
+
+  renderClockWidgetHtml(dayPhase) {
+    const now = new Date();
+    const hh = now.getHours();
+    const mm = now.getMinutes();
+    const ss = now.getSeconds();
+    const DAYS = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
+    const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
+    const dateStr = `${DAYS[now.getDay()]} ${now.getDate()} ${MONTHS[now.getMonth()]}`;
+    const timeStr = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+    const secStr = `:${String(ss).padStart(2, '0')}`;
+    const secDeg = ss * 6;
+    const minDeg = mm * 6 + ss * 0.1;
+    const hourDeg = ((hh % 12) * 30) + (mm * 0.5);
+
+    const ticks = Array.from({ length: 12 }, (_, i) => {
+      const major = i % 3 === 0;
+      return `<line x1="20" y1="${major ? 3.5 : 4.5}" x2="20" y2="${major ? 6.5 : 6}" stroke="${major ? '#94a3b8' : '#475569'}" stroke-width="${major ? 1.4 : 1}" transform="rotate(${i * 30} 20 20)" />`;
+    }).join('');
+
+    return `
+      <div class="inline-flex items-center gap-2.5 rounded-2xl bg-slate-900/85 backdrop-blur-md px-2.5 py-1.5 border ${dayPhase.clockBorder} shadow-lg">
+        <!-- Quadrante Orologio Analogico Live -->
+        <svg viewBox="0 0 40 40" class="w-9 h-9 shrink-0" aria-hidden="true">
+          <circle cx="20" cy="20" r="18" fill="rgba(2,6,23,0.9)" stroke="${dayPhase.handAccent}" stroke-opacity="0.45" stroke-width="1.3" />
+          ${ticks}
+          <line id="fp-clock-hour" x1="20" y1="20" x2="20" y2="11" stroke="#f8fafc" stroke-width="2" stroke-linecap="round" transform="rotate(${hourDeg.toFixed(1)} 20 20)" />
+          <line id="fp-clock-min" x1="20" y1="20" x2="20" y2="7.5" stroke="#cbd5e1" stroke-width="1.5" stroke-linecap="round" transform="rotate(${minDeg.toFixed(1)} 20 20)" />
+          <line id="fp-clock-sec" x1="20" y1="22" x2="20" y2="6.5" stroke="${dayPhase.handAccent}" stroke-width="1" stroke-linecap="round" transform="rotate(${secDeg.toFixed(1)} 20 20)" />
+          <circle cx="20" cy="20" r="1.8" fill="${dayPhase.handAccent}" />
+        </svg>
+
+        <!-- Orario Digitale + Data -->
+        <div class="leading-tight pr-0.5">
+          <div class="flex items-baseline gap-0.5 font-mono">
+            <span id="fp-clock-time" class="text-sm sm:text-base font-black text-white tracking-tight">${timeStr}</span>
+            <span id="fp-clock-sec-text" class="text-[10px] text-slate-400 font-semibold">${secStr}</span>
+          </div>
+          <div id="fp-clock-date" class="text-[10px] text-slate-400 font-medium">${dateStr}</div>
+        </div>
+
+        <!-- Selettore Fase Giornata (Auto / Mattino / Pomeriggio / Sera / Notte) -->
+        <button type="button"
+                onclick="window.floorplan.cycleDayPhase()"
+                title="${dayPhase.isAuto ? `Fascia automatica: ${dayPhase.label} (${dayPhase.hoursRange}) — Clicca per cambiare anteprima` : `Anteprima manuale: ${dayPhase.label} — Clicca per cambiare o tornare su Auto`}"
+                class="px-2 py-1 rounded-xl text-[10.5px] font-bold border transition-all active:scale-95 flex items-center gap-1.5 ${dayPhase.badgeCls}">
+          <i class="fa-solid ${dayPhase.icon} text-[10px]"></i>
+          <span>${dayPhase.label}</span>
+          <span class="text-[9px] font-mono opacity-75 uppercase">${dayPhase.isAuto ? 'Auto' : 'Manuale'}</span>
+        </button>
+      </div>
+    `;
   }
 
   setLayer(layer) {
@@ -737,6 +977,8 @@ class FloorplanEngine {
     const activePin = pins.find(p => p.pin === this.selectedPin) || pins[0];
     const isCad = this.bgStyle === 'cad';
     const isLight = this.bgStyle === 'light';
+    const dayPhase = this.getActiveDayPhase();
+    const useDayPhase = !isCad && !isLight;
 
     // Piantina con proporzioni fedeli 1:1 e preset vista zoom (Tutta la casa / Zona Notte / Zona Giorno)
     const viewBox = this.zoomPreset === 'night'
@@ -861,8 +1103,9 @@ class FloorplanEngine {
       }).join('');
     }
 
-    // Glow luci accese (visibili solo nel layer 'all' o 'lights')
+    // Glow luci accese (visibili solo nel layer 'all' o 'lights'), modulati dalla fascia oraria
     const showGlows = this.activeLayer === 'all' || this.activeLayer === 'lights';
+    const glowMult = useDayPhase ? dayPhase.glowMultiplier : 1;
     const lightGlowsSvg = showGlows ? pins
       .filter(p => (p.category === 'light' || p.category === 'chandelier') && p.isOn)
       .map(p => {
@@ -870,9 +1113,10 @@ class FloorplanEngine {
         const cy = +(p.y * 13.37).toFixed(1);
         const ratio = Math.max(0.25, (p.brightness || 80) / 100);
         const bulbRatio = p.category === 'chandelier' ? Math.max(0.4, (p.activeBulbs || 1) / (p.totalBulbs || 1)) : 1;
-        const r = Math.round((p.lightRadius || 14) * 9.2 * (0.55 + 0.45 * ratio) * bulbRatio);
+        const r = Math.round((p.lightRadius || 14) * 9.2 * (0.55 + 0.45 * ratio) * bulbRatio * (0.85 + 0.15 * glowMult));
+        const glowOpacity = Math.min(0.98, (0.45 + 0.45 * ratio) * glowMult).toFixed(2);
         const gradId = p.pin === 23 || p.pin === 25 ? 'glowPurple' : p.pin === 3 ? 'glowSky' : 'glowWarm';
-        return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#${gradId})" opacity="${(0.45 + 0.45 * ratio).toFixed(2)}" pointer-events="none"/>`;
+        return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#${gradId})" opacity="${glowOpacity}" pointer-events="none"/>`;
       }).join('') : '';
 
     // Radar telecamere (visibili solo nel layer 'all' o 'cameras')
@@ -1160,7 +1404,7 @@ class FloorplanEngine {
     container.innerHTML = `
       <div class="relative w-full flex flex-col gap-2">
         <!-- Su mobile (< sm): barra esterna sopra la piantina (zero sovrapposizioni!). Su sm+: HUD flottante in alto -->
-        <div class="sm:absolute sm:top-2.5 sm:left-2.5 sm:right-2.5 sm:z-20 flex flex-wrap items-center justify-between gap-1.5 sm:gap-2 sm:pointer-events-none">
+        <div class="sm:absolute sm:top-2.5 sm:left-2.5 sm:right-2.5 sm:z-20 flex flex-wrap items-start justify-between gap-1.5 sm:gap-2 sm:pointer-events-none">
           
           <!-- Chip Layer Rapidi (Wrap pulito, zero scroll orizzontale) -->
           <div class="pointer-events-auto flex flex-wrap items-center gap-1.5">
@@ -1200,46 +1444,53 @@ class FloorplanEngine {
             ` : ''}
           </div>
 
-          <!-- Destra HUD: Avatar Presenza Casa (Alex & Cinzia) + Selettore Vista Zoom -->
-          <div class="pointer-events-auto flex items-center gap-2">
-            <!-- Avatar Circolari Presenza -->
-            <div class="inline-flex items-center gap-1.5 rounded-xl bg-slate-900/80 backdrop-blur-md px-2 py-1 border border-cyan-500/25 shadow-lg">
-              ${[
-                { key: 'alex', label: 'Alex', initial: 'A', ringHome: 'ring-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.5)]' },
-                { key: 'cinzia', label: 'Cinzia', initial: 'C', ringHome: 'ring-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.5)]' }
-              ].map(p => {
-                const st = window.homeData?.presence?.[p.key] || {};
-                const isHome = st.status === 'home';
-                const avatarUrl = window.homeData?.avatars?.[p.key] || null;
-                const lastSeenStr = st.lastSeen ? new Date(st.lastSeen).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '';
-                const statusTxt = isHome ? 'In casa' : (st.status === 'away' ? `Fuori casa${lastSeenStr ? ` (visto ${lastSeenStr})` : ''}` : 'Stato non rilevato');
-                return `
-                  <button type="button"
-                          onclick="if(typeof showToast==='function') showToast('${isHome ? '🟢' : '⚫'} ${p.label}: ${statusTxt}', '${isHome ? 'success' : 'info'}')"
-                          title="${p.label}: ${statusTxt}"
-                          class="relative w-7 h-7 sm:w-8 sm:h-8 rounded-full transition-all active:scale-95 ${isHome ? `ring-2 ${p.ringHome}` : 'ring-1 ring-slate-600 grayscale opacity-55'} bg-slate-800 flex items-center justify-center overflow-visible">
-                    <span class="w-full h-full rounded-full overflow-hidden flex items-center justify-center">
-                      ${avatarUrl
-                        ? `<img src="${avatarUrl}" alt="${p.label}" class="w-full h-full object-cover" />`
-                        : `<span class="text-[11px] font-black ${isHome ? 'text-cyan-200' : 'text-slate-400'}">${p.initial}</span>`
-                      }
-                    </span>
-                    <span class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-slate-950 ${isHome ? 'bg-emerald-400' : 'bg-slate-500'}"></span>
-                  </button>
-                `;
-              }).join('')}
+          <!-- Destra HUD: Avatar + Zoom + Quadrante Orologio / Fase Giornata -->
+          <div class="pointer-events-auto flex flex-wrap sm:flex-col items-center sm:items-end gap-1.5 sm:gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+              <!-- Avatar Circolari Presenza -->
+              <div class="inline-flex items-center gap-1.5 rounded-xl bg-slate-900/80 backdrop-blur-md px-2 py-1 border border-cyan-500/25 shadow-lg">
+                ${[
+                  { key: 'alex', label: 'Alex', initial: 'A', ringHome: 'ring-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.5)]' },
+                  { key: 'cinzia', label: 'Cinzia', initial: 'C', ringHome: 'ring-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.5)]' }
+                ].map(p => {
+                  const st = window.homeData?.presence?.[p.key] || {};
+                  const isHome = st.status === 'home';
+                  const avatarUrl = window.homeData?.avatars?.[p.key] || null;
+                  const lastSeenStr = st.lastSeen ? new Date(st.lastSeen).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '';
+                  const statusTxt = isHome ? 'In casa' : (st.status === 'away' ? `Fuori casa${lastSeenStr ? ` (visto ${lastSeenStr})` : ''}` : 'Stato non rilevato');
+                  return `
+                    <button type="button"
+                            onclick="if(typeof showToast==='function') showToast('${isHome ? '🟢' : '⚫'} ${p.label}: ${statusTxt}', '${isHome ? 'success' : 'info'}')"
+                            title="${p.label}: ${statusTxt}"
+                            class="relative w-7 h-7 sm:w-8 sm:h-8 rounded-full transition-all active:scale-95 ${isHome ? `ring-2 ${p.ringHome}` : 'ring-1 ring-slate-600 grayscale opacity-55'} bg-slate-800 flex items-center justify-center overflow-visible">
+                      <span class="w-full h-full rounded-full overflow-hidden flex items-center justify-center">
+                        ${avatarUrl
+                          ? `<img src="${avatarUrl}" alt="${p.label}" class="w-full h-full object-cover" />`
+                          : `<span class="text-[11px] font-black ${isHome ? 'text-cyan-200' : 'text-slate-400'}">${p.initial}</span>`
+                        }
+                      </span>
+                      <span class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-slate-950 ${isHome ? 'bg-emerald-400' : 'bg-slate-500'}"></span>
+                    </button>
+                  `;
+                }).join('')}
+              </div>
+
+              <!-- Selettore Vista Zoom (Proporzioni SVG fedeli) -->
+              <div class="inline-flex items-center rounded-xl bg-slate-900/80 backdrop-blur-md p-0.5 border border-slate-700/60 shadow-lg">
+                <button onclick="window.floorplan.setZoomPreset('all')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${this.zoomPreset === 'all' ? 'bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Casa</button>
+                <button onclick="window.floorplan.setZoomPreset('night')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${this.zoomPreset === 'night' ? 'bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Notte</button>
+                <button onclick="window.floorplan.setZoomPreset('day')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${this.zoomPreset === 'day' ? 'bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Giorno</button>
+              </div>
             </div>
 
-            <!-- Selettore Vista Zoom (Proporzioni SVG fedeli) -->
-            <div class="inline-flex items-center rounded-xl bg-slate-900/80 backdrop-blur-md p-0.5 border border-slate-700/60 shadow-lg">
-              <button onclick="window.floorplan.setZoomPreset('all')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${this.zoomPreset === 'all' ? 'bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Casa</button>
-              <button onclick="window.floorplan.setZoomPreset('night')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${this.zoomPreset === 'night' ? 'bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Notte</button>
-              <button onclick="window.floorplan.setZoomPreset('day')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${this.zoomPreset === 'day' ? 'bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Giorno</button>
-            </div>
+            <!-- Quadrante Orologio Live & Fase Giornata (Mattino / Pomeriggio / Sera / Notte) -->
+            ${this.renderClockWidgetHtml(dayPhase)}
           </div>
         </div>
 
-        <div id="floorplan-touch-viewport" class="relative w-full h-[calc(100vh-145px)] sm:h-[calc(100vh-76px)] min-h-[480px] sm:min-h-[540px] rounded-2xl sm:rounded-3xl overflow-hidden border border-slate-800/90 bg-slate-950 shadow-2xl flex items-center justify-center select-none cursor-default">
+        <div id="floorplan-touch-viewport"
+             class="relative w-full h-[calc(100vh-185px)] sm:h-[calc(100vh-76px)] min-h-[480px] sm:min-h-[540px] rounded-2xl sm:rounded-3xl overflow-hidden border border-slate-800/90 bg-slate-950 shadow-2xl flex items-center justify-center select-none cursor-default transition-all duration-700"
+             style="${useDayPhase ? `background: ${dayPhase.viewportBg};` : ''}">
 
         <!-- Live Drag HUD se in modalità modifica -->
         <div id="drag-pin-live-hud" class="hidden absolute top-14 left-4 right-4 z-20 p-2.5 rounded-xl bg-slate-900/90 border border-amber-500/50 text-xs text-amber-200 text-center shadow-lg backdrop-blur-md"></div>
@@ -1264,12 +1515,12 @@ class FloorplanEngine {
                style="filter: drop-shadow(0 20px 30px rgba(0,0,0,0.7));">
             
             <defs>
-              <!-- Texture Pavimento Luxury Parquet Scuro -->
+              <!-- Texture Pavimento Luxury Parquet (modulato per fascia oraria) -->
               <pattern id="floorParquet" width="30" height="30" patternUnits="userSpaceOnUse">
-                <rect width="30" height="30" fill="#0b1120"/>
-                <line x1="0" y1="0" x2="30" y2="0" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
-                <line x1="15" y1="0" x2="15" y2="30" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
-                <line x1="0" y1="15" x2="30" y2="15" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+                <rect width="30" height="30" fill="${useDayPhase ? dayPhase.parquetFill : '#0b1120'}"/>
+                <line x1="0" y1="0" x2="30" y2="0" stroke="${useDayPhase ? dayPhase.parquetLine : 'rgba(255,255,255,0.03)'}" stroke-width="1"/>
+                <line x1="15" y1="0" x2="15" y2="30" stroke="${useDayPhase ? dayPhase.parquetLine : 'rgba(255,255,255,0.03)'}" stroke-width="1"/>
+                <line x1="0" y1="15" x2="30" y2="15" stroke="${useDayPhase ? dayPhase.parquetLine : 'rgba(255,255,255,0.03)'}" stroke-width="1"/>
               </pattern>
               <!-- Texture Parquet Chiaro -->
               <pattern id="floorParquetLight" width="30" height="30" patternUnits="userSpaceOnUse">
@@ -1277,20 +1528,27 @@ class FloorplanEngine {
                 <line x1="0" y1="0" x2="30" y2="0" stroke="rgba(0,0,0,0.05)" stroke-width="1"/>
                 <line x1="15" y1="0" x2="15" y2="30" stroke="rgba(0,0,0,0.05)" stroke-width="1"/>
               </pattern>
-              <!-- Texture Piastrelle Bagno -->
+              <!-- Texture Piastrelle Bagno (modulato per fascia oraria) -->
               <pattern id="floorTile" width="22" height="22" patternUnits="userSpaceOnUse">
-                <rect width="22" height="22" fill="#0f172a"/>
-                <rect width="21" height="21" fill="none" stroke="rgba(148,163,184,0.08)" stroke-width="1"/>
+                <rect width="22" height="22" fill="${useDayPhase ? dayPhase.tileFill : '#0f172a'}"/>
+                <rect width="21" height="21" fill="none" stroke="${useDayPhase ? dayPhase.tileLine : 'rgba(148,163,184,0.08)'}" stroke-width="1"/>
               </pattern>
               <pattern id="floorTileLight" width="22" height="22" patternUnits="userSpaceOnUse">
                 <rect width="22" height="22" fill="#f1f5f9"/>
                 <rect width="21" height="21" fill="none" stroke="rgba(100,116,139,0.15)" stroke-width="1"/>
               </pattern>
-              <!-- Texture Balconi -->
+              <!-- Texture Balconi (modulato per fascia oraria) -->
               <pattern id="floorDeck" width="16" height="40" patternUnits="userSpaceOnUse">
-                <rect width="16" height="40" fill="#030712"/>
+                <rect width="16" height="40" fill="${useDayPhase ? dayPhase.deckFill : '#030712'}"/>
                 <line x1="16" y1="0" x2="16" y2="40" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
               </pattern>
+
+              <!-- Luce Naturale dalle Finestre (Mattino / Pomeriggio / Sera / Notte) -->
+              <radialGradient id="daylightBeam" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="${dayPhase.sunlightColor}" stop-opacity="${dayPhase.sunlightOpacity}"/>
+                <stop offset="55%" stop-color="${dayPhase.sunlightColor}" stop-opacity="${+(dayPhase.sunlightOpacity * 0.42).toFixed(2)}"/>
+                <stop offset="100%" stop-color="${dayPhase.sunlightColor}" stop-opacity="0"/>
+              </radialGradient>
 
               <!-- Gradienti Glow Luce Calda, Fredda e Cinema -->
               <radialGradient id="glowWarm" cx="50%" cy="50%" r="50%">
@@ -1345,6 +1603,21 @@ class FloorplanEngine {
             <!-- Layer 2: Mobili & Arredi Vettoriali -->
             ${this.showFurniture ? this.buildVectorFurniture(isCad, isLight) : ''}
 
+            ${useDayPhase ? `
+            <!-- Layer 2b: Illuminazione Naturale da Finestre & Atmosfera Fascia Oraria -->
+            <g id="svg-layer-daylight" pointer-events="none">
+              <path d="M 240 55 L 735 55 L 735 455 L 815 455 L 815 758 L 748 758 L 748 1222 L 235 1222 L 235 768 L 390 768 L 390 492 L 240 492 Z"
+                    fill="${dayPhase.ambientWash}" />
+              <ellipse cx="395" cy="115" rx="125" ry="95" fill="url(#daylightBeam)" />
+              <ellipse cx="470" cy="135" rx="75" ry="65" fill="url(#daylightBeam)" />
+              <ellipse cx="645" cy="315" rx="110" ry="85" fill="url(#daylightBeam)" />
+              <ellipse cx="775" cy="510" rx="68" ry="65" fill="url(#daylightBeam)" />
+              <ellipse cx="665" cy="895" rx="125" ry="105" fill="url(#daylightBeam)" />
+              <ellipse cx="678" cy="1075" rx="85" ry="70" fill="url(#daylightBeam)" />
+              <ellipse cx="410" cy="1135" rx="135" ry="105" fill="url(#daylightBeam)" />
+            </g>
+            ` : ''}
+
             <!-- Layer 3: Muri, Finestre e Porte CAD -->
             ${this.buildWallsAndOpenings(isCad, isLight)}
 
@@ -1370,6 +1643,7 @@ class FloorplanEngine {
     this.applyTransform();
     this.syncLeftSidebarControls();
     this.renderRightDrawer();
+    this.updateClockDom();
   }
 
   renderRightDrawer(onlyUpdateList = false) {

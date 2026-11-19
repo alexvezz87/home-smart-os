@@ -16,6 +16,9 @@ class AdminManager {
     this.isCapturingBosch = false;
     this.currentBoschOAuthUrl = BOSCH_DEFAULT_OAUTH_URL;
     this.activeTab = localStorage.getItem('admin_active_tab') || 'climate';
+    this.systemCategory = localStorage.getItem('admin_sys_category') || 'all';
+    this.systemSearchQuery = '';
+    this.globalSearchQuery = '';
     this.driveStatus = null;
     this.wallboxDriveStatus = null;
     this.driveLoading = false;
@@ -67,7 +70,7 @@ class AdminManager {
   }
 
   _getBadgeClass(s, isActive) {
-    if (isActive) return 'bg-indigo-500/30 text-indigo-200 border border-indigo-400/40';
+    if (isActive) return 'bg-cyan-500/25 text-cyan-200 border border-cyan-400/40';
     if (s.badgeType === 'success') return 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
     if (s.badgeType === 'warning') return 'bg-amber-500/15 text-amber-400 border border-amber-500/30';
     if (s.badgeType === 'info') return 'bg-sky-500/15 text-sky-400 border border-sky-500/30';
@@ -164,27 +167,46 @@ class AdminManager {
     container.innerHTML = `
       <div class="space-y-5">
 
-        <!-- 1. Header Amministrazione Minimale -->
-        <div class="glass-card rounded-2xl p-4 sm:p-5 border border-slate-800 flex items-center justify-between flex-wrap gap-4">
+        <!-- 1. Header Amministrazione + Ricerca Rapida Globale -->
+        <div class="glass-card rounded-2xl p-4 sm:p-5 border border-cyan-500/20 flex items-center justify-between flex-wrap gap-4">
           <div class="flex items-center gap-3">
-            <div class="w-11 h-11 rounded-2xl bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 flex items-center justify-center text-xl shadow-lg shadow-indigo-500/10 shrink-0">
+            <div class="w-11 h-11 rounded-2xl bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 flex items-center justify-center text-xl shadow-lg shadow-cyan-500/10 shrink-0">
               <i class="fa-solid fa-screwdriver-wrench"></i>
             </div>
             <div>
               <div class="flex items-center gap-2">
                 <h2 class="text-base sm:text-lg font-bold text-white tracking-tight">Amministrazione &amp; Hub</h2>
-                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">Admin Shield</span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/25">Admin Shield</span>
               </div>
-              <p class="text-xs text-slate-400">Pannello di controllo unificato: seleziona un servizio per gestirne credenziali, login e diagnostica</p>
+              <p class="text-xs text-slate-400">Seleziona un servizio o cerca un'impostazione per saltare subito alla sezione</p>
             </div>
           </div>
 
-          <div class="flex items-center gap-2">
+          <div class="flex items-center flex-wrap gap-2 w-full lg:w-auto">
+            <div class="relative flex-1 sm:w-72 lg:w-80">
+              <i class="fa-solid fa-magnifying-glass text-xs text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+              <input id="admin-global-search"
+                     type="text"
+                     value="${this.escapeHtml(this.globalSearchQuery || '')}"
+                     oninput="window.adminManager.onGlobalSearchInput(this.value)"
+                     placeholder="Cerca in tutta l'amministrazione (es. Dyson, TiDB, Gmail)..."
+                     class="w-full pl-8 pr-8 py-2 rounded-xl text-xs bg-slate-900/90 border border-slate-700/80 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500 transition-colors" />
+              <button id="admin-global-search-clear"
+                      type="button"
+                      onclick="window.adminManager.clearGlobalSearch()"
+                      class="${this.globalSearchQuery ? '' : 'hidden '}absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs"
+                      title="Pulisci ricerca">
+                <i class="fa-solid fa-xmark"></i>
+              </button>
+              <div id="admin-global-search-results"
+                   class="hidden absolute left-0 right-0 mt-1.5 z-40 rounded-xl bg-slate-950/95 backdrop-blur-xl border border-cyan-500/35 shadow-2xl overflow-hidden max-h-80 overflow-y-auto"></div>
+            </div>
+
             <button onclick="if(typeof loadDashboard === 'function') loadDashboard(); else window.adminManager.renderView();"
-                    class="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5 active:scale-95"
+                    class="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5 active:scale-95 shrink-0"
                     title="Ricarica telemetria di tutti i servizi">
               <i class="fa-solid fa-rotate"></i>
-              <span>Aggiorna Dati</span>
+              <span class="hidden sm:inline">Aggiorna Dati</span>
             </button>
           </div>
         </div>
@@ -196,12 +218,12 @@ class AdminManager {
             const isOpen = s.id === this.activeTab;
             const badgeBg = this._getBadgeClass(s, isOpen);
             return `
-              <div class="glass-card rounded-2xl border ${isOpen ? 'border-indigo-500/50 shadow-lg shadow-indigo-500/10' : 'border-slate-800'} overflow-hidden transition-all">
+              <div class="glass-card rounded-2xl border ${isOpen ? 'border-cyan-500/50 shadow-lg shadow-cyan-500/10' : 'border-slate-800'} overflow-hidden transition-all">
                 <button onclick="window.adminManager.selectTab('${s.id}')"
                         aria-expanded="${isOpen}"
-                        class="w-full px-4 py-3 flex items-center justify-between gap-3 text-left cursor-pointer ${isOpen ? 'bg-indigo-600/15 text-white' : 'text-slate-200 hover:bg-slate-800/40'} transition-colors">
+                        class="w-full px-4 py-3 flex items-center justify-between gap-3 text-left cursor-pointer ${isOpen ? 'bg-cyan-600/15 text-white' : 'text-slate-200 hover:bg-slate-800/40'} transition-colors">
                   <div class="flex items-center gap-3 min-w-0">
-                    <div class="w-8 h-8 rounded-xl ${isOpen ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-500/30' : 'bg-slate-800/90 text-slate-300'} flex items-center justify-center text-xs shrink-0">
+                    <div class="w-8 h-8 rounded-xl ${isOpen ? 'bg-gradient-to-br from-cyan-500 to-emerald-500 text-white shadow-sm shadow-cyan-500/30' : 'bg-slate-800/90 text-slate-300'} flex items-center justify-center text-xs shrink-0">
                       <i class="fa-solid ${s.icon}"></i>
                     </div>
                     <span class="text-xs font-semibold truncate">${s.name}</span>
@@ -210,7 +232,7 @@ class AdminManager {
                     <span class="text-[9.5px] px-2 py-0.5 rounded-full font-mono ${badgeBg}">
                       ${s.badge}
                     </span>
-                    <i class="fa-solid fa-chevron-down text-[11px] text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-300' : ''}"></i>
+                    <i class="fa-solid fa-chevron-down text-[11px] text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180 text-cyan-300' : ''}"></i>
                   </div>
                 </button>
                 ${isOpen ? `
@@ -232,7 +254,7 @@ class AdminManager {
               ${services.map(s => {
                 const isActive = s.id === this.activeTab;
                 const activeClass = isActive
-                  ? 'bg-indigo-600/20 text-white border-indigo-500/60 shadow-sm font-semibold'
+                  ? 'bg-cyan-600/20 text-white border-cyan-500/60 shadow-sm font-semibold'
                   : 'bg-transparent text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 border-transparent font-medium';
                 const badgeBg = this._getBadgeClass(s, isActive);
 
@@ -240,7 +262,7 @@ class AdminManager {
                   <button onclick="window.adminManager.selectTab('${s.id}')"
                           class="w-full px-3 py-2.5 rounded-xl text-xs border transition-all flex items-center justify-between gap-2 text-left cursor-pointer active:scale-[0.99] ${activeClass}">
                     <div class="flex items-center gap-2.5 min-w-0">
-                      <div class="w-7 h-7 rounded-lg ${isActive ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-500/30' : 'bg-slate-800/90 text-slate-300'} flex items-center justify-center text-xs shrink-0">
+                      <div class="w-7 h-7 rounded-lg ${isActive ? 'bg-gradient-to-br from-cyan-500 to-emerald-500 text-white shadow-sm shadow-cyan-500/30' : 'bg-slate-800/90 text-slate-300'} flex items-center justify-center text-xs shrink-0">
                         <i class="fa-solid ${s.icon}"></i>
                       </div>
                       <span class="truncate">${s.name}</span>
@@ -278,6 +300,7 @@ class AdminManager {
       this.loadDriveTripsStatus();
     }
     if (this.activeTab === 'system') {
+      if (typeof this.applySystemFilters === 'function') this.applySystemFilters();
       this.loadHistory();
       this.loadBackbonePanels();
     }
