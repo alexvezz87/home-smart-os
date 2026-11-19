@@ -1426,7 +1426,8 @@ async function setWallboxAmps(amps) {
 
 async function adjustValveSetpoint(pinNum, delta = 0, directValue = null, mode = null) {
   const pins = window.homeData?.spatial?.pins || [];
-  const p = pins.find(item => item.pin === Number(pinNum));
+  const p = pins.find(item => item.pin === Number(pinNum))
+    || (window.deviceSheet?.currentPin?.pin === Number(pinNum) ? window.deviceSheet.currentPin : null);
   if (!p) return;
 
   const current = p.setpoint || 20.0;
@@ -1439,7 +1440,25 @@ async function adjustValveSetpoint(pinNum, delta = 0, directValue = null, mode =
     p.isHeating = p.valvePercent > 15;
     p.isOn = p.valvePercent > 0;
 
+    // Allinea la telemetria in cache delle zone Bosch per mantenere sincronizzata la griglia Admin
+    const boschZones = window.homeData?.evClimate?.bosch?.zones;
+    if (Array.isArray(boschZones)) {
+      const matchingZone = boschZones.find(z =>
+        (p.zoneId && z.id === p.zoneId) ||
+        (p.name && z.name === p.name) ||
+        (p.room && z.name?.includes(p.room)) ||
+        (z.name && p.name?.includes(z.name))
+      );
+      if (matchingZone) {
+        matchingZone.tempSetpoint = target;
+        matchingZone.valvePosition = p.valvePercent;
+      }
+    }
+
     if (window.floorplan) window.floorplan.render();
+    if (window.adminManager && typeof window.adminManager.refreshValvesGrid === 'function') {
+      window.adminManager.refreshValvesGrid();
+    }
     if (window.deviceSheet?.currentPin?.pin === Number(pinNum)) {
       window.deviceSheet.open(p);
     }
