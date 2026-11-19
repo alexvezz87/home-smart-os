@@ -272,87 +272,10 @@ Object.assign(window.AdminManager.prototype, {
               <i class="fa-solid fa-radiator text-orange-400"></i>
               <span>9 Termovalvole Caloriferi Bosch (Homematic IP RF)</span>
             </span>
-            <span class="text-[11px] text-slate-400">
-              Regolazione Bidirezionale: <strong class="text-orange-400">Step +/- 0.5°C</strong>
-            </span>
           </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            ${(() => {
-              const valvePins = (data.pins || data.spatial?.pins || []).filter(p => p.category === 'valve').sort((a, b) => a.pin - b.pin);
-              const defaultValves = [
-                { pin: 33, name: 'Termovalvola Salone', room: 'Salone', zoneId: 'zn10' },
-                { pin: 34, name: 'Termovalvola Cucina', room: 'Cucina', zoneId: 'zn9' },
-                { pin: 35, name: 'Termovalvola Camera da letto', room: 'Camera da letto', zoneId: 'zn7' },
-                { pin: 36, name: 'Termovalvola Cameretta', room: 'Cameretta', zoneId: 'zn3' },
-                { pin: 37, name: 'Termovalvola Bagno Alex', room: 'Bagno Alex', zoneId: 'zn6' },
-                { pin: 38, name: 'Termovalvola Bagno Cinzia', room: 'Bagno Cinzia', zoneId: 'zn4' },
-                { pin: 39, name: 'Termovalvola Cabina armadio', room: 'Cabina armadio', zoneId: 'zn5' },
-                { pin: 40, name: 'Termovalvola Ingresso', room: 'Ingresso', zoneId: 'zn8' },
-                { pin: 41, name: 'Termovalvola Corridoio 2', room: 'Corridoio 2', zoneId: 'zn2' }
-              ];
-              const displayValves = valvePins.length > 0 ? valvePins : defaultValves;
-
-              return displayValves.map(v => {
-                const matchingZone = ev.bosch?.zones?.find(z => z.id === v.zoneId || z.name === v.name || z.name?.includes(v.room) || v.name?.includes(z.name));
-                const tempActual = matchingZone?.tempActual ?? v.temperature ?? v.tempActual;
-                const tempSetpoint = matchingZone?.tempSetpoint ?? v.setpoint ?? v.tempSetpoint;
-                const valvePercent = matchingZone?.valvePosition ?? v.valvePercent ?? 0;
-                const isHeating = Boolean(v.isHeating || (valvePercent > 10) || (tempActual != null && tempSetpoint != null && tempActual < tempSetpoint && valvePercent > 0));
-                const isLowBattery = v.battery === 'low' || matchingZone?.valve?.battery === 'low';
-                const cleanName = (v.name || '').replace('Termovalvola ', '');
-
-                return `
-                  <div class="p-3.5 rounded-xl bg-slate-900/70 border ${isHeating ? 'border-orange-500/40 bg-orange-950/15' : 'border-slate-800'} space-y-2">
-                    <div class="flex items-center justify-between">
-                      <div class="flex items-center gap-2 overflow-hidden">
-                        <div class="w-7 h-7 rounded-lg ${isHeating ? 'bg-orange-500/20 text-orange-400' : 'bg-slate-800 text-slate-400'} flex items-center justify-center shrink-0 text-xs">
-                          <i class="fa-solid fa-temperature-arrow-up"></i>
-                        </div>
-                        <div class="truncate">
-                          <div class="text-xs font-bold text-white truncate flex items-center gap-1.5">
-                            <span class="text-[10px] text-slate-500 font-mono">#${v.pin}</span>
-                            <span class="truncate">${cleanName}</span>
-                          </div>
-                          <div class="text-[10px] text-slate-400">${v.room}</div>
-                        </div>
-                      </div>
-
-                      <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${isLowBattery ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}">
-                        <i class="fa-solid ${isLowBattery ? 'fa-battery-quarter' : 'fa-battery-full'} text-[9px] mr-1"></i>${isLowBattery ? 'Bassa' : 'OK'}
-                      </span>
-                    </div>
-
-                    <div class="flex items-center justify-between text-xs pt-1 border-t border-slate-800/80">
-                      <div class="flex items-center gap-1 text-slate-300">
-                        <span class="text-slate-400 text-[11px]">Rilevata:</span>
-                        <strong class="text-white">${tempActual != null ? tempActual + '°C' : '--'}</strong>
-                      </div>
-                      <div class="flex items-center gap-1.5 text-slate-300">
-                        <span class="text-slate-400 text-[11px]">Target:</span>
-                        <div class="flex items-center gap-1">
-                          <button onclick="window.adminManager.adjustValveSetpoint(${v.pin}, -0.5, event)" class="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs flex items-center justify-center border border-slate-700 active:scale-95" title="Diminuisci di 0.5°C">
-                            <i class="fa-solid fa-minus text-[8px]"></i>
-                          </button>
-                          <strong class="text-amber-400 font-mono text-xs px-1 min-w-[34px] text-center">${tempSetpoint != null ? tempSetpoint + '°' : '--'}</strong>
-                          <button onclick="window.adminManager.adjustValveSetpoint(${v.pin}, 0.5, event)" class="w-5 h-5 rounded bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs flex items-center justify-center active:scale-95 shadow-sm" title="Aumenta di 0.5°C">
-                            <i class="fa-solid fa-plus text-[8px]"></i>
-                          </button>
-                        </div>
-                      </div>
-                      <div class="text-[11px] font-mono text-slate-400">
-                        Valvola: <strong class="${isHeating ? 'text-orange-400' : 'text-slate-300'}">${valvePercent != null ? valvePercent + '%' : '0%'}</strong>
-                      </div>
-                    </div>
-
-                    <!-- Mini progress bar apertura valvola -->
-                    <div class="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                      <div class="h-full ${isHeating ? 'bg-gradient-to-r from-amber-500 to-orange-500' : 'bg-slate-700'}" style="width: ${Math.min(100, Math.max(0, valvePercent))}%"></div>
-                    </div>
-                  </div>
-                `;
-              }).join('');
-            })()}
+          <div id="admin-climate-valves-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            ${this.renderValvesGridMarkup(data, ev)}
           </div>
         </div>
 
@@ -379,12 +302,150 @@ Object.assign(window.AdminManager.prototype, {
 
       </div>
     `;
-  }
+  },
+
+  /**
+   * Elenco fallback delle 9 termovalvole Bosch Smart Radiator (#33..#41).
+   */
+  getDefaultValvesList() {
+    return [
+      { pin: 33, name: 'Termovalvola Salone', room: 'Salone', zoneId: 'zn10' },
+      { pin: 34, name: 'Termovalvola Cucina', room: 'Cucina', zoneId: 'zn9' },
+      { pin: 35, name: 'Termovalvola Camera da letto', room: 'Camera da letto', zoneId: 'zn7' },
+      { pin: 36, name: 'Termovalvola Cameretta', room: 'Cameretta', zoneId: 'zn3' },
+      { pin: 37, name: 'Termovalvola Bagno Alex', room: 'Bagno Alex', zoneId: 'zn6' },
+      { pin: 38, name: 'Termovalvola Bagno Cinzia', room: 'Bagno Cinzia', zoneId: 'zn4' },
+      { pin: 39, name: 'Termovalvola Cabina armadio', room: 'Cabina armadio', zoneId: 'zn5' },
+      { pin: 40, name: 'Termovalvola Ingresso', room: 'Ingresso', zoneId: 'zn8' },
+      { pin: 41, name: 'Termovalvola Corridoio 2', room: 'Corridoio 2', zoneId: 'zn2' }
+    ];
+  },
+
+  /**
+   * Risolve la zona Bosch associata alla termovalvola data.
+   */
+  _findValveZone(valve, zones = []) {
+    if (!valve || !Array.isArray(zones)) return null;
+    return zones.find(z =>
+      (valve.zoneId && z.id === valve.zoneId) ||
+      (valve.name && z.name === valve.name) ||
+      (valve.room && z.name?.includes(valve.room)) ||
+      (z.name && valve.name?.includes(z.name))
+    ) || null;
+  },
+
+  /**
+   * Renderizza le card semplificate e cliccabili delle 9 termovalvole.
+   */
+  renderValvesGridMarkup(data = {}, ev = {}) {
+    const valvePins = (data.pins || data.spatial?.pins || [])
+      .filter(p => p.category === 'valve')
+      .sort((a, b) => a.pin - b.pin);
+    const displayValves = valvePins.length > 0 ? valvePins : this.getDefaultValvesList();
+    const zones = ev?.bosch?.zones || [];
+    const esc = (str) => (typeof this.escapeHtml === 'function' ? this.escapeHtml(str) : String(str ?? ''));
+
+    return displayValves.map(v => {
+      const matchingZone = this._findValveZone(v, zones);
+      const tempActual = matchingZone?.tempActual ?? v.temperature ?? v.tempActual;
+      const tempSetpoint = matchingZone?.tempSetpoint ?? v.setpoint ?? v.tempSetpoint;
+      const valvePercent = matchingZone?.valvePosition ?? v.valvePercent ?? 0;
+      const isHeating = Boolean(v.isHeating || (valvePercent > 10) || (tempActual != null && tempSetpoint != null && tempActual < tempSetpoint && valvePercent > 0));
+      const isLowBattery = v.battery === 'low' || matchingZone?.valve?.battery === 'low';
+      const cleanName = (v.name || '').replace('Termovalvola ', '');
+      const safeName = esc(cleanName);
+      const safeRoom = esc(v.room || '');
+
+      return `
+        <button type="button"
+                onclick="window.adminManager.openValveSheet(${Number(v.pin)})"
+                class="w-full text-left p-3.5 rounded-xl bg-slate-900/70 hover:bg-slate-800/80 border ${isHeating ? 'border-orange-500/40 bg-orange-950/15 hover:border-orange-400/70' : 'border-slate-800 hover:border-slate-600'} space-y-2.5 cursor-pointer transition-all active:scale-[0.98] group"
+                title="Apri controllo termovalvola ${safeName}">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2 min-w-0 overflow-hidden">
+              <div class="w-7 h-7 rounded-lg ${isHeating ? 'bg-orange-500/20 text-orange-400' : 'bg-slate-800 text-slate-400'} flex items-center justify-center shrink-0 text-xs">
+                <i class="fa-solid fa-temperature-arrow-up"></i>
+              </div>
+              <div class="min-w-0 truncate">
+                <div class="text-xs font-bold text-white truncate flex items-center gap-1.5">
+                  <span class="text-[10px] text-slate-500 font-mono shrink-0">#${Number(v.pin)}</span>
+                  <span class="truncate">${safeName}</span>
+                </div>
+                <div class="text-[10px] text-slate-400 truncate">${safeRoom}</div>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-1.5 shrink-0">
+              <span class="inline-flex items-center gap-1 whitespace-nowrap shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold ${isLowBattery ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}">
+                <i class="fa-solid ${isLowBattery ? 'fa-battery-quarter' : 'fa-battery-full'} text-[9px]"></i>${isLowBattery ? 'Bassa' : 'OK'}
+              </span>
+              <i class="fa-solid fa-chevron-right text-[10px] text-slate-500 group-hover:text-orange-400 group-hover:translate-x-0.5 transition-all"></i>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between gap-2 text-xs pt-1.5 border-t border-slate-800/80">
+            <div class="flex items-center gap-1.5 text-slate-300 whitespace-nowrap">
+              <span class="text-slate-400 text-[11px]">Rilevata:</span>
+              <strong class="text-white font-mono">${tempActual != null ? tempActual + '°C' : '--'}</strong>
+            </div>
+            <div class="text-[11px] font-mono text-slate-400 whitespace-nowrap">
+              Valvola: <strong class="${isHeating ? 'text-orange-400' : 'text-slate-300'}">${valvePercent != null ? valvePercent + '%' : '0%'}</strong>
+            </div>
+          </div>
+
+          <!-- Mini progress bar apertura valvola -->
+          <div class="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+            <div class="h-full ${isHeating ? 'bg-gradient-to-r from-amber-500 to-orange-500' : 'bg-slate-700'}" style="width: ${Math.min(100, Math.max(0, valvePercent))}%"></div>
+          </div>
+        </button>
+      `;
+    }).join('');
+  },
+
+  /**
+   * Apre il drawer contestuale Bosch EasyControl (dial circolare a swipe) per la valvola cliccata.
+   */
+  openValveSheet(pinNum) {
+    if (!window.deviceSheet) {
+      if (typeof showToast === 'function') showToast('Pannello controllo termovalvola non disponibile.', 'warning');
+      return;
+    }
+
+    const numPin = Number(pinNum);
+    const pins = window.homeData?.spatial?.pins || window.homeData?.pins || [];
+    const zones = window.homeData?.evClimate?.bosch?.zones || [];
+    const realPin = pins.find(p => Number(p.pin) === numPin);
+    const fallbackPin = this.getDefaultValvesList().find(v => v.pin === numPin);
+    const targetPin = realPin || (fallbackPin ? { ...fallbackPin, category: 'valve' } : null);
+    if (!targetPin) return;
+
+    if (!targetPin.category) targetPin.category = 'valve';
+    const matchingZone = this._findValveZone(targetPin, zones);
+    if (matchingZone) {
+      if (matchingZone.tempActual != null) targetPin.temperature = matchingZone.tempActual;
+      if (matchingZone.tempSetpoint != null) targetPin.setpoint = matchingZone.tempSetpoint;
+      if (matchingZone.valvePosition != null) {
+        targetPin.valvePercent = matchingZone.valvePosition;
+        targetPin.isHeating = matchingZone.valvePosition > 15;
+      }
+    }
+
+    window.deviceSheet.open(targetPin);
+  },
+
+  /**
+   * Aggiorna esclusivamente la griglia delle valvole senza ricaricare l'intera vista Admin.
+   */
+  refreshValvesGrid() {
+    const grid = document.getElementById('admin-climate-valves-grid');
+    if (!grid) return;
+    const data = window.homeData || {};
+    grid.innerHTML = this.renderValvesGridMarkup(data, data.evClimate || {});
+  },
 
   // =========================================================================
   // SCHEDA 2: 💡 LUCI & PHILIPS HUE BRIDGE LAN
   // =========================================================================
-  ,
   async syncBoschNow() {
     const btn = document.getElementById('btn-bosch-sync');
     if (btn) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i><span>Sincronizzazione...</span>';
@@ -412,7 +473,7 @@ Object.assign(window.AdminManager.prototype, {
     try {
       if (typeof window.adjustValveSetpoint === 'function') {
         await window.adjustValveSetpoint(pinNum, delta);
-        setTimeout(() => this.renderView(), 400);
+        this.refreshValvesGrid();
       }
     } catch (err) {
       showToast('Errore regolazione setpoint: ' + err.message, 'error');
