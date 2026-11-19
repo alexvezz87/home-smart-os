@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: wiki-sync
+  cancel-in-progress: false
+
 jobs:
   sync-wiki:
     runs-on: ubuntu-latest
