@@ -286,8 +286,8 @@
           <span id="stat-power">0 W</span>
         </div>
 
-        <!-- Accesso Rapido Amministrazione (solo icona) -->
-        <button type="button" id="btn-header-admin" onclick="switchArea('admin')" class="h-9 w-9 rounded-xl bg-slate-800/80 hover:bg-cyan-500/15 text-cyan-400 hover:text-cyan-200 border border-slate-700/60 hover:border-cyan-500/40 flex items-center justify-center transition-all active:scale-95" title="Amministrazione &amp; Hub">
+        <!-- Accesso Rapido Amministrazione (solo icona, toggle con Piantina) -->
+        <button type="button" id="btn-header-admin" onclick="switchArea(window.currentArea === 'admin' ? 'home' : 'admin')" class="h-9 w-9 rounded-xl bg-slate-800/80 hover:bg-cyan-500/15 text-cyan-400 hover:text-cyan-200 border border-slate-700/60 hover:border-cyan-500/40 flex items-center justify-center transition-all active:scale-95" title="Amministrazione &amp; Hub">
           <i class="fa-solid fa-screwdriver-wrench text-sm"></i>
         </button>
 
