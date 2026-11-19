@@ -3200,6 +3200,40 @@ test('Macro-Area Calendario: getCalendarOverview() 45gg, index.html e CalendarMa
   assert.equal(typeof sandbox.window.calendarManager.renderView, 'function');
 });
 
+test('Nomi Stanze & Split Corridoio/Ingresso (#120)', () => {
+  const spatialEngine = require('../src/spatial-engine');
+  try {
+    // 1. Verifica detectRoomFromCoords con i nuovi nomi e separazione Corridoio / Ingresso
+    assert.equal(spatialEngine.detectRoomFromCoords(34.6, 34.0), 'Bagno Alex');
+    assert.equal(spatialEngine.detectRoomFromCoords(75.2, 35.6), 'Bagno Cinzia');
+    assert.equal(spatialEngine.detectRoomFromCoords(44.2, 32.0), 'Corridoio');
+    assert.equal(spatialEngine.detectRoomFromCoords(49.4, 51.5), 'Ingresso');
+    assert.equal(spatialEngine.detectRoomFromCoords(51.9, 53.5), 'Ingresso');
+    assert.equal(spatialEngine.detectRoomFromCoords(39.0, 88.8), 'Salone');
+    assert.equal(spatialEngine.detectRoomFromCoords(64.0, 67.6), 'Cucina');
+    assert.equal(spatialEngine.detectRoomFromCoords(62.2, 27.2), 'Cameretta');
+
+    // 2. Verifica migrazione nomi stanza legacy tramite normalizeRoomName
+    assert.equal(spatialEngine.normalizeRoomName('Bagno', 34.6, 34.0), 'Bagno Alex');
+    assert.equal(spatialEngine.normalizeRoomName('Bagno Lavanderia', 34.6, 34.0), 'Bagno Alex');
+    assert.equal(spatialEngine.normalizeRoomName('Bagno Principale', 75.2, 35.6), 'Bagno Cinzia');
+    assert.equal(spatialEngine.normalizeRoomName('Salone Living', 39.0, 88.8), 'Salone');
+    assert.equal(spatialEngine.normalizeRoomName('Cucina Abitabile', 64.0, 67.6), 'Cucina');
+    assert.equal(spatialEngine.normalizeRoomName('Cameretta / Studio', 62.2, 27.2), 'Cameretta');
+    assert.equal(spatialEngine.normalizeRoomName('Corridoio & Ingresso', 44.2, 32.0), 'Corridoio');
+    assert.equal(spatialEngine.normalizeRoomName('Corridoio & Ingresso', 51.9, 53.5), 'Ingresso');
+
+    // 3. Promozione automatica dei pin nell'area Ingresso precedentemente salvati su Corridoio o Salone
+    assert.equal(spatialEngine.normalizeRoomName('Corridoio', 51.9, 53.5), 'Ingresso');
+    assert.equal(spatialEngine.normalizeRoomName('Salone', 51.4, 51.5), 'Ingresso');
+  } finally {
+    if (spatialEngine.reflexInterval) {
+      clearInterval(spatialEngine.reflexInterval);
+      spatialEngine.reflexInterval = null;
+    }
+  }
+});
+
 
 
 

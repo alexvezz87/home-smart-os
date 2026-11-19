@@ -117,11 +117,11 @@ class SpatialEngine {
         nearbyPins: [1, 2, 3, 4, 5, 8]
       },
 
-      // === BAGNO LAVANDERIA (Centro-Ovest) ===
+      // === BAGNO ALEX (Centro-Ovest) ===
       {
         pin: 7,
         name: 'Lavatrice',
-        room: 'Bagno',
+        room: 'Bagno Alex',
         microZone: 'lavanderia',
         category: 'plug',
         vendor: 'Meross Smart Plug',
@@ -159,7 +159,7 @@ class SpatialEngine {
         nearbyPins: [8, 7, 14, 15]
       },
 
-      // === CAMERETTA / STUDIO (Nord-Est) ===
+      // === CAMERETTA (Nord-Est) ===
       {
         pin: 10,
         name: 'Piantana studio',
@@ -244,11 +244,11 @@ class SpatialEngine {
         nearbyPins: [9, 14, 16, 17, 18]
       },
 
-      // === SALONE: MICRO-ZONA INGRESSO ===
+      // === INGRESSO ===
       {
         pin: 16,
         name: 'Nest salone',
-        room: 'Salone',
+        room: 'Ingresso',
         microZone: 'ingresso',
         category: 'speaker',
         vendor: 'Google Nest Mini',
@@ -260,7 +260,7 @@ class SpatialEngine {
       {
         pin: 17,
         name: 'Telecamera Salone',
-        room: 'Salone',
+        room: 'Ingresso',
         microZone: 'ingresso',
         category: 'camera',
         cameraId: 'salone',
@@ -273,7 +273,7 @@ class SpatialEngine {
       {
         pin: 18,
         name: 'Piantana ingresso',
-        room: 'Salone',
+        room: 'Ingresso',
         microZone: 'ingresso',
         category: 'light',
         vendor: 'Philips Hue Color',
@@ -537,7 +537,7 @@ class SpatialEngine {
       {
         pin: 37,
         name: 'Termovalvola Bagno Alex',
-        room: 'Bagno',
+        room: 'Bagno Alex',
         microZone: 'lavanderia',
         category: 'valve',
         vendor: 'Bosch Radiator Thermostat',
@@ -550,7 +550,7 @@ class SpatialEngine {
       {
         pin: 38,
         name: 'Termovalvola Bagno Cinzia',
-        room: 'Bagno Principale',
+        room: 'Bagno Cinzia',
         microZone: 'bagno_doccia',
         category: 'valve',
         vendor: 'Bosch Radiator Thermostat',
@@ -576,14 +576,14 @@ class SpatialEngine {
       {
         pin: 40,
         name: 'Termovalvola Ingresso',
-        room: 'Corridoio',
+        room: 'Ingresso',
         microZone: 'ingresso',
         category: 'valve',
         vendor: 'Bosch Radiator Thermostat',
         boschName: 'Ingresso',
         zoneId: 'zn8',
-        x: 44.0,
-        y: 49.0,
+        x: 51.9,
+        y: 53.5,
         nearbyPins: [16, 14]
       },
       {
@@ -626,7 +626,7 @@ class SpatialEngine {
       {
         pin: 44,
         name: 'Asciugatrice LG ThinQ',
-        room: 'Bagno',
+        room: 'Bagno Alex',
         microZone: 'bagno_relax',
         category: 'appliance',
         vendor: 'LG ThinQ',
@@ -700,14 +700,15 @@ class SpatialEngine {
     const boxes = [
       [240, 55, 530, 320],   // Camera da letto
       [530, 55, 735, 252],   // Balcone Nord
-      [240, 320, 390, 492],  // Bagno
+      [240, 320, 390, 492],  // Bagno Alex
       [492, 252, 735, 455],  // Cameretta
-      [600, 455, 815, 592],  // Bagno Principale
+      [600, 455, 815, 592],  // Bagno Cinzia
       [452, 518, 538, 665],  // Ripostiglio
       [538, 592, 815, 758],  // Cabina armadio
-      [390, 320, 492, 768],  // Corridoio verticale
+      [390, 320, 492, 665],  // Corridoio verticale
       [492, 455, 600, 592],  // Corridoio snodo
-      [492, 592, 538, 768],  // Corridoio sud
+      [492, 592, 538, 665],  // Corridoio sud
+      [390, 665, 538, 768],  // Ingresso
       [235, 768, 538, 1222], // Salone
       [538, 1010, 640, 1112],// Salone estensione
       [538, 758, 748, 1010], // Cucina
@@ -731,6 +732,69 @@ class SpatialEngine {
       if (!this.isInsideHouseSvg(p.x * 10, p.y * 13.37)) return true;
     }
     return false;
+  }
+
+  /**
+   * Normalizza i nomi stanza legacy e separa Corridoio / Ingresso in base alle coordinate.
+   */
+  normalizeRoomName(roomName, xPct = null, yPct = null) {
+    const raw = String(roomName || '').trim();
+    const lower = raw.toLowerCase();
+    const ROOM_MIGRATION_MAP = {
+      'bagno': 'Bagno Alex',
+      'bagno lavanderia': 'Bagno Alex',
+      'bagno principale': 'Bagno Cinzia',
+      'salone living': 'Salone',
+      'cucina abitabile': 'Cucina',
+      'cameretta / studio': 'Cameretta',
+      'cameretta/studio': 'Cameretta'
+    };
+
+    const hasCoords = xPct !== null && yPct !== null && Number.isFinite(Number(xPct)) && Number.isFinite(Number(yPct));
+    const coordRoom = hasCoords ? this.detectRoomFromCoords(Number(xPct), Number(yPct)) : null;
+
+    let normalized = ROOM_MIGRATION_MAP[lower] || raw;
+    if (lower === 'corridoio & ingresso') {
+      normalized = coordRoom || 'Corridoio';
+    }
+    if (coordRoom === 'Ingresso' && (!normalized || normalized === 'Corridoio' || normalized === 'Salone' || lower === 'corridoio & ingresso')) {
+      normalized = 'Ingresso';
+    }
+    return normalized;
+  }
+
+  /**
+   * Migra in memoria i nomi stanza di tutti i pin caricati, restituendo true se modificati.
+   */
+  normalizePinsRooms() {
+    let changed = false;
+    for (const p of this.pins) {
+      const nextRoom = this.normalizeRoomName(p.room, p.x, p.y);
+      if (nextRoom && nextRoom !== p.room) {
+        p.room = nextRoom;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  /**
+   * Costruisce la mappa serializzabile dei pin correnti per persistenza file/TiDB.
+   */
+  buildCustomLayoutMap() {
+    const map = { __hiddenPins: this.hiddenPins };
+    for (const p of this.pins) {
+      map[p.pin] = {
+        pin: p.pin,
+        name: p.name,
+        category: p.category,
+        x: p.x,
+        y: p.y,
+        room: p.room,
+        nearbyPins: p.nearbyPins
+      };
+    }
+    return map;
   }
 
   /**
@@ -766,6 +830,10 @@ class SpatialEngine {
           }
         }
       }
+      const changed = this.normalizePinsRooms();
+      if (changed && db.isInitialized && db.pool) {
+        db.set('spatial-custom-layout', this.buildCustomLayoutMap(), false).catch(() => {});
+      }
     } catch (_) {}
   }
 
@@ -791,6 +859,7 @@ class SpatialEngine {
           }
         }
       }
+      this.normalizePinsRooms();
     } catch (e) {
       console.warn('[SpatialEngine] Impossibile caricare spatial-custom-layout.json:', e.message);
     }
@@ -798,18 +867,7 @@ class SpatialEngine {
 
   saveCustomLayout() {
     try {
-      const map = { __hiddenPins: this.hiddenPins };
-      for (const p of this.pins) {
-        map[p.pin] = {
-          pin: p.pin,
-          name: p.name,
-          category: p.category,
-          x: p.x,
-          y: p.y,
-          room: p.room,
-          nearbyPins: p.nearbyPins
-        };
-      }
+      const map = this.buildCustomLayoutMap();
       fs.writeFileSync(CUSTOM_LAYOUT_FILE, JSON.stringify(map, null, 2), 'utf8');
       try {
         db.set('spatial-custom-layout', map, false).catch(() => {});
@@ -829,9 +887,9 @@ class SpatialEngine {
 
     if (sx >= 240 && sx <= 530 && sy >= 55 && sy <= 320) return 'Camera da letto';
     if (sx > 530 && sx <= 735 && sy >= 55 && sy < 252) return 'Balcone Nord';
-    if (sx >= 240 && sx <= 390 && sy > 320 && sy <= 492) return 'Bagno';
+    if (sx >= 240 && sx <= 390 && sy > 320 && sy <= 492) return 'Bagno Alex';
     if (sx >= 492 && sx <= 735 && sy >= 252 && sy <= 455) return 'Cameretta';
-    if (sx >= 600 && sx <= 815 && sy > 455 && sy <= 592) return 'Bagno Principale';
+    if (sx >= 600 && sx <= 815 && sy > 455 && sy <= 592) return 'Bagno Cinzia';
     if (sx >= 452 && sx <= 538 && sy >= 518 && sy <= 665) return 'Ripostiglio';
     if (sx >= 538 && sx <= 815 && sy > 592 && sy <= 758) return 'Cabina armadio';
     if (
@@ -847,7 +905,8 @@ class SpatialEngine {
     ) {
       return 'Balcone Sud';
     }
-    if (sx >= 385 && sx <= 600 && sy >= 320 && sy <= 768) return 'Corridoio';
+    if (sx >= 390 && sx <= 538 && sy > 665 && sy <= 768) return 'Ingresso';
+    if (sx >= 385 && sx <= 600 && sy >= 320 && sy <= 665) return 'Corridoio';
     return null;
   }
 

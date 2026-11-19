@@ -563,8 +563,10 @@ class GoogleHomeMcpClient {
     return res || { success: true };
   }
 
-  async setRoomBrightness(roomName, brightnessPercent) {
-    const snapshot = await this.getHomeSnapshot();
+  /**
+   * Risolve una stanza dello snapshot a partire dal nome utente o da alias noti.
+   */
+  resolveRoomByName(snapshot, roomName) {
     const clean = String(roomName || '').toLowerCase().trim();
     const ROOM_ALIASES = {
       'camera': 'camera da letto',
@@ -572,15 +574,30 @@ class GoogleHomeMcpClient {
       'letto': 'camera da letto',
       'sala': 'salone',
       'soggiorno': 'salone',
-      'living': 'salone'
+      'living': 'salone',
+      'salone living': 'salone',
+      'cucina abitabile': 'cucina',
+      'cameretta / studio': 'cameretta',
+      'bagno lavanderia': 'bagno',
+      'bagno alex': 'bagno',
+      'bagno principale': 'bagno cinzia'
     };
     const targetRoomName = ROOM_ALIASES[clean] || clean;
 
     let room = snapshot.rooms.find(r => r.name.toLowerCase() === targetRoomName || r.name.toLowerCase() === clean);
     if (!room) {
+      room = snapshot.rooms.find(r => r.name.toLowerCase().includes(targetRoomName) || targetRoomName.includes(r.name.toLowerCase()));
+    }
+    if (!room) {
       room = snapshot.rooms.find(r => r.name.toLowerCase().includes(clean) || clean.includes(r.name.toLowerCase()));
     }
     if (!room) throw new Error(`Stanza "${roomName}" non trovata.`);
+    return room;
+  }
+
+  async setRoomBrightness(roomName, brightnessPercent) {
+    const snapshot = await this.getHomeSnapshot();
+    const room = this.resolveRoomByName(snapshot, roomName);
 
     const pct = Math.max(0, Math.min(100, Math.round(brightnessPercent)));
     const lights = room.devices.filter(d => d.category === 'light');
@@ -626,22 +643,7 @@ class GoogleHomeMcpClient {
 
   async setRoomPower(roomName, targetState) {
     const snapshot = await this.getHomeSnapshot();
-    const clean = String(roomName || '').toLowerCase().trim();
-    const ROOM_ALIASES = {
-      'camera': 'camera da letto',
-      'matrimoniale': 'camera da letto',
-      'letto': 'camera da letto',
-      'sala': 'salone',
-      'soggiorno': 'salone',
-      'living': 'salone'
-    };
-    const targetRoomName = ROOM_ALIASES[clean] || clean;
-
-    let room = snapshot.rooms.find(r => r.name.toLowerCase() === targetRoomName || r.name.toLowerCase() === clean);
-    if (!room) {
-      room = snapshot.rooms.find(r => r.name.toLowerCase().includes(clean) || clean.includes(r.name.toLowerCase()));
-    }
-    if (!room) throw new Error(`Stanza "${roomName}" non trovata.`);
+    const room = this.resolveRoomByName(snapshot, roomName);
 
     const stateBool = Boolean(targetState);
     const devices = room.devices.filter(d => d.category === 'light' || d.category === 'plug');
