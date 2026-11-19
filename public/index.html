@@ -278,19 +278,19 @@
         </div>
       </div>
 
-      <!-- Destra: Metriche Essenziali + Hamburger Filtri/Dispositivi -->
+      <!-- Destra: Metriche Essenziali + Accesso Rapido Admin + Notifiche + Filtri -->
       <div class="flex items-center gap-2">
-        <!-- Security Mode -->
-        <div id="security-badge" onclick="cycleSecurityMode()" class="cursor-pointer flex items-center gap-1.5 bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 border border-slate-700/60 px-2.5 py-1.5 rounded-xl text-xs font-semibold shadow-inner transition-colors" title="Clicca per cambiare modalità sicurezza">
-          <i class="fa-solid fa-shield-halved text-rose-400"></i>
-          <span id="stat-sec-mode" class="hidden sm:inline">A Casa</span>
-        </div>
-
         <!-- Potenza Totale -->
         <div id="energy-badge" onclick="switchArea('energy')" class="cursor-pointer flex items-center gap-1.5 bg-amber-950/60 hover:bg-amber-900/60 text-amber-300 border border-amber-500/30 px-2.5 py-1.5 rounded-xl text-xs font-semibold shadow-inner transition-colors" title="Potenza istantanea prese Meross (clicca per aprire Consumi & Energia)">
           <i class="fa-solid fa-bolt text-amber-400"></i>
           <span id="stat-power">0 W</span>
         </div>
+
+        <!-- Accesso Rapido Amministrazione -->
+        <button type="button" id="btn-header-admin" onclick="switchArea('admin')" class="h-9 px-2.5 sm:px-3 rounded-xl bg-slate-800/80 hover:bg-cyan-500/15 text-slate-200 hover:text-cyan-200 border border-slate-700/60 hover:border-cyan-500/40 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95" title="Apri Amministrazione &amp; Hub">
+          <i class="fa-solid fa-screwdriver-wrench text-cyan-400"></i>
+          <span class="hidden sm:inline">Admin</span>
+        </button>
 
         <!-- Centro Notifiche Rapido (Icona Header + Popover) -->
         <div id="header-notifications-wrapper" class="relative">

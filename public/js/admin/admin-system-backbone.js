@@ -1,320 +1,613 @@
+const ADMIN_SEARCH_INDEX = [
+  { id: 'climate-bosch', title: 'Caldaia Bosch CT200 & Termovalvole', subtitle: 'Telemetria, fiamma, pressione e zone', tab: 'climate', tabLabel: 'Clima & Caldaia', icon: 'fa-fire', keywords: 'caldaia bosch ct200 termovalvole pressione fiamma acqua calda riscaldamento' },
+  { id: 'climate-profile', title: 'Profilo Cinzia & Francesco', subtitle: 'Programmazione oraria e comfort neonati', tab: 'climate', tabLabel: 'Clima & Caldaia', icon: 'fa-baby', keywords: 'cinzia francesco profilo programmazione orari temperature comfort' },
+  { id: 'climate-oauth', title: 'Login Bosch SingleKey ID', subtitle: 'Autenticazione cloud PointT OAuth', tab: 'climate', tabLabel: 'Clima & Caldaia', icon: 'fa-key', keywords: 'login singlekey bosch oauth token redirect pointt' },
+  { id: 'climate-optimizer', title: 'Ottimizzatore Termico AI', subtitle: 'Riscaldamento intelligente e curva climatica', tab: 'climate', tabLabel: 'Clima & Caldaia', icon: 'fa-temperature-arrow-up', keywords: 'ottimizzatore termico riscaldamento intelligente inerzia' },
+  { id: 'lights-hue', title: 'Philips Hue Bridge LAN', subtitle: 'Scene, luci, dimmer e sensore corridoio', tab: 'lights', tabLabel: 'Luci & Hue', icon: 'fa-lightbulb', keywords: 'philips hue luci bridge lan scene lampadari sensore corridoio sse' },
+  { id: 'plugs-meross', title: 'Prese Smart Meross & Carichi', subtitle: 'Monitoraggio carichi elettrici e angolo cucina', tab: 'plugs', tabLabel: 'Prese & Carichi', icon: 'fa-plug', keywords: 'meross prese smart watt carichi cucina elettrodomestici' },
+  { id: 'ev-volvo-wallbox', title: 'Volvo EX30, Wallbox ABB & Drive', subtitle: 'OAuth Volvo, wallbox e sincronizzazione bollette/viaggi', tab: 'ev', tabLabel: 'Mobilità EV', icon: 'fa-car', keywords: 'volvo ex30 wallbox abb drive viaggi bollette dolomiti oauth' },
+  { id: 'sec-cams-nest', title: 'Telecamere Tapo, Nest & Sentinella', subtitle: 'ONVIF/RTSP, Baby Monitor, TTS Nest e Pet', tab: 'security', tabLabel: 'Sicurezza & Cam', icon: 'fa-video', keywords: 'telecamere tapo baby monitor nest cast tts sentinella pet' },
+  { id: 'fp-editor', title: 'Editor Piantina Drag & Drop', subtitle: 'Posizionamento pin e reset coordinate', tab: 'floorplan', tabLabel: 'Editor Piantina', icon: 'fa-map-pin', keywords: 'piantina pin drag drop coordinate reset stanze' },
+  { id: 'sys-tidb', title: 'Parametri Database TiDB Cloud & Sicurezza', subtitle: 'Endpoint AWS Frankfurt, tabelle e Kiosk PIN', tab: 'system', tabLabel: 'Sistema & DB', systemCategory: 'infra', targetSelector: '[data-sys-card="tidb"]', icon: 'fa-database', keywords: 'tidb cloud database mysql endpoint kv_store kiosk pin oauth' },
+  { id: 'sys-dual-env', title: 'Ambiente Duale WAMP & Sandbox (#71)', subtitle: 'Switch ambiente dev/prod e db_home_os_dev', tab: 'system', tabLabel: 'Sistema & DB', systemCategory: 'infra', targetSelector: '[data-sys-card="dual-env"]', icon: 'fa-flask', keywords: 'ambiente duale staging wamp sandbox db_home_os_dev test' },
+  { id: 'sys-avatars', title: 'Avatar Presenza Casa (Alex & Cinzia)', subtitle: 'Upload foto da smartphone con ritaglio circolare', tab: 'system', tabLabel: 'Sistema & DB', systemCategory: 'presence', targetSelector: '[data-sys-card="avatars"]', icon: 'fa-users', keywords: 'avatar foto alex cinzia cerchio upload presenza' },
+  { id: 'sys-iliadbox', title: 'Presenza Casa Iliadbox LAN', subtitle: 'Router Wi-Fi, MAC Alex & Cinzia e grace period', tab: 'system', tabLabel: 'Sistema & DB', systemCategory: 'presence', targetSelector: '[data-sys-card="iliadbox"]', icon: 'fa-wifi', keywords: 'iliadbox router wifi mac presence presenza alex cinzia' },
+  { id: 'sys-ai-gateway', title: 'AI Gateway & Guardrail', subtitle: 'Gemini LLM, quote sicurezza e audit azioni AI', tab: 'system', tabLabel: 'Sistema & DB', systemCategory: 'comms', targetSelector: '[data-sys-card="ai-gateway"]', icon: 'fa-shield-halved', keywords: 'ai gateway guardrail gemini modello limiti sicurezza' },
+  { id: 'sys-telegram', title: 'Telegram Bot & Pairing Chat', subtitle: '@casa_alex_smart_bot e link abbinamento', tab: 'system', tabLabel: 'Sistema & DB', systemCategory: 'comms', targetSelector: '[data-sys-card="telegram"]', icon: 'fa-paper-plane', keywords: 'telegram bot pairing chat alex cinzia codice' },
+  { id: 'sys-gmail', title: 'Hub Posta Multi-Account Gmail', subtitle: 'Sync mail Alex & Cinzia per consegne e bollette extra', tab: 'system', tabLabel: 'Sistema & DB', systemCategory: 'comms', targetSelector: '[data-sys-card="gmail"]', icon: 'fa-envelope', keywords: 'gmail posta mail oauth consegne pacchi bollette extra' },
+  { id: 'sys-pantum', title: 'Stampante Pantum P2500W (IPP LAN)', subtitle: 'Stato toner nero, IP LAN e discovery', tab: 'system', tabLabel: 'Sistema & DB', systemCategory: 'devices', targetSelector: '[data-sys-card="pantum"]', icon: 'fa-print', keywords: 'stampante pantum toner ipp lan discovery p2500w' },
+  { id: 'sys-thinq', title: 'LG ThinQ Connect', subtitle: 'Lavastoviglie D0211 e Asciugatrice Wendy', tab: 'system', tabLabel: 'Sistema & DB', systemCategory: 'devices', targetSelector: '[data-sys-card="thinq"]', icon: 'fa-kitchen-set', keywords: 'lg thinq lavastoviglie asciugatrice wendy elettrodomestici pat' },
+  { id: 'sys-dyson', title: 'Purificatore Dyson HP11 (MQTT)', subtitle: 'OTP MyDyson, configurazione Wi-Fi locale e MQTT :1883', tab: 'system', tabLabel: 'Sistema & DB', systemCategory: 'devices', targetSelector: '[data-sys-card="dyson"]', icon: 'fa-fan', keywords: 'dyson hp11 purificatore mqtt otp mydyson ssid wifi' },
+  { id: 'sys-logs', title: 'Registro Eventi & Audit Log', subtitle: 'Log live RAM, TiDB 2gg e archivi giornalieri', tab: 'system', tabLabel: 'Sistema & DB', systemCategory: 'logs', targetSelector: '[data-sys-card="logs"]', icon: 'fa-clock-rotate-left', keywords: 'log audit eventi registro archivio scarica svuota' }
+];
+
 Object.assign(window.AdminManager.prototype, {
+  getGlobalSearchMatches(query) {
+    const q = String(query || '').trim().toLowerCase();
+    if (!q) return [];
+    return ADMIN_SEARCH_INDEX.filter((item) => {
+      const hay = `${item.title} ${item.subtitle} ${item.tabLabel} ${item.keywords}`.toLowerCase();
+      return q.split(/\s+/).every((tok) => hay.includes(tok));
+    }).slice(0, 8);
+  },
+
+  onGlobalSearchInput(val) {
+    this.globalSearchQuery = String(val || '');
+    const clearBtn = document.getElementById('admin-global-search-clear');
+    const box = document.getElementById('admin-global-search-results');
+    if (clearBtn) clearBtn.classList.toggle('hidden', !this.globalSearchQuery.trim());
+    if (!box) return;
+
+    const q = this.globalSearchQuery.trim();
+    if (!q) {
+      box.classList.add('hidden');
+      box.innerHTML = '';
+      return;
+    }
+
+    const matches = this.getGlobalSearchMatches(q);
+    box.classList.remove('hidden');
+    if (matches.length === 0) {
+      box.innerHTML = `<div class="p-3 text-xs text-slate-400">Nessuna opzione trovata per "<strong class="text-slate-200">${this.escapeHtml(q)}</strong>"</div>`;
+      return;
+    }
+
+    box.innerHTML = matches.map((m) => `
+      <button type="button"
+              onclick="window.adminManager.jumpToAdminOption('${m.id}')"
+              class="w-full px-3 py-2.5 text-left hover:bg-cyan-500/10 border-b border-slate-800/80 last:border-b-0 flex items-center justify-between gap-2 transition-colors">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <div class="w-7 h-7 rounded-lg bg-slate-800 text-cyan-300 flex items-center justify-center text-xs shrink-0">
+            <i class="fa-solid ${m.icon}"></i>
+          </div>
+          <div class="min-w-0">
+            <div class="text-xs font-bold text-white truncate">${this.escapeHtml(m.title)}</div>
+            <div class="text-[10.5px] text-slate-400 truncate">${this.escapeHtml(m.subtitle)}</div>
+          </div>
+        </div>
+        <span class="px-2 py-0.5 rounded-full text-[9.5px] font-semibold bg-slate-800 text-cyan-300 border border-slate-700 shrink-0">${this.escapeHtml(m.tabLabel)}</span>
+      </button>
+    `).join('');
+  },
+
+  clearGlobalSearch() {
+    this.globalSearchQuery = '';
+    const inp = document.getElementById('admin-global-search');
+    if (inp) inp.value = '';
+    this.onGlobalSearchInput('');
+  },
+
+  jumpToAdminOption(entryId) {
+    const entry = ADMIN_SEARCH_INDEX.find((e) => e.id === entryId);
+    if (!entry) return;
+    this.globalSearchQuery = '';
+    this.activeTab = entry.tab;
+    localStorage.setItem('admin_active_tab', entry.tab);
+    if (entry.tab === 'system' && entry.systemCategory) {
+      this.systemCategory = entry.systemCategory;
+      localStorage.setItem('admin_sys_category', entry.systemCategory);
+      this.systemSearchQuery = '';
+    }
+    this.renderView();
+
+    if (entry.targetSelector) {
+      setTimeout(() => {
+        const el = document.querySelector(entry.targetSelector);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.classList.add('ring-2', 'ring-cyan-400');
+          setTimeout(() => el.classList.remove('ring-2', 'ring-cyan-400'), 1800);
+        }
+      }, 90);
+    }
+  },
+
+  setSystemCategory(cat) {
+    this.systemCategory = cat || 'all';
+    localStorage.setItem('admin_sys_category', this.systemCategory);
+    this.applySystemFilters();
+  },
+
+  onSystemSearchInput(val) {
+    this.systemSearchQuery = String(val || '');
+    this.applySystemFilters();
+  },
+
+  resetSystemFilters() {
+    this.systemCategory = 'all';
+    this.systemSearchQuery = '';
+    localStorage.setItem('admin_sys_category', 'all');
+    const inp = document.getElementById('admin-sys-search');
+    if (inp) inp.value = '';
+    this.applySystemFilters();
+  },
+
+  applySystemFilters() {
+    const root = document.getElementById('admin-system-pane');
+    if (!root) return;
+
+    const activeCat = this.systemCategory || 'all';
+    const q = String(this.systemSearchQuery || '').trim().toLowerCase();
+    const tokens = q ? q.split(/\s+/) : [];
+
+    root.querySelectorAll('[data-sys-cat-btn]').forEach((btn) => {
+      const isAct = btn.getAttribute('data-sys-cat-btn') === activeCat;
+      btn.className = isAct
+        ? 'px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow-sm shadow-cyan-500/20 flex items-center gap-1.5 transition-all cursor-pointer active:scale-95'
+        : 'px-2.5 py-1.5 rounded-xl text-[11px] font-semibold bg-slate-900/90 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-800 flex items-center gap-1.5 transition-all cursor-pointer active:scale-95';
+    });
+
+    const cards = Array.from(root.querySelectorAll('[data-sys-card]'));
+    let visibleCount = 0;
+
+    cards.forEach((card) => {
+      const cat = card.getAttribute('data-sys-cat') || '';
+      const keywords = `${card.getAttribute('data-sys-keywords') || ''} ${card.textContent || ''}`.toLowerCase();
+      const catOk = activeCat === 'all' || cat === activeCat;
+      const searchOk = tokens.length === 0 || tokens.every((t) => keywords.includes(t));
+      const show = catOk && searchOk;
+      card.classList.toggle('hidden', !show);
+      if (show) visibleCount++;
+    });
+
+    root.querySelectorAll('[data-sys-group]').forEach((grp) => {
+      const grpVisible = Array.from(grp.querySelectorAll('[data-sys-card]')).some((c) => !c.classList.contains('hidden'));
+      grp.classList.toggle('hidden', !grpVisible);
+    });
+
+    const emptyEl = document.getElementById('admin-sys-empty-state');
+    if (emptyEl) emptyEl.classList.toggle('hidden', visibleCount > 0);
+
+    const countEl = document.getElementById('admin-sys-match-count');
+    if (countEl) countEl.textContent = `${visibleCount}/${cards.length} sezioni`;
+
+    const clearBtn = document.getElementById('admin-sys-search-clear');
+    if (clearBtn) clearBtn.classList.toggle('hidden', !q);
+  },
+
   renderSystemPane(data, tidbConnected) {
+    const categories = [
+      { id: 'all', label: 'Tutte', count: 11, icon: 'fa-border-all' },
+      { id: 'infra', label: 'Database & Ambiente', count: 2, icon: 'fa-database' },
+      { id: 'presence', label: 'Presenza & Profili', count: 2, icon: 'fa-users' },
+      { id: 'comms', label: 'AI, Telegram & Mail', count: 3, icon: 'fa-robot' },
+      { id: 'devices', label: 'Dispositivi & Elettrodomestici', count: 3, icon: 'fa-microchip' },
+      { id: 'logs', label: 'Log & Audit', count: 1, icon: 'fa-clock-rotate-left' }
+    ];
+
     return `
-      <div class="glass-card rounded-2xl p-6 border border-slate-800 space-y-6">
-        
-        <!-- Header Sistema & TiDB -->
-        <div class="flex items-center justify-between flex-wrap gap-4 border-b border-slate-800 pb-4">
-          <div class="flex items-center gap-3">
-            <div class="w-12 h-12 rounded-2xl bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 flex items-center justify-center text-2xl shadow-lg shadow-cyan-500/10">
-              <i class="fa-solid fa-server"></i>
-            </div>
-            <div>
-              <div class="flex items-center gap-2">
-                <h3 class="text-base font-bold text-white tracking-tight">Sistema &amp; Database TiDB Cloud</h3>
-                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold ${tidbConnected ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'}">
-                  ${tidbConnected ? 'TiDB Cloud Connesso' : 'Disconnesso (Fallback Locale)'}
-                </span>
+      <div id="admin-system-pane" class="space-y-5">
+
+        <!-- Header Sistema + Barra Ricerca & Filtri Categoria -->
+        <div class="glass-card rounded-2xl p-5 border border-cyan-500/20 space-y-4">
+          <div class="flex items-center justify-between flex-wrap gap-3">
+            <div class="flex items-center gap-3">
+              <div class="w-11 h-11 rounded-2xl bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 flex items-center justify-center text-xl shadow-lg shadow-cyan-500/10 shrink-0">
+                <i class="fa-solid fa-server"></i>
               </div>
-              <p class="text-xs text-slate-400">Persistenza cloud distribuita MySQL2 con SSL, crittografia AES-256-GCM e sicurezza Kiosk PIN</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Ambiente Duale WAMP & Sandbox (#71) -->
-        <div id="admin-dual-env-card" class="p-4 rounded-xl bg-slate-900/80 border border-amber-500/30 space-y-3">
-          <div class="flex items-center justify-between flex-wrap gap-2">
-            <h4 class="text-sm font-bold text-white">🧪 Ambiente Duale Staging / WAMP Locale (<code>db_home_os_dev</code>) &amp; Sandbox (#71)</h4>
-            <span id="admin-env-db-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300">Verifica DB...</span>
-          </div>
-          <div id="admin-dual-env-body" class="text-xs text-slate-400">Caricamento stato ambiente duale...</div>
-        </div>
-
-        <!-- Parametri TiDB -->
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-1">
-            <span class="text-[10px] text-slate-400 uppercase font-semibold">Endpoint Database</span>
-            <div class="text-xs font-bold text-white font-mono truncate">gateway01.eu-central-1.prod.aws.tidbcloud.com</div>
-            <div class="text-[10.5px] text-slate-400">Porta 4000 con TLS obbligatorio</div>
-          </div>
-          <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-1">
-            <span class="text-[10px] text-slate-400 uppercase font-semibold">Tabelle Gestite</span>
-            <div class="text-xs font-bold text-cyan-400 font-mono">kv_store · energy_history · activity_logs</div>
-            <div class="text-[10.5px] text-slate-400">Cifratura trasparente secret</div>
-          </div>
-          <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-1">
-            <span class="text-[10px] text-slate-400 uppercase font-semibold">Sicurezza Accesso</span>
-            <div class="text-xs font-bold text-emerald-400 font-mono">PIN Kiosk (90gg) + Google OAuth</div>
-            <div class="text-[10.5px] text-slate-400">Whitelist email abilitata</div>
-          </div>
-        </div>
-
-        <!-- Avatar Presenza Casa (Alex & Cinzia) -->
-        <div class="p-4 rounded-xl bg-slate-900/60 border border-cyan-500/25 space-y-3">
-          <div class="flex items-center justify-between flex-wrap gap-2">
-            <div class="flex items-center gap-2">
-              <i class="fa-solid fa-users text-cyan-400 text-sm"></i>
               <div>
-                <h4 class="text-xs font-bold text-white uppercase tracking-wider">Avatar Presenza Casa (Alex &amp; Cinzia)</h4>
-                <p class="text-[11px] text-slate-400">Carica una foto dal cellulare o PC: viene ritagliata automaticamente in un cerchio e mostrata nella pagina principale</p>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <h3 class="text-base font-bold text-white tracking-tight">Sistema &amp; Database TiDB Cloud</h3>
+                  <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold ${tidbConnected ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'}">
+                    ${tidbConnected ? 'TiDB Cloud Connesso' : 'Disconnesso (Fallback Locale)'}
+                  </span>
+                </div>
+                <p class="text-xs text-slate-400">Organizzato per ambiti logici: infrastruttura, presenza famiglia, AI/comunicazioni, dispositivi e audit</p>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2 w-full sm:w-auto">
+              <div class="relative flex-1 sm:w-72">
+                <i class="fa-solid fa-magnifying-glass text-xs text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                <input id="admin-sys-search"
+                       type="text"
+                       value="${this.escapeHtml(this.systemSearchQuery || '')}"
+                       oninput="window.adminManager.onSystemSearchInput(this.value)"
+                       placeholder="Filtra voci Sistema & DB (es. Dyson, Avatar, Log)..."
+                       class="w-full pl-8 pr-8 py-2 rounded-xl text-xs bg-slate-900/90 border border-slate-700/80 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500 transition-colors" />
+                <button id="admin-sys-search-clear"
+                        type="button"
+                        onclick="window.adminManager.resetSystemFilters()"
+                        class="${this.systemSearchQuery ? '' : 'hidden '}absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs"
+                        title="Azzera filtro">
+                  <i class="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+              <span id="admin-sys-match-count" class="px-2.5 py-1.5 rounded-xl text-[10.5px] font-mono bg-slate-900 border border-slate-800 text-cyan-300 shrink-0">11/11 sezioni</span>
+            </div>
+          </div>
+
+          <!-- Pill Categorie Logiche -->
+          <div class="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-800/80">
+            ${categories.map((c) => `
+              <button type="button"
+                      data-sys-cat-btn="${c.id}"
+                      onclick="window.adminManager.setSystemCategory('${c.id}')"
+                      class="px-2.5 py-1.5 rounded-xl text-[11px] font-semibold bg-slate-900/90 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-800 flex items-center gap-1.5 transition-all cursor-pointer active:scale-95">
+                <i class="fa-solid ${c.icon} text-[10px]"></i>
+                <span>${c.label}</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[9.5px] font-mono bg-black/25">${c.count}</span>
+              </button>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- Empty State Ricerca -->
+        <div id="admin-sys-empty-state" class="hidden glass-card rounded-2xl p-8 border border-slate-800 text-center space-y-3">
+          <div class="w-11 h-11 rounded-2xl bg-slate-800/80 text-slate-400 flex items-center justify-center mx-auto text-lg">
+            <i class="fa-solid fa-filter-circle-xmark"></i>
+          </div>
+          <div class="text-sm font-bold text-white">Nessuna voce corrisponde ai filtri attivi</div>
+          <p class="text-xs text-slate-400">Prova a cercare un altro termine o mostra tutte le categorie.</p>
+          <button type="button" onclick="window.adminManager.resetSystemFilters()" class="px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow-md">
+            Mostra Tutte le Sezioni
+          </button>
+        </div>
+
+        <!-- GRUPPO 1: DATABASE & INFRASTRUTTURA -->
+        <section data-sys-group="infra" class="space-y-3">
+          <div class="flex items-center gap-2 px-1">
+            <i class="fa-solid fa-database text-cyan-400 text-xs"></i>
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300">Database &amp; Infrastruttura</h4>
+            <span class="text-[10.5px] text-slate-500">· Persistenza TiDB Cloud, cifratura e ambienti Dev/Prod</span>
+          </div>
+
+          <div data-sys-card="tidb" data-sys-cat="infra" data-sys-keywords="tidb cloud database mysql endpoint kv_store energy_history activity_logs sicurezza kiosk pin oauth"
+               class="glass-card rounded-2xl p-4 border border-slate-800 space-y-3 transition-all">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <span class="text-xs font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-server text-cyan-400 mr-1.5"></i>Parametri TiDB Cloud &amp; Sicurezza Accesso</span>
+              <span class="text-[10px] font-mono text-emerald-400">TLS Port 4000 · AES-256-GCM</span>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-1">
+                <span class="text-[10px] text-slate-400 uppercase font-semibold">Endpoint Database</span>
+                <div class="text-xs font-bold text-white font-mono truncate">gateway01.eu-central-1.prod.aws.tidbcloud.com</div>
+                <div class="text-[10.5px] text-slate-400">Porta 4000 con TLS obbligatorio</div>
+              </div>
+              <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-1">
+                <span class="text-[10px] text-slate-400 uppercase font-semibold">Tabelle Gestite</span>
+                <div class="text-xs font-bold text-cyan-400 font-mono">kv_store · energy_history · activity_logs</div>
+                <div class="text-[10.5px] text-slate-400">Cifratura trasparente secret</div>
+              </div>
+              <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-1">
+                <span class="text-[10px] text-slate-400 uppercase font-semibold">Sicurezza Accesso</span>
+                <div class="text-xs font-bold text-emerald-400 font-mono">PIN Kiosk (90gg) + Google OAuth</div>
+                <div class="text-[10.5px] text-slate-400">Whitelist email abilitata</div>
               </div>
             </div>
           </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            ${[
-              { key: 'alex', label: 'Alex', initial: 'A', ring: 'ring-cyan-400/60' },
-              { key: 'cinzia', label: 'Cinzia', initial: 'C', ring: 'ring-emerald-400/60' }
-            ].map(p => {
-              const avatarUrl = window.homeData?.avatars?.[p.key] || null;
-              return `
-                <div class="p-3 rounded-xl bg-slate-950/70 border border-slate-800 flex items-center justify-between gap-3">
-                  <div class="flex items-center gap-3 min-w-0">
-                    <div id="admin-avatar-preview-${p.key}" class="w-12 h-12 rounded-full ring-2 ${p.ring} bg-slate-800 flex items-center justify-center overflow-hidden shrink-0">
-                      ${avatarUrl
-                        ? `<img src="${avatarUrl}" alt="${p.label}" class="w-full h-full object-cover" />`
-                        : `<span class="text-sm font-black text-cyan-300">${p.initial}</span>`
-                      }
-                    </div>
-                    <div class="min-w-0">
-                      <div class="text-xs font-bold text-white">${p.label}</div>
-                      <div class="text-[10.5px] text-slate-400">${avatarUrl ? 'Avatar attivo' : 'Nessuna foto caricata'}</div>
-                    </div>
-                  </div>
-                  <div class="flex items-center gap-1.5 shrink-0">
-                    <label class="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white text-[11px] font-bold cursor-pointer transition-all active:scale-95 flex items-center gap-1">
-                      <i class="fa-solid fa-camera"></i>
-                      <span>Carica</span>
-                      <input type="file" accept="image/*" class="hidden" onchange="window.adminManager.uploadAvatarFile('${p.key}', this)" />
-                    </label>
-                    ${avatarUrl ? `
-                      <button type="button" onclick="window.adminManager.removeAvatar('${p.key}')" class="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 border border-slate-700 text-[11px] transition-colors" title="Rimuovi avatar">
-                        <i class="fa-solid fa-trash-can"></i>
-                      </button>
-                    ` : ''}
+          <div id="admin-dual-env-card" data-sys-card="dual-env" data-sys-cat="infra" data-sys-keywords="ambiente duale staging wamp locale sandbox db_home_os_dev dev prod"
+               class="p-4 rounded-2xl bg-slate-900/80 border border-amber-500/30 space-y-3 transition-all">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <h4 class="text-sm font-bold text-white">🧪 Ambiente Duale Staging / WAMP Locale (<code>db_home_os_dev</code>) &amp; Sandbox (#71)</h4>
+              <span id="admin-env-db-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300">Verifica DB...</span>
+            </div>
+            <div id="admin-dual-env-body" class="text-xs text-slate-400">Caricamento stato ambiente duale...</div>
+          </div>
+        </section>
+
+        <!-- GRUPPO 2: PRESENZA & PROFILI FAMIGLIA -->
+        <section data-sys-group="presence" class="space-y-3">
+          <div class="flex items-center gap-2 px-1">
+            <i class="fa-solid fa-users text-emerald-400 text-xs"></i>
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300">Presenza &amp; Profili Famiglia</h4>
+            <span class="text-[10.5px] text-slate-500">· Avatar circolari e rilevamento Wi-Fi Iliadbox LAN</span>
+          </div>
+
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+            <!-- Avatar Presenza Casa (Alex & Cinzia) -->
+            <div data-sys-card="avatars" data-sys-cat="presence" data-sys-keywords="avatar presenza casa alex cinzia foto smartphone cerchio upload"
+                 class="p-4 rounded-2xl bg-slate-900/60 border border-cyan-500/25 space-y-3 transition-all">
+              <div class="flex items-center justify-between flex-wrap gap-2">
+                <div class="flex items-center gap-2">
+                  <i class="fa-solid fa-users text-cyan-400 text-sm"></i>
+                  <div>
+                    <h4 class="text-xs font-bold text-white uppercase tracking-wider">Avatar Presenza Casa (Alex &amp; Cinzia)</h4>
+                    <p class="text-[11px] text-slate-400">Carica una foto da cellulare o PC: ritaglio circolare automatico</p>
                   </div>
                 </div>
-              `;
-            }).join('')}
-          </div>
-        </div>
+              </div>
 
-        <!-- Spina Dorsale: Presenza Casa (Iliadbox LAN) & AI Gateway / Guardrail -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div id="admin-iliadbox-panel" class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
-            <div class="text-xs text-slate-400"><i class="fa-solid fa-circle-notch fa-spin mr-1.5 text-cyan-400"></i> Caricamento presenza Iliadbox LAN...</div>
-          </div>
-          <div id="admin-ai-gateway-panel" class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
-            <div class="text-xs text-slate-400"><i class="fa-solid fa-circle-notch fa-spin mr-1.5 text-indigo-400"></i> Caricamento AI Gateway &amp; Guardrail...</div>
-          </div>
-        </div>
-
-        <!-- Telegram Bot Pairing Rapido (#34 / #39) -->
-        <div class="p-4 rounded-xl bg-slate-900/60 border border-sky-500/30 space-y-3">
-          <div class="flex items-center justify-between flex-wrap gap-2">
-            <div class="flex items-center gap-2">
-              <i class="fa-brands fa-telegram text-sky-400 text-base"></i>
-              <div>
-                <h4 class="text-xs font-bold text-white uppercase tracking-wider">Telegram Bot (@casa_alex_smart_bot) &amp; Pairing Chat</h4>
-                <p class="text-[11px] text-slate-400">Genera il codice/link di abbinamento per autorizzare il tuo account Telegram o quello di Cinzia</p>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                ${[
+                  { key: 'alex', label: 'Alex', initial: 'A', ring: 'ring-cyan-400/60' },
+                  { key: 'cinzia', label: 'Cinzia', initial: 'C', ring: 'ring-emerald-400/60' }
+                ].map(p => {
+                  const avatarUrl = window.homeData?.avatars?.[p.key] || null;
+                  return `
+                    <div class="p-3 rounded-xl bg-slate-950/70 border border-slate-800 flex items-center justify-between gap-3">
+                      <div class="flex items-center gap-3 min-w-0">
+                        <div id="admin-avatar-preview-${p.key}" class="w-12 h-12 rounded-full ring-2 ${p.ring} bg-slate-800 flex items-center justify-center overflow-hidden shrink-0">
+                          ${avatarUrl
+                            ? `<img src="${avatarUrl}" alt="${p.label}" class="w-full h-full object-cover" />`
+                            : `<span class="text-sm font-black text-cyan-300">${p.initial}</span>`
+                          }
+                        </div>
+                        <div class="min-w-0">
+                          <div class="text-xs font-bold text-white">${p.label}</div>
+                          <div class="text-[10.5px] text-slate-400">${avatarUrl ? 'Avatar attivo' : 'Nessuna foto caricata'}</div>
+                        </div>
+                      </div>
+                      <div class="flex items-center gap-1.5 shrink-0">
+                        <label class="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white text-[11px] font-bold cursor-pointer transition-all active:scale-95 flex items-center gap-1">
+                          <i class="fa-solid fa-camera"></i>
+                          <span>Carica</span>
+                          <input type="file" accept="image/*" class="hidden" onchange="window.adminManager.uploadAvatarFile('${p.key}', this)" />
+                        </label>
+                        ${avatarUrl ? `
+                          <button type="button" onclick="window.adminManager.removeAvatar('${p.key}')" class="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 border border-slate-700 text-[11px] transition-colors" title="Rimuovi avatar">
+                            <i class="fa-solid fa-trash-can"></i>
+                          </button>
+                        ` : ''}
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
               </div>
             </div>
-            <div class="flex items-center gap-2">
-              <button onclick="window.adminManager.generateTelegramPairingLink()" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95">
-                <i class="fa-solid fa-link"></i> Genera Codice / Link Pairing
-              </button>
-              <button onclick="window.adminManager.selectTab('security')" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold">
-                Impostazioni Avanzate
-              </button>
+
+            <!-- Presenza Casa Iliadbox LAN -->
+            <div id="admin-iliadbox-panel" data-sys-card="iliadbox" data-sys-cat="presence" data-sys-keywords="iliadbox router wifi lan mac presence alex cinzia grace"
+                 class="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-3 transition-all">
+              <div class="text-xs text-slate-400"><i class="fa-solid fa-circle-notch fa-spin mr-1.5 text-cyan-400"></i> Caricamento presenza Iliadbox LAN...</div>
             </div>
           </div>
-          <div id="admin-tg-pairing-box-sys" class="${this.lastTelegramPairing ? '' : 'hidden '}p-2.5 rounded-lg bg-sky-950/40 border border-sky-500/30 text-[11px] text-sky-200 break-all">${this.lastTelegramPairing ? this._renderPairingHtml(this.lastTelegramPairing) : ''}</div>
-        </div>
+        </section>
 
-        <!-- Hub Posta Multi-Account (Gmail Alex & Cinzia #36) -->
-        <div id="admin-gmail-hub-panel" class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
-          <div class="text-xs text-slate-400"><i class="fa-solid fa-circle-notch fa-spin mr-1.5 text-rose-400"></i> Caricamento Hub Posta (Gmail Alex &amp; Cinzia)...</div>
-        </div>
+        <!-- GRUPPO 3: AI, AUTOMAZIONI & COMUNICAZIONI -->
+        <section data-sys-group="comms" class="space-y-3">
+          <div class="flex items-center gap-2 px-1">
+            <i class="fa-solid fa-robot text-indigo-400 text-xs"></i>
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300">AI, Automazioni &amp; Comunicazioni</h4>
+            <span class="text-[10.5px] text-slate-500">· AI Gateway, Telegram Bot e Hub Posta Gmail</span>
+          </div>
 
-        <!-- Stampante Laser Wi-Fi Pantum P2500W (IPP LAN) -->
-        <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
-          <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
-            <div class="flex items-center gap-2">
-              <i class="fa-solid fa-print ${data?.printer?.online ? 'text-emerald-400' : 'text-slate-400'}"></i>
-              <h4 class="text-xs font-bold text-white uppercase tracking-wider">Stampante Pantum P2500W (IPP LAN :631)</h4>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${data?.printer?.online ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'}">
-                ${data?.printer?.statusLabel || 'Offline'}
-              </span>
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+            <div id="admin-ai-gateway-panel" data-sys-card="ai-gateway" data-sys-cat="comms" data-sys-keywords="ai gateway guardrail gemini modello limiti sicurezza quote"
+                 class="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-3 transition-all">
+              <div class="text-xs text-slate-400"><i class="fa-solid fa-circle-notch fa-spin mr-1.5 text-indigo-400"></i> Caricamento AI Gateway &amp; Guardrail...</div>
             </div>
-            <div class="flex items-center gap-2">
-              <button onclick="if(window.refreshPantumPrinterUi) window.refreshPantumPrinterUi(43)" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1 active:scale-95">
+
+            <!-- Telegram Bot Pairing Rapido (#34 / #39) -->
+            <div data-sys-card="telegram" data-sys-cat="comms" data-sys-keywords="telegram bot casa_alex_smart_bot pairing chat link codice alex cinzia"
+                 class="p-4 rounded-2xl bg-slate-900/60 border border-sky-500/30 space-y-3 transition-all">
+              <div class="flex items-center justify-between flex-wrap gap-2">
+                <div class="flex items-center gap-2">
+                  <i class="fa-brands fa-telegram text-sky-400 text-base"></i>
+                  <div>
+                    <h4 class="text-xs font-bold text-white uppercase tracking-wider">Telegram Bot (@casa_alex_smart_bot) &amp; Pairing Chat</h4>
+                    <p class="text-[11px] text-slate-400">Genera il codice/link di abbinamento per autorizzare il tuo account Telegram o quello di Cinzia</p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <button onclick="window.adminManager.generateTelegramPairingLink()" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95">
+                    <i class="fa-solid fa-link"></i> Genera Codice / Link Pairing
+                  </button>
+                  <button onclick="window.adminManager.selectTab('security')" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold">
+                    Impostazioni Avanzate
+                  </button>
+                </div>
+              </div>
+              <div id="admin-tg-pairing-box-sys" class="${this.lastTelegramPairing ? '' : 'hidden '}p-2.5 rounded-lg bg-sky-950/40 border border-sky-500/30 text-[11px] text-sky-200 break-all">${this.lastTelegramPairing ? this._renderPairingHtml(this.lastTelegramPairing) : ''}</div>
+            </div>
+          </div>
+
+          <!-- Hub Posta Multi-Account (Gmail Alex & Cinzia #36) -->
+          <div id="admin-gmail-hub-panel" data-sys-card="gmail" data-sys-cat="comms" data-sys-keywords="hub posta gmail multi account mail alex cinzia consegne pacchi bollette extra oauth"
+               class="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-3 transition-all">
+            <div class="text-xs text-slate-400"><i class="fa-solid fa-circle-notch fa-spin mr-1.5 text-rose-400"></i> Caricamento Hub Posta (Gmail Alex &amp; Cinzia)...</div>
+          </div>
+        </section>
+
+        <!-- GRUPPO 4: DISPOSITIVI LAN & ELETTRODOMESTICI -->
+        <section data-sys-group="devices" class="space-y-3">
+          <div class="flex items-center gap-2 px-1">
+            <i class="fa-solid fa-microchip text-amber-400 text-xs"></i>
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300">Dispositivi LAN &amp; Elettrodomestici</h4>
+            <span class="text-[10.5px] text-slate-500">· Stampante IPP, LG ThinQ e Purificatore Dyson MQTT</span>
+          </div>
+
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+            <!-- Stampante Laser Wi-Fi Pantum P2500W (IPP LAN) -->
+            <div data-sys-card="pantum" data-sys-cat="devices" data-sys-keywords="stampante pantum p2500w ipp lan toner discovery ip"
+                 class="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-3 transition-all">
+              <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
+                <div class="flex items-center gap-2">
+                  <i class="fa-solid fa-print ${data?.printer?.online ? 'text-emerald-400' : 'text-slate-400'}"></i>
+                  <h4 class="text-xs font-bold text-white uppercase tracking-wider">Stampante Pantum P2500W (IPP LAN :631)</h4>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${data?.printer?.online ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'}">
+                    ${data?.printer?.statusLabel || 'Offline'}
+                  </span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button onclick="if(window.refreshPantumPrinterUi) window.refreshPantumPrinterUi(43)" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1 active:scale-95">
+                    <i class="fa-solid fa-rotate text-[10px]"></i> Aggiorna
+                  </button>
+                  <button onclick="if(window.discoverPantumUi) window.discoverPantumUi(43)" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 transition-all flex items-center gap-1 active:scale-95">
+                    <i class="fa-solid fa-magnifying-glass text-[10px]"></i> Cerca in LAN
+                  </button>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80">
+                  <div class="text-[10px] text-slate-400 uppercase">Modello &amp; Stato</div>
+                  <div class="font-bold text-white mt-0.5 truncate">${data?.printer?.makeAndModel || 'Pantum-P2500W-Series'}</div>
+                </div>
+                <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80">
+                  <div class="text-[10px] text-slate-400 uppercase">Toner Nero</div>
+                  <div class="font-bold ${data?.printer?.tonerPercent !== null && data?.printer?.tonerPercent !== undefined && data.printer.tonerPercent <= 15 ? 'text-rose-400' : 'text-emerald-400'} mt-0.5 font-mono">
+                    ${data?.printer?.tonerPercent !== null && data?.printer?.tonerPercent !== undefined ? data.printer.tonerPercent + '%' : 'N/D'}
+                  </div>
+                </div>
+                <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 flex items-center gap-2">
+                  <input id="pantum-ip-input-43" type="text" value="${data?.printer?.ip || ''}" placeholder="es. 192.168.1.82"
+                         class="w-full px-2 py-1 rounded-md bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-indigo-500" />
+                  <button onclick="if(window.savePantumIpUi) window.savePantumIpUi(43)" class="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shrink-0">
+                    Salva
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Elettrodomestici LG ThinQ Connect -->
+            <div data-sys-card="thinq" data-sys-cat="devices" data-sys-keywords="lg thinq connect lavastoviglie asciugatrice wendy d0211 rc90u2"
+                 class="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-3 transition-all">
+              <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
+                <div class="flex items-center gap-2">
+                  <i class="fa-solid fa-kitchen-set ${data?.thinq?.connected ? 'text-emerald-400' : 'text-slate-400'}"></i>
+                  <h4 class="text-xs font-bold text-white uppercase tracking-wider">LG ThinQ Connect (Lavastoviglie &amp; Asciugatrice)</h4>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${data?.thinq?.connected ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'}">
+                    ${data?.thinq?.connected ? 'API Connessa' : (data?.thinq?.configured ? 'In attesa' : 'Non configurato')}
+                  </span>
+                </div>
+                <button onclick="if(window.refreshThinqUi) window.refreshThinqUi(null)" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1 active:scale-95">
+                  <i class="fa-solid fa-rotate text-[10px]"></i> Sincronizza
+                </button>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 flex items-center justify-between">
+                  <div>
+                    <div class="text-[10px] text-slate-400 uppercase">Lavastoviglie (Pin #31)</div>
+                    <div class="font-bold text-white mt-0.5">${data?.thinq?.dishwasher?.alias || 'Lavastoviglie'} · ${data?.thinq?.dishwasher?.modelName || 'D0211'}</div>
+                  </div>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${data?.thinq?.dishwasher?.isRunning ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-800 text-slate-400'}">
+                    ${data?.thinq?.dishwasher?.statusLabel || 'Standby'}
+                  </span>
+                </div>
+                <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 flex items-center justify-between">
+                  <div>
+                    <div class="text-[10px] text-slate-400 uppercase">Asciugatrice (Pin #44)</div>
+                    <div class="font-bold text-white mt-0.5">${data?.thinq?.dryer?.alias || 'Wendy'} · ${data?.thinq?.dryer?.modelName || 'RC90U2_WW'}</div>
+                  </div>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${data?.thinq?.dryer?.isRunning ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-800 text-slate-400'}">
+                    ${data?.thinq?.dryer?.statusLabel || 'Standby'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Purificatore Dyson HP11 (MyDyson Cloud + MQTT Locale) -->
+          <div data-sys-card="dyson" data-sys-cat="devices" data-sys-keywords="purificatore dyson hp11 mqtt mydyson otp wifi ssid locale"
+               class="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-3 transition-all">
+            <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
+              <div class="flex items-center gap-2">
+                <i class="fa-solid fa-fan ${data?.dyson?.mqttConnected ? 'text-emerald-400' : 'text-amber-400'}"></i>
+                <h4 class="text-xs font-bold text-white uppercase tracking-wider">Purificatore Dyson HP11 (Pin #13 · MQTT :1883)</h4>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${data?.dyson?.mqttConnected ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'}">
+                  ${data?.dyson?.mqttConnected ? 'MQTT Connesso' : (data?.dyson?.configured ? 'Configurato (Offline)' : 'Richiede OTP MyDyson')}
+                </span>
+              </div>
+              <button onclick="if(window.refreshDysonUi) window.refreshDysonUi(13)" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1 active:scale-95">
                 <i class="fa-solid fa-rotate text-[10px]"></i> Aggiorna
               </button>
-              <button onclick="if(window.discoverPantumUi) window.discoverPantumUi(43)" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 transition-all flex items-center gap-1 active:scale-95">
-                <i class="fa-solid fa-magnifying-glass text-[10px]"></i> Cerca in LAN
-              </button>
             </div>
-          </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-            <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80">
-              <div class="text-[10px] text-slate-400 uppercase">Modello &amp; Stato</div>
-              <div class="font-bold text-white mt-0.5">${data?.printer?.makeAndModel || 'Pantum-P2500W-Series'}</div>
-            </div>
-            <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80">
-              <div class="text-[10px] text-slate-400 uppercase">Toner Nero</div>
-              <div class="font-bold ${data?.printer?.tonerPercent !== null && data?.printer?.tonerPercent !== undefined && data.printer.tonerPercent <= 15 ? 'text-rose-400' : 'text-emerald-400'} mt-0.5 font-mono">
-                ${data?.printer?.tonerPercent !== null && data?.printer?.tonerPercent !== undefined ? data.printer.tonerPercent + '%' : 'N/D'}
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div class="space-y-2">
+                <div class="text-[11px] font-semibold text-indigo-300 flex items-center gap-1.5">
+                  <i class="fa-solid fa-cloud"></i> Metodo 1 · Account MyDyson (OTP Email)
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                  <input id="dyson-email-input" type="email" placeholder="Email MyDyson" class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono" />
+                  <input id="dyson-otp-input" type="text" placeholder="Codice OTP (6 cifre)" class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono" />
+                  <input id="dyson-pwd-input" type="password" placeholder="Password MyDyson" class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono" />
+                </div>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <button onclick="(async()=>{ const email=document.getElementById('dyson-email-input').value.trim(); const r=await fetch('/api/dyson/auth/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})}); const d=await r.json(); if(window.showToast) window.showToast(d.success?'OTP inviato via email!':(d.error||'Errore OTP'), d.success?'success':'error'); })()"
+                          class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all">
+                    1. Invia OTP Email
+                  </button>
+                  <button onclick="(async()=>{ const email=document.getElementById('dyson-email-input').value.trim(); const otpCode=document.getElementById('dyson-otp-input').value.trim(); const password=document.getElementById('dyson-pwd-input').value; const r=await fetch('/api/dyson/auth/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,otpCode,password})}); const d=await r.json(); if(window.showToast) window.showToast(d.success?'Dyson collegato!':(d.error||'Errore verifica'), d.success?'success':'error'); if(d.success && typeof loadDashboard==='function') loadDashboard(); })()"
+                          class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-all">
+                    2. Verifica e Collega
+                  </button>
+                </div>
+              </div>
+
+              <div class="space-y-2 lg:border-l lg:border-slate-800/80 lg:pl-4">
+                <div class="text-[11px] font-semibold text-cyan-300 flex items-center gap-1.5">
+                  <i class="fa-solid fa-tag"></i> Metodo 2 · Configurazione Locale Diretta (etichetta Wi-Fi, zero Cloud)
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                  <input id="dyson-ssid-input" type="text" value="${data?.dyson?.serial || ''}" placeholder="SSID (DYSON-...-527E) o Seriale" class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono" />
+                  <input id="dyson-wifipwd-input" type="password" placeholder="Password Wi-Fi etichetta (8 car.)" class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono" />
+                  <input id="dyson-ip-input" type="text" value="${data?.dyson?.ip || ''}" placeholder="IP LAN (opzionale, es. 192.168.1.x)" class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono" />
+                </div>
+                <button onclick="(async()=>{ const ssidOrSerial=document.getElementById('dyson-ssid-input').value.trim(); const wifiPassword=document.getElementById('dyson-wifipwd-input').value.trim(); const ip=document.getElementById('dyson-ip-input').value.trim(); const r=await fetch('/api/dyson/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssidOrSerial,wifiPassword,ip})}); const d=await r.json(); if(window.showToast) window.showToast(d.success?'Dyson configurato in locale!':(d.error||'Errore configurazione'), d.success?'success':'error'); if(d.success && typeof loadDashboard==='function') loadDashboard(); })()"
+                        class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white transition-all">
+                  Salva &amp; Connetti in Locale (MQTT :1883)
+                </button>
               </div>
             </div>
-            <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 flex items-center gap-2">
-              <input id="pantum-ip-input-43" type="text" value="${data?.printer?.ip || ''}" placeholder="es. 192.168.1.82"
-                     class="w-full px-2 py-1 rounded-md bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-indigo-500" />
-              <button onclick="if(window.savePantumIpUi) window.savePantumIpUi(43)" class="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shrink-0">
-                Salva
-              </button>
-            </div>
           </div>
-        </div>
+        </section>
 
-        <!-- Elettrodomestici LG ThinQ Connect -->
-        <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
-          <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
-            <div class="flex items-center gap-2">
-              <i class="fa-solid fa-kitchen-set ${data?.thinq?.connected ? 'text-emerald-400' : 'text-slate-400'}"></i>
-              <h4 class="text-xs font-bold text-white uppercase tracking-wider">LG ThinQ Connect (Lavastoviglie &amp; Asciugatrice)</h4>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${data?.thinq?.connected ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'}">
-                ${data?.thinq?.connected ? 'API Connessa' : (data?.thinq?.configured ? 'In attesa' : 'Non configurato')}
-              </span>
-            </div>
-            <button onclick="if(window.refreshThinqUi) window.refreshThinqUi(null)" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1 active:scale-95">
-              <i class="fa-solid fa-rotate text-[10px]"></i> Sincronizza
-            </button>
+        <!-- GRUPPO 5: DIAGNOSTICA, LOG & AUDIT -->
+        <section data-sys-group="logs" class="space-y-3">
+          <div class="flex items-center gap-2 px-1">
+            <i class="fa-solid fa-clock-rotate-left text-purple-400 text-xs"></i>
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300">Diagnostica, Log &amp; Audit</h4>
+            <span class="text-[10.5px] text-slate-500">· Cronologia eventi RAM, TiDB e archivi scaricabili</span>
           </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 flex items-center justify-between">
-              <div>
-                <div class="text-[10px] text-slate-400 uppercase">Lavastoviglie (Pin #31)</div>
-                <div class="font-bold text-white mt-0.5">${data?.thinq?.dishwasher?.alias || 'Lavastoviglie'} · ${data?.thinq?.dishwasher?.modelName || 'D0211'}</div>
+          <div data-sys-card="logs" data-sys-cat="logs" data-sys-keywords="registro eventi audit log ram archive archivia scarica svuota"
+               class="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-3 transition-all">
+            <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
+              <div class="space-y-0.5">
+                <div class="flex items-center gap-2">
+                  <i class="fa-solid fa-clock-rotate-left text-purple-400"></i>
+                  <h4 class="text-xs font-bold text-white uppercase tracking-wider">Registro Eventi &amp; Audit Log</h4>
+                </div>
+                <div id="admin-logs-archive-status" class="text-[10px] text-slate-400 font-mono">Backup 01:00 · Retention DB: 2 giorni</div>
               </div>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${data?.thinq?.dishwasher?.isRunning ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-800 text-slate-400'}">
-                ${data?.thinq?.dishwasher?.statusLabel || 'Standby'}
-              </span>
-            </div>
-            <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 flex items-center justify-between">
-              <div>
-                <div class="text-[10px] text-slate-400 uppercase">Asciugatrice (Pin #44)</div>
-                <div class="font-bold text-white mt-0.5">${data?.thinq?.dryer?.alias || 'Wendy'} · ${data?.thinq?.dryer?.modelName || 'RC90U2_WW'}</div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <select id="admin-logs-source" onchange="window.adminManager.loadHistory()" class="px-2 py-1 rounded-lg text-[11px] bg-slate-950 border border-slate-700 text-slate-200">
+                  <option value="all">Live (RAM)</option>
+                  <option value="db">Database TiDB (Ultimi 2gg)</option>
+                  <option value="archive">Archivio Giornaliero (.log)</option>
+                </select>
+                <select id="admin-logs-level" onchange="window.adminManager.loadHistory()" class="px-2 py-1 rounded-lg text-[11px] bg-slate-950 border border-slate-700 text-slate-200">
+                  <option value="all">Tutti i livelli</option>
+                  <option value="action">Azioni</option>
+                  <option value="warn">Warning</option>
+                  <option value="error">Errori</option>
+                </select>
+                <input id="admin-logs-search" type="text" placeholder="Cerca nei log..." onkeyup="if(event.key==='Enter') window.adminManager.loadHistory()"
+                       class="px-2.5 py-1 rounded-lg text-[11px] bg-slate-950 border border-slate-700 text-white w-36 focus:outline-none focus:border-indigo-500" />
+                <button onclick="window.adminManager.loadHistory()" class="px-2 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
+                  Filtra
+                </button>
+                <button onclick="window.adminManager.runLogArchiveNow()" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30">
+                  🗄️ Archivia Ora
+                </button>
+                <button onclick="window.adminManager.clearHistory()" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 transition-all flex items-center gap-1 active:scale-95">
+                  <i class="fa-solid fa-trash-can text-[10px]"></i> Svuota Log
+                </button>
               </div>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${data?.thinq?.dryer?.isRunning ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-800 text-slate-400'}">
-                ${data?.thinq?.dryer?.statusLabel || 'Standby'}
-              </span>
             </div>
-          </div>
-        </div>
 
-        <!-- Purificatore Dyson HP11 (MyDyson Cloud + MQTT Locale) -->
-        <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
-          <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
-            <div class="flex items-center gap-2">
-              <i class="fa-solid fa-fan ${data?.dyson?.mqttConnected ? 'text-emerald-400' : 'text-amber-400'}"></i>
-              <h4 class="text-xs font-bold text-white uppercase tracking-wider">Purificatore Dyson HP11 (Pin #13 · MQTT :1883)</h4>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${data?.dyson?.mqttConnected ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'}">
-                ${data?.dyson?.mqttConnected ? 'MQTT Connesso' : (data?.dyson?.configured ? 'Configurato (Offline)' : 'Richiede OTP MyDyson')}
-              </span>
+            <div id="admin-logs-archive-bar" class="hidden flex items-center gap-2 flex-wrap p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs">
+              <span class="text-[11px] text-slate-400 font-semibold">File archivio:</span>
+              <select id="admin-logs-archive-file" onchange="window.adminManager.loadHistory()" class="px-2 py-1 rounded-lg text-[11px] bg-slate-900 border border-slate-700 text-slate-200"></select>
+              <button onclick="window.adminManager.downloadLogArchive('log')" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30">
+                📥 Scarica .log
+              </button>
+              <button onclick="window.adminManager.downloadLogArchive('txt')" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
+                📄 Scarica .txt
+              </button>
             </div>
-            <button onclick="if(window.refreshDysonUi) window.refreshDysonUi(13)" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1 active:scale-95">
-              <i class="fa-solid fa-rotate text-[10px]"></i> Aggiorna
-            </button>
-          </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-            <input id="dyson-email-input" type="email" placeholder="Email MyDyson" class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono" />
-            <input id="dyson-otp-input" type="text" placeholder="Codice OTP (6 cifre)" class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono" />
-            <input id="dyson-pwd-input" type="password" placeholder="Password MyDyson" class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono" />
-          </div>
-          <div class="flex items-center gap-2">
-            <button onclick="(async()=>{ const email=document.getElementById('dyson-email-input').value.trim(); const r=await fetch('/api/dyson/auth/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})}); const d=await r.json(); if(window.showToast) window.showToast(d.success?'OTP inviato via email!':(d.error||'Errore OTP'), d.success?'success':'error'); })()"
-                    class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all">
-              1. Invia OTP Email
-            </button>
-            <button onclick="(async()=>{ const email=document.getElementById('dyson-email-input').value.trim(); const otpCode=document.getElementById('dyson-otp-input').value.trim(); const password=document.getElementById('dyson-pwd-input').value; const r=await fetch('/api/dyson/auth/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,otpCode,password})}); const d=await r.json(); if(window.showToast) window.showToast(d.success?'Dyson collegato!':(d.error||'Errore verifica'), d.success?'success':'error'); if(d.success && typeof loadDashboard==='function') loadDashboard(); })()"
-                    class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-all">
-              2. Verifica e Collega
-            </button>
-          </div>
-
-          <!-- Configurazione 100% Locale da Etichetta Wi-Fi (bypassa blocco Cloudflare MyDyson) -->
-          <div class="pt-3 border-t border-slate-800/80 space-y-2">
-            <div class="text-[11px] font-semibold text-cyan-300 flex items-center gap-1.5">
-              <i class="fa-solid fa-tag"></i> Oppure Configurazione Locale Diretta (da etichetta sul purificatore / manuale, zero Cloud)
-            </div>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-              <input id="dyson-ssid-input" type="text" value="${data?.dyson?.serial || ''}" placeholder="SSID (DYSON-...-527E) o Seriale" class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono" />
-              <input id="dyson-wifipwd-input" type="password" placeholder="Password Wi-Fi etichetta (8 car.)" class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono" />
-              <input id="dyson-ip-input" type="text" value="${data?.dyson?.ip || ''}" placeholder="IP LAN (opzionale, es. 192.168.1.x)" class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono" />
-            </div>
-            <button onclick="(async()=>{ const ssidOrSerial=document.getElementById('dyson-ssid-input').value.trim(); const wifiPassword=document.getElementById('dyson-wifipwd-input').value.trim(); const ip=document.getElementById('dyson-ip-input').value.trim(); const r=await fetch('/api/dyson/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssidOrSerial,wifiPassword,ip})}); const d=await r.json(); if(window.showToast) window.showToast(d.success?'Dyson configurato in locale!':(d.error||'Errore configurazione'), d.success?'success':'error'); if(d.success && typeof loadDashboard==='function') loadDashboard(); })()"
-                    class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white transition-all">
-              Salva &amp; Connetti in Locale (MQTT :1883)
-            </button>
-          </div>
-        </div>
-
-        <!-- Registro Eventi & Audit Log -->
-        <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
-          <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2">
-            <div class="space-y-0.5">
-              <div class="flex items-center gap-2">
-                <i class="fa-solid fa-clock-rotate-left text-purple-400"></i>
-                <h4 class="text-xs font-bold text-white uppercase tracking-wider">Registro Eventi &amp; Audit Log</h4>
+            <div id="admin-history-feed" class="space-y-2 max-h-96 overflow-y-auto pr-1">
+              <div class="flex items-center justify-center py-6 text-slate-500 text-xs">
+                <i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Caricamento registro eventi...
               </div>
-              <div id="admin-logs-archive-status" class="text-[10px] text-slate-400 font-mono">Backup 01:00 · Retention DB: 2 giorni</div>
-            </div>
-            <div class="flex items-center gap-2 flex-wrap">
-              <select id="admin-logs-source" onchange="window.adminManager.loadHistory()" class="px-2 py-1 rounded-lg text-[11px] bg-slate-950 border border-slate-700 text-slate-200">
-                <option value="all">Live (RAM)</option>
-                <option value="db">Database TiDB (Ultimi 2gg)</option>
-                <option value="archive">Archivio Giornaliero (.log)</option>
-              </select>
-              <select id="admin-logs-level" onchange="window.adminManager.loadHistory()" class="px-2 py-1 rounded-lg text-[11px] bg-slate-950 border border-slate-700 text-slate-200">
-                <option value="all">Tutti i livelli</option>
-                <option value="action">Azioni</option>
-                <option value="warn">Warning</option>
-                <option value="error">Errori</option>
-              </select>
-              <input id="admin-logs-search" type="text" placeholder="Cerca nei log..." onkeyup="if(event.key==='Enter') window.adminManager.loadHistory()"
-                     class="px-2.5 py-1 rounded-lg text-[11px] bg-slate-950 border border-slate-700 text-white w-36 focus:outline-none focus:border-indigo-500" />
-              <button onclick="window.adminManager.loadHistory()" class="px-2 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
-                Filtra
-              </button>
-              <button onclick="window.adminManager.runLogArchiveNow()" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30">
-                🗄️ Archivia Ora
-              </button>
-              <button onclick="window.adminManager.clearHistory()" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 transition-all flex items-center gap-1 active:scale-95">
-                <i class="fa-solid fa-trash-can text-[10px]"></i> Svuota Log
-              </button>
             </div>
           </div>
-
-          <div id="admin-logs-archive-bar" class="hidden flex items-center gap-2 flex-wrap p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs">
-            <span class="text-[11px] text-slate-400 font-semibold">File archivio:</span>
-            <select id="admin-logs-archive-file" onchange="window.adminManager.loadHistory()" class="px-2 py-1 rounded-lg text-[11px] bg-slate-900 border border-slate-700 text-slate-200"></select>
-            <button onclick="window.adminManager.downloadLogArchive('log')" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30">
-              📥 Scarica .log
-            </button>
-            <button onclick="window.adminManager.downloadLogArchive('txt')" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
-              📄 Scarica .txt
-            </button>
-          </div>
-
-          <div id="admin-history-feed" class="space-y-2 max-h-96 overflow-y-auto pr-1">
-            <div class="flex items-center justify-center py-6 text-slate-500 text-xs">
-              <i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Caricamento registro eventi...
-            </div>
-          </div>
-        </div>
+        </section>
 
       </div>
     `;

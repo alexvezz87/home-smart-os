@@ -55,7 +55,8 @@ La dashboard integra un overlay di blocco sicuro (`#auth-modal`) che protegge le
 Per garantire scalabilità, pulizia del codice e massima reattività su Smartphone, Tablet a muro e Desktop PC, il frontend è stato riorganizzato eliminando la frammentazione dei tab in favore di sole **3 Macro-Aree**:
 
 ### A. 🏠 La Mia Casa (Digital Twin Operativo — Canvas-First Minimal HUD)
-- **Planimetria Full-Width & Minimal HUD**: La planimetria occupa quasi l'intera larghezza e altezza dello schermo (`max-w-[1920px]`, `h-[calc(100vh-76px)]`) con header compatto (`48px`), zero scroll orizzontali e proporzioni SVG fedeli (`viewBox` con preset rapidi **Casa**, **Notte** `150 30 680 620`, **Giorno** `150 640 680 610`).
+- **Planimetria Full-Width & Minimal HUD**: La planimetria occupa quasi l'intera larghezza e altezza dello schermo (`max-w-[1920px]`, `h-[calc(100vh-76px)]`) con header compatto (`48px`), pulsante di **accesso rapido Amministrazione (`#btn-header-admin`)** sempre disponibile nell'header, zero scroll orizzontali e proporzioni SVG fedeli (`viewBox` con preset rapidi **Casa**, **Notte** `150 30 680 620`, **Giorno** `150 640 680 610`).
+- **Quadrante Orologio Live & 4 Fasi della Giornata (*Mattino / Pomeriggio / Sera / Notte*)**: Orologio analogico+digitale in tempo reale nell'HUD della piantina con selettore di fase (`Auto` per fascia oraria oppure anteprima manuale) che modula dinamicamente lo sfondo ambientale, la luminosità naturale che entra dalle finestre (`#svg-layer-daylight`) e l'intensità del glow delle lampade accese. Espone `window.HOME_DAY_PHASES` ed evento `home:dayphase-changed` per future automazioni contestuali.
 - **Menu ad Hamburger Sinistro (`#left-sidebar`)**: Sidebar a scomparsa per navigazione tra le 3 Macro-Aree, azioni globali (*Spegni Tutto*, *Aggiorna*), profilo utente e impostazioni avanzate mappa (*Dark / CAD / Light*, *Heatmap*, *Arredi*, *Drag & Drop Pin*).
 - **Sidebar Destra Filtri & Dispositivi (`#right-sidebar`)**: Pannello a scomparsa con filtri combinabili (Stato *Tutti / Attivi / Offline*, griglia Stanze senza scroll orizzontale), ricerca rapida e tab separate per **Dispositivi** e **Atmosfere Hue**.
 - **Chip Flottanti & Pulsante AI Flottante**: Chip layer rapidi in alto sulla mappa, controlli zoom flottanti in basso a destra e pulsante flottante AI (`#ai-fab`) in basso a sinistra con popover apribile al click.
@@ -112,6 +113,7 @@ Riorganizzata con un'architettura **modulare responsive**: su desktop/tablet ori
    - Cassetto dinamico dispositivi non collocati e pulsante di ripristino coordinate di fabbrica.
    - Sincronizzazione bidirezionale su TiDB Cloud (`kv_store`).
 7. 🛡️ **Sistema, Database TiDB & Audit Log**:
+   - **Ricerca Globale Admin & Organizzazione a Categorie**: Barra di ricerca rapida `#admin-global-search` nell'header Amministrazione (jump diretto verso qualsiasi voce delle 7 schede) + filtro istantaneo (`#admin-sys-search`) e 6 pill di categoria (*Tutte*, *Database & Ambiente*, *Presenza & Profili*, *AI, Telegram & Mail*, *Dispositivi & Elettrodomestici*, *Log & Audit*) con raggruppamento a griglia per ambiti logici.
    - Connessione distribuita TiDB Cloud Serverless (`gateway01.eu-central-1.prod.aws.tidbcloud.com:4000`) con cifratura SSL/TLS.
    - Gestione credenziali Kiosk PIN tablet (validità 90 giorni) e whitelist Google OAuth2.
    - Registro eventi operativo (`activity_logs`) con filtri per categoria e svuotamento audit trail.

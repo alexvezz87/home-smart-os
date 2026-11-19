@@ -146,6 +146,14 @@ function switchArea(area) {
   const rightBtn = document.getElementById('btn-right-drawer');
   if (rightBtn) rightBtn.classList.toggle('hidden', area !== 'home');
 
+  // Aggiorna stato attivo del pulsante rapido Amministrazione nell'header
+  const headerAdminBtn = document.getElementById('btn-header-admin');
+  if (headerAdminBtn) {
+    headerAdminBtn.className = area === 'admin'
+      ? 'h-9 px-2.5 sm:px-3 rounded-xl bg-gradient-to-r from-cyan-600 to-emerald-600 text-white border border-cyan-400/50 text-xs font-bold flex items-center gap-1.5 shadow-md shadow-cyan-500/20 transition-all active:scale-95'
+      : 'h-9 px-2.5 sm:px-3 rounded-xl bg-slate-800/80 hover:bg-cyan-500/15 text-slate-200 hover:text-cyan-200 border border-slate-700/60 hover:border-cyan-500/40 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95';
+  }
+
   // Chiudi sidebar sinistra dopo il cambio sezione
   if (typeof toggleLeftSidebar === 'function') toggleLeftSidebar(false);
 
@@ -258,7 +266,15 @@ async function loadDashboard() {
     // Rinfresca vista attiva (evita di sovrascrivere i form se l'utente sta digitando in Amministrazione)
     const activeTag = document.activeElement?.tagName;
     const isTypingInForm = activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT';
-    const hasPendingDysonInput = ['dyson-email-input', 'dyson-otp-input', 'dyson-pwd-input', 'admin-gmail-client-id', 'admin-gmail-client-secret'].some(
+    const hasPendingDysonInput = [
+      'dyson-email-input',
+      'dyson-otp-input',
+      'dyson-pwd-input',
+      'admin-gmail-client-id',
+      'admin-gmail-client-secret',
+      'admin-global-search',
+      'admin-sys-search'
+    ].some(
       (id) => Boolean(document.getElementById(id)?.value)
     );
 
@@ -287,7 +303,6 @@ function updateHeaderMetrics(data) {
   const stats = data.stats || {};
   const elPower = document.getElementById('stat-power');
   const elTemp = document.getElementById('stat-temp');
-  const elSec = document.getElementById('stat-sec-mode');
   const elLights = document.getElementById('stat-lights-on');
   const elPlugs = document.getElementById('stat-plugs-on');
   const elOnline = document.getElementById('stat-online');
@@ -298,11 +313,6 @@ function updateHeaderMetrics(data) {
   if (elLights) elLights.innerText = stats.lightsOn || 0;
   if (elPlugs) elPlugs.innerText = stats.plugsOn || 0;
   if (elOnline) elOnline.innerText = stats.onlineDevices || 0;
-
-  if (elSec && data.security) {
-    const modeMap = { home: 'A Casa', away: 'Fuori Casa' };
-    elSec.innerText = modeMap[data.security.mode] || data.security.mode || 'A Casa';
-  }
 }
 
 /**
