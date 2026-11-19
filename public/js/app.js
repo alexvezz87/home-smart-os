@@ -150,8 +150,8 @@ function switchArea(area) {
   const headerAdminBtn = document.getElementById('btn-header-admin');
   if (headerAdminBtn) {
     headerAdminBtn.className = area === 'admin'
-      ? 'h-9 px-2.5 sm:px-3 rounded-xl bg-gradient-to-r from-cyan-600 to-emerald-600 text-white border border-cyan-400/50 text-xs font-bold flex items-center gap-1.5 shadow-md shadow-cyan-500/20 transition-all active:scale-95'
-      : 'h-9 px-2.5 sm:px-3 rounded-xl bg-slate-800/80 hover:bg-cyan-500/15 text-slate-200 hover:text-cyan-200 border border-slate-700/60 hover:border-cyan-500/40 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95';
+      ? 'h-9 w-9 rounded-xl bg-gradient-to-r from-cyan-600 to-emerald-600 text-white border border-cyan-400/50 flex items-center justify-center shadow-md shadow-cyan-500/20 transition-all active:scale-95'
+      : 'h-9 w-9 rounded-xl bg-slate-800/80 hover:bg-cyan-500/15 text-cyan-400 hover:text-cyan-200 border border-slate-700/60 hover:border-cyan-500/40 flex items-center justify-center transition-all active:scale-95';
   }
 
   // Chiudi sidebar sinistra dopo il cambio sezione
