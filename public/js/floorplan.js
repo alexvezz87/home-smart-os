@@ -322,9 +322,11 @@ class FloorplanEngine {
     if (!['auto', 'morning', 'afternoon', 'evening', 'night'].includes(mode)) return;
     this.dayPhaseOverride = mode;
     localStorage.setItem('fp_day_phase_override', mode);
+    const activePhase = this.getActiveDayPhase();
+    this.syncHeaderDayPhaseIcon(activePhase);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('home:dayphase-changed', {
-        detail: { mode, phase: this.getActiveDayPhase() }
+        detail: { mode, phase: activePhase }
       }));
     }
     this.render();
@@ -345,8 +347,31 @@ class FloorplanEngine {
     }
   }
 
+  syncHeaderDayPhaseIcon(dayPhase = this.getActiveDayPhase()) {
+    const btn = document.getElementById('btn-header-dayphase');
+    const icon = document.getElementById('header-dayphase-icon');
+    if (icon) {
+      icon.className = `fa-solid ${dayPhase.icon} text-sm`;
+    }
+    if (btn) {
+      const colorMap = {
+        morning: 'text-sky-300 border-sky-400/40 bg-sky-950/50 hover:bg-sky-900/50',
+        afternoon: 'text-amber-300 border-amber-400/40 bg-amber-950/50 hover:bg-amber-900/50',
+        evening: 'text-purple-300 border-purple-400/40 bg-purple-950/50 hover:bg-purple-900/50',
+        night: 'text-cyan-300 border-indigo-400/40 bg-indigo-950/70 hover:bg-indigo-900/60'
+      };
+      const cls = colorMap[dayPhase.id] || 'text-amber-300 border-slate-700/60 bg-slate-800/80 hover:bg-slate-700/80';
+      btn.className = `h-9 w-9 rounded-xl border flex items-center justify-center transition-all active:scale-95 ${cls}`;
+      btn.title = dayPhase.isAuto
+        ? `Fascia giornata: ${dayPhase.label} (Auto) — Clicca per cambiare anteprima`
+        : `Anteprima manuale: ${dayPhase.label} — Clicca per cambiare o tornare su Auto`;
+    }
+  }
+
   startClockLoop() {
     if (this._clockTimer || typeof window === 'undefined') return;
+    this.syncHeaderDayPhaseIcon();
+    window.addEventListener('DOMContentLoaded', () => this.syncHeaderDayPhaseIcon(), { once: true });
     this._clockTimer = window.setInterval(() => this.updateClockDom(), 1000);
   }
 
@@ -381,6 +406,8 @@ class FloorplanEngine {
     if (hHand) hHand.setAttribute('transform', `rotate(${hourDeg.toFixed(1)} 20 20)`);
     if (mHand) mHand.setAttribute('transform', `rotate(${minDeg.toFixed(1)} 20 20)`);
     if (sHand) sHand.setAttribute('transform', `rotate(${secDeg.toFixed(1)} 20 20)`);
+
+    this.syncHeaderDayPhaseIcon(this.getActiveDayPhase(now));
 
     const autoNow = this.getAutoDayPhase(now);
     if (autoNow !== this._lastAutoDayPhase) {
@@ -438,16 +465,6 @@ class FloorplanEngine {
           </div>
           <div id="fp-clock-date" class="text-[10px] text-slate-400 font-medium">${dateStr}</div>
         </div>
-
-        <!-- Selettore Fase Giornata (Auto / Mattino / Pomeriggio / Sera / Notte) -->
-        <button type="button"
-                onclick="window.floorplan.cycleDayPhase()"
-                title="${dayPhase.isAuto ? `Fascia automatica: ${dayPhase.label} (${dayPhase.hoursRange}) — Clicca per cambiare anteprima` : `Anteprima manuale: ${dayPhase.label} — Clicca per cambiare o tornare su Auto`}"
-                class="px-2 py-1 rounded-xl text-[10.5px] font-bold border transition-all active:scale-95 flex items-center gap-1.5 ${dayPhase.badgeCls}">
-          <i class="fa-solid ${dayPhase.icon} text-[10px]"></i>
-          <span>${dayPhase.label}</span>
-          <span class="text-[9px] font-mono opacity-75 uppercase">${dayPhase.isAuto ? 'Auto' : 'Manuale'}</span>
-        </button>
       </div>
     `;
   }

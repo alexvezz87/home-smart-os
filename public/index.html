@@ -286,10 +286,14 @@
           <span id="stat-power">0 W</span>
         </div>
 
-        <!-- Accesso Rapido Amministrazione -->
-        <button type="button" id="btn-header-admin" onclick="switchArea('admin')" class="h-9 px-2.5 sm:px-3 rounded-xl bg-slate-800/80 hover:bg-cyan-500/15 text-slate-200 hover:text-cyan-200 border border-slate-700/60 hover:border-cyan-500/40 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95" title="Apri Amministrazione &amp; Hub">
-          <i class="fa-solid fa-screwdriver-wrench text-cyan-400"></i>
-          <span class="hidden sm:inline">Admin</span>
+        <!-- Accesso Rapido Amministrazione (solo icona) -->
+        <button type="button" id="btn-header-admin" onclick="switchArea('admin')" class="h-9 w-9 rounded-xl bg-slate-800/80 hover:bg-cyan-500/15 text-cyan-400 hover:text-cyan-200 border border-slate-700/60 hover:border-cyan-500/40 flex items-center justify-center transition-all active:scale-95" title="Amministrazione &amp; Hub">
+          <i class="fa-solid fa-screwdriver-wrench text-sm"></i>
+        </button>
+
+        <!-- Icona Fascia della Giornata (Mattino / Pomeriggio / Sera / Notte) -->
+        <button type="button" id="btn-header-dayphase" onclick="window.floorplan?.cycleDayPhase()" class="h-9 w-9 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 text-amber-300 border border-slate-700/60 flex items-center justify-center transition-all active:scale-95" title="Fascia giornata (Auto) — Clicca per cambiare">
+          <i id="header-dayphase-icon" class="fa-solid fa-sun text-sm"></i>
         </button>
 
         <!-- Centro Notifiche Rapido (Icona Header + Popover) -->
