@@ -775,6 +775,16 @@ class FloorplanEngine {
       const activeLights = roomPins.filter(p => (p.category === 'light' || p.category === 'chandelier') && p.isOn).length;
       const totalLights = roomPins.filter(p => p.category === 'light' || p.category === 'chandelier').length;
       const roomWatts = roomPins.reduce((acc, p) => acc + (Number(p.powerW) || 0), 0);
+      const valveTemps = roomPins
+        .filter(p => p.category === 'valve' && typeof p.temperature === 'number' && !Number.isNaN(p.temperature))
+        .map(p => p.temperature);
+      const fallbackTemps = roomPins
+        .filter(p => typeof (p.temperature ?? p.temperatureC) === 'number' && !Number.isNaN(p.temperature ?? p.temperatureC))
+        .map(p => p.temperature ?? p.temperatureC);
+      const tempList = valveTemps.length > 0 ? valveTemps : fallbackTemps;
+      const roomTemp = tempList.length > 0
+        ? +(tempList.reduce((a, b) => a + b, 0) / tempList.length).toFixed(1)
+        : null;
       const isSelected = this.selectedRoom === r.id;
       
       // Se una stanza è selezionata, le altre vengono attenuate per far risaltare quella attiva
@@ -805,18 +815,29 @@ class FloorplanEngine {
 
           <!-- Badge Etichetta Stanza -->
           <g transform="translate(${r.labelX}, ${r.labelY})" pointer-events="none">
-            <rect x="-78" y="-22" width="156" height="${r.interactive && roomPins.length > 0 ? '44' : '28'}" rx="8"
-                  fill="${isSelected ? 'rgba(8, 47, 73, 0.95)' : (isLight ? 'rgba(255, 255, 255, 0.88)' : 'rgba(2, 6, 23, 0.82)')}"
-                  stroke="${isSelected ? '#22d3ee' : 'rgba(148, 163, 184, 0.3)'}"
-                  stroke-width="${isSelected ? '2.5' : '1'}" />
-            <text x="0" y="-4" text-anchor="middle" fill="${isSelected ? '#38bdf8' : labelColor}" font-size="11.5" font-weight="900" font-family="Inter, sans-serif" letter-spacing="0.5">
-              ${r.label}
-            </text>
-            ${r.interactive && roomPins.length > 0 ? `
-              <text x="0" y="13" text-anchor="middle" fill="${subColor}" font-size="9.5" font-weight="700" font-family="monospace">
-                ${totalLights > 0 ? `💡 ${activeLights}/${totalLights}` : ''}${roomWatts > 0 ? ` · ⚡ ${roomWatts.toFixed(0)}W` : ` · ${roomPins.length} disp.`}
-              </text>
-            ` : ''}
+            ${(() => {
+              const infoParts = [];
+              if (roomTemp !== null) infoParts.push(`🌡️ ${roomTemp.toFixed(1)}°C`);
+              if (totalLights > 0) infoParts.push(`💡 ${activeLights}/${totalLights}`);
+              if (roomWatts > 0) infoParts.push(`⚡ ${roomWatts.toFixed(0)}W`);
+              if (infoParts.length === 0 && roomPins.length > 0) infoParts.push(`${roomPins.length} disp.`);
+              const hasSubLine = r.interactive && infoParts.length > 0;
+              const boxW = Math.max(156, infoParts.join(' · ').length * 6.8 + 20);
+              return `
+                <rect x="${-Math.round(boxW / 2)}" y="-22" width="${Math.round(boxW)}" height="${hasSubLine ? '44' : '28'}" rx="8"
+                      fill="${isSelected ? 'rgba(8, 47, 73, 0.95)' : (isLight ? 'rgba(255, 255, 255, 0.88)' : 'rgba(2, 6, 23, 0.82)')}"
+                      stroke="${isSelected ? '#22d3ee' : 'rgba(148, 163, 184, 0.3)'}"
+                      stroke-width="${isSelected ? '2.5' : '1'}" />
+                <text x="0" y="-4" text-anchor="middle" fill="${isSelected ? '#38bdf8' : labelColor}" font-size="11.5" font-weight="900" font-family="Inter, sans-serif" letter-spacing="0.5">
+                  ${r.label}
+                </text>
+                ${hasSubLine ? `
+                  <text x="0" y="13" text-anchor="middle" fill="${roomTemp !== null && !isSelected ? (isLight ? '#0284c7' : '#fbbf24') : subColor}" font-size="9.5" font-weight="700" font-family="monospace">
+                    ${infoParts.join(' · ')}
+                  </text>
+                ` : ''}
+              `;
+            })()}
           </g>
         </g>
       `;
