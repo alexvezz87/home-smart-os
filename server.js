@@ -89,7 +89,9 @@ const services = {
   thermalAnalytics: null,
   gmailHub: null,
   deliveryBillingParser: null,
-  calendarHub: null
+  calendarHub: null,
+  emailSender: null,
+  powerWatchdog: null
 };
 
 // Carica certificati SSL per HTTPS (necessario per callback OAuth2 Volvo ID su https://localhost:3000/callback)
@@ -230,6 +232,8 @@ async function bootstrap() {
   services.gmailHub = require('./src/gmail-hub');
   services.deliveryBillingParser = require('./src/delivery-billing-parser');
   services.calendarHub = require('./src/calendar-hub');
+  services.emailSender = require('./src/email-sender');
+  services.powerWatchdog = require('./src/power-watchdog');
 
   logger.setDbPersister((action, message, meta) => db.addLog(action, message, meta));
   logArchiver.startScheduler();
@@ -242,7 +246,9 @@ async function bootstrap() {
     'climate:setpoint_changed',
     'system:notification',
     'security:auth_alert',
-    'alert:triggered'
+    'alert:triggered',
+    'power:outage',
+    'power:restored'
   ]);
   services.eventBus.on('*', (evt) => {
     if (!evt || !BRIDGED_EVENTS.has(evt.event)) return;
@@ -276,7 +282,9 @@ async function bootstrap() {
     dolomitiBillsSync: services.dolomitiBillsSync,
     telegramBot: services.telegramBot,
     webPushManager: services.webPushManager,
-    gmailHub: services.gmailHub
+    gmailHub: services.gmailHub,
+    emailSender: services.emailSender,
+    powerWatchdog: services.powerWatchdog
   }).catch((err) => console.warn('⚠️ [ServiceStatus] Init background:', err.message));
   services.merossEnergy.init();
   services.hueLocal.init();
@@ -299,7 +307,8 @@ async function bootstrap() {
     telegramBot: services.telegramBot,
     webPushManager: services.webPushManager,
     deliveryBillingParser: services.deliveryBillingParser,
-    securitySystem: services.securitySystem
+    securitySystem: services.securitySystem,
+    emailSender: services.emailSender
   }).catch((err) => console.warn('⚠️ [Notifier] Init background:', err.message));
   services.nestCaster.init().catch((err) => console.warn('⚠️ [NestCaster] Init background:', err.message));
   services.securitySystem.initSentinel({ notifier: services.notifier, iliadboxClient: services.iliadboxClient }).catch((err) => console.warn('⚠️ [Sentinel] Init background:', err.message));
@@ -314,6 +323,17 @@ async function bootstrap() {
     deliveryBillingParser: services.deliveryBillingParser,
     notifier: services.notifier
   }).catch((err) => console.warn('⚠️ [CalendarHub] Init background:', err.message));
+  services.emailSender.init().catch((err) => console.warn('⚠️ [EmailSender] Init background:', err.message));
+  services.powerWatchdog.init({
+    iliadboxClient: services.iliadboxClient,
+    hueLocal: services.hueLocal,
+    merossEnergy: services.merossEnergy,
+    evClimateHub: services.evClimateHub,
+    securitySystem: services.securitySystem,
+    notifier: services.notifier,
+    emailSender: services.emailSender,
+    eventBus: services.eventBus
+  }).catch((err) => console.warn('⚠️ [PowerWatchdog] Init background:', err.message));
   services.pantumPrinter.init().catch((err) => console.warn('⚠️ [Pantum] Init background:', err.message));
   services.lgThinq.init().catch((err) => console.warn('⚠️ [LG ThinQ] Init background:', err.message));
   services.dysonPurifier.init().catch((err) => console.warn('⚠️ [Dyson HP11] Init background:', err.message));

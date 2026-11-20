@@ -398,6 +398,12 @@ Object.assign(window.AdminManager.prototype, {
                class="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-3 transition-all">
             <div class="text-xs text-slate-400"><i class="fa-solid fa-circle-notch fa-spin mr-1.5 text-rose-400"></i> Caricamento Hub Posta (Gmail Alex &amp; Cinzia)...</div>
           </div>
+
+          <!-- Watchdog Blackout & Allerte Email SMTP (#115) -->
+          <div id="admin-power-watchdog-panel" data-sys-card="power-watchdog" data-sys-cat="comms" data-sys-keywords="watchdog blackout corrente elettrica email smtp nodemailer avvisi frigo"
+               class="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-3 transition-all">
+            <div class="text-xs text-slate-400"><i class="fa-solid fa-circle-notch fa-spin mr-1.5 text-amber-400"></i> Caricamento Watchdog Blackout &amp; Email SMTP...</div>
+          </div>
         </section>
 
         <!-- GRUPPO 4: DISPOSITIVI LAN & ELETTRODOMESTICI -->
@@ -756,9 +762,130 @@ AdminManager.prototype.loadBackbonePanels = async function() {
     this.renderIliadboxPanel();
     this.renderAiGatewayPanel();
     this.loadGmailHubPanel();
+    this.loadPowerWatchdogPanel();
     this.loadEnvironmentPanel();
   } catch (err) {
     console.warn('Errore caricamento pannelli spina dorsale:', err.message);
+  }
+};
+
+AdminManager.prototype.loadPowerWatchdogPanel = async function() {
+  const el = document.getElementById('admin-power-watchdog-panel');
+  if (!el) return;
+  try {
+    const res = await fetch('/api/power-watchdog/status').then((r) => r.json());
+    const wd = res.watchdog || {};
+    const cfg = wd.config || {};
+    const st = wd.state || {};
+    const em = res.email || {};
+    const isOutage = st.status === 'outage';
+    const smtpOk = Boolean(em.configured);
+
+    el.innerHTML = `
+      <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-800 pb-2.5">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-xs font-bold text-white"><i class="fa-solid fa-bolt text-amber-400 mr-1.5"></i>⚡ Watchdog Blackout &amp; Allerte Email SMTP</span>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${isOutage ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'}">
+            ${isOutage ? `⚡ ${this.escapeHtml(st.outageType || 'Possibile Blackout')}` : '🟢 Linea Casa Online'}
+          </span>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${smtpOk ? 'bg-sky-500/20 text-sky-300' : 'bg-amber-500/20 text-amber-300'}">
+            ${smtpOk ? `SMTP Configurato (${this.escapeHtml(em.host)}:${this.escapeHtml(String(em.port || 465))})` : 'SMTP non configurato (.env)'}
+          </span>
+        </div>
+        <div class="text-[11px] text-slate-400 font-mono">
+          Ultimo carico: ${Math.round(Number(st.lastKnownPowerW || 0))} W casa · ${Math.round(Number(st.lastKnownWallboxW || 0))} W wallbox
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+        <label class="space-y-1">
+          <span class="text-[11px] text-slate-400">Isteresi (minuti / check)</span>
+          <input id="pw-hysteresis" type="number" min="1" max="15" value="${Number(cfg.hysteresisChecks || 3)}" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white" />
+        </label>
+        <label class="space-y-1">
+          <span class="text-[11px] text-slate-400">Avviso Frigo/Freezer (ore)</span>
+          <input id="pw-fridge-hours" type="number" min="0.5" max="24" step="0.5" value="${Number(cfg.fridgeAlertHours || 2)}" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white" />
+        </label>
+        <label class="space-y-1">
+          <span class="text-[11px] text-slate-400">Destinatari Email (CSV)</span>
+          <input id="pw-recipients" type="text" value="${this.escapeHtml((em.recipients || []).join(', '))}" placeholder="es. utente@example.com" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono" />
+        </label>
+      </div>
+
+      <div class="flex items-center justify-between flex-wrap gap-3 pt-1">
+        <div class="flex items-center gap-3 flex-wrap text-xs text-slate-300">
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input id="pw-enabled" type="checkbox" ${cfg.enabled !== false ? 'checked' : ''} class="accent-amber-500" />
+            Abilitato
+          </label>
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input id="pw-email-outage" type="checkbox" ${cfg.sendEmailOnOutage !== false ? 'checked' : ''} class="accent-amber-500" />
+            Email su Blackout
+          </label>
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input id="pw-email-restore" type="checkbox" ${cfg.sendEmailOnRestore !== false ? 'checked' : ''} class="accent-amber-500" />
+            Email su Ripristino
+          </label>
+        </div>
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="window.adminManager.savePowerWatchdogConfig()" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold">
+            Salva
+          </button>
+          <button type="button" onclick="window.adminManager.sendWatchdogTestEmail()" class="px-3 py-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-xs font-bold">
+            📧 Invia Email di Test
+          </button>
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    el.innerHTML = `<span class="text-xs text-rose-400">Errore Watchdog Blackout: ${this.escapeHtml(err.message)}</span>`;
+  }
+};
+
+AdminManager.prototype.savePowerWatchdogConfig = async function() {
+  try {
+    const enabled = Boolean(document.getElementById('pw-enabled')?.checked);
+    const hysteresisChecks = Number(document.getElementById('pw-hysteresis')?.value || 3);
+    const fridgeAlertHours = Number(document.getElementById('pw-fridge-hours')?.value || 2);
+    const sendEmailOnOutage = Boolean(document.getElementById('pw-email-outage')?.checked);
+    const sendEmailOnRestore = Boolean(document.getElementById('pw-email-restore')?.checked);
+    const recipients = document.getElementById('pw-recipients')?.value || '';
+
+    const res = await fetch('/api/power-watchdog/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        enabled,
+        hysteresisChecks,
+        fridgeAlertHours,
+        sendEmailOnOutage,
+        sendEmailOnRestore,
+        recipients
+      })
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Errore salvataggio');
+    window.showToast?.('Impostazioni Watchdog & Email SMTP salvate', 'success');
+    this.loadPowerWatchdogPanel();
+  } catch (err) {
+    window.showToast?.(this.escapeHtml(err.message), 'error');
+  }
+};
+
+AdminManager.prototype.sendWatchdogTestEmail = async function() {
+  try {
+    window.showToast?.('Invio email di test in corso...', 'info');
+    const res = await fetch('/api/power-watchdog/test-email', { method: 'POST' });
+    const json = await res.json();
+    if (json.sent) {
+      window.showToast?.(`📧 Email di test inviata a ${(json.recipients || []).join(', ')}`, 'success');
+    } else if (json.skipped) {
+      window.showToast?.(`Email saltata: ${json.reason}`, 'warning');
+    } else {
+      throw new Error(json.error || 'Errore invio email');
+    }
+  } catch (err) {
+    window.showToast?.(this.escapeHtml(err.message), 'error');
   }
 };
 

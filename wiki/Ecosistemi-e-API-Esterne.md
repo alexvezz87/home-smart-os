@@ -129,3 +129,6 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 
 ### Google Calendar API v3 — Account Alex (`#110`)
 - **OAuth2 & Endpoint**: riusa il client `google-drive-oauth` di `GmailHub` con scope `https://www.googleapis.com/auth/calendar.events` solo su `alex`. Endpoint protetti in `src/routes/mail-notifications.routes.js`: `GET /api/calendar/status`, `GET /api/calendar/events`, `POST /api/calendar/sync`, `POST /api/calendar/config` e `POST /api/calendar/from-mail`.
+
+### Canale Email SMTP & `PowerOutageWatchdog` (`#115`)
+- **Configurazione `.env` & Endpoint**: `EmailSender` (`src/email-sender.js`) legge `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` e `ALERT_EMAIL_TO` (fallback `ALLOWED_GOOGLE_EMAILS`) senza mai esporre la password via API. Endpoint protetti: `GET /api/power-watchdog/status`, `POST /api/power-watchdog/config`, `POST /api/power-watchdog/test-email`.
