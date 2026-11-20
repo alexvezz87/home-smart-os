@@ -433,7 +433,7 @@ class CalendarHub {
     return triggered;
   }
 
-  async createEvent({ summary, date, startIso, endIso, description = '', allDay = true } = {}) {
+  async createEvent({ summary, date, time, durationMinutes = 60, startIso, endIso, description = '', allDay = true } = {}) {
     if (!this.gmailHub || !this.gmailHub.hasCalendarAccess('alex')) {
       throw new Error('Scope Google Calendar mancante per Alex: riconnetti l\'account Alex in Amministrazione.');
     }
@@ -447,12 +447,33 @@ class CalendarHub {
       ? String(date)
       : getRomeTodayDateStr();
 
+    let startObj = { date: targetDate };
+    let endObj = { date: nextDayIsoDate(targetDate) };
+
+    if (!allDay) {
+      const cleanTime = String(time || '').trim();
+      if (!startIso && /^\d{2}:\d{2}$/.test(cleanTime)) {
+        const [hh, mm] = cleanTime.split(':').map(Number);
+        const dur = Math.max(15, Math.min(720, Number(durationMinutes) || 60));
+        const totalMins = hh * 60 + mm + dur;
+        const endDate = totalMins >= 1440 ? nextDayIsoDate(targetDate) : targetDate;
+        const endMins = totalMins % 1440;
+        const endHm = `${String(Math.floor(endMins / 60)).padStart(2, '0')}:${String(endMins % 60).padStart(2, '0')}`;
+        startObj = { dateTime: `${targetDate}T${cleanTime}:00`, timeZone: 'Europe/Rome' };
+        endObj = { dateTime: `${endDate}T${endHm}:00`, timeZone: 'Europe/Rome' };
+      } else if (startIso && endIso) {
+        const hasTz = (iso) => /(?:Z|[+-]\d{2}:\d{2})$/i.test(String(iso || '').trim());
+        startObj = hasTz(startIso) ? { dateTime: startIso } : { dateTime: startIso, timeZone: 'Europe/Rome' };
+        endObj = hasTz(endIso) ? { dateTime: endIso } : { dateTime: endIso, timeZone: 'Europe/Rome' };
+      }
+    }
+
     const body = {
       summary: cleanSummary,
       description: String(description || ''),
       reminders: { useDefault: true },
-      start: allDay || !startIso ? { date: targetDate } : { dateTime: startIso },
-      end: allDay || !endIso ? { date: nextDayIsoDate(targetDate) } : { dateTime: endIso }
+      start: startObj,
+      end: endObj
     };
 
     const res = await axios.post('https://www.googleapis.com/calendar/v3/calendars/primary/events', body, {
@@ -468,8 +489,8 @@ class CalendarHub {
       id: created.id || `local-${Date.now()}`,
       summary: cleanSummary,
       description: body.description,
-      start: body.start,
-      end: body.end,
+      start: created.start || body.start,
+      end: created.end || body.end,
       htmlLink: created.htmlLink || '',
       status: created.status || 'confirmed'
     });

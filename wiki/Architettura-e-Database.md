@@ -308,10 +308,10 @@ Per abilitare lo sviluppo di nuove viste reattive senza riscritture traumatiche 
 1. **Workspace `frontend/` (Node 16.17 & Node 20 LTS Safe)**:
    - Stack: **Vue 3** (`^3.4.38`), **Pinia** (`^2.2.2`), **Chart.js** (`^4.4.4`) + **`vue-chartjs`** (`^5.3.1`), **Vite** (`^4.5.5`) + `@vitejs/plugin-vue` (`^4.6.2`).
    - `frontend/vite.config.js` compila `src/main.js` in formato `iife` (`HomeSmartVue`) generando `public/vue/home-vue.js` e `public/vue/home-vue.css` (entrambi esclusi da Git via `.gitignore`).
-2. **Store Pinia & Vista Pilota `Stato Servizi`**:
-   - `frontend/src/stores/homeStore.js` (`useHomeStore`): gestisce stato `/api/system/status`, filtri (`all | issues | operational`), `authExpiredServices` e aggiornamento di `#nav-status-dot`.
-   - `frontend/src/views/StatusView.vue`: sostituisce la resa imperativa di `#area-status` con filtri reattivi live, micro-grafico `Doughnut` (`vue-chartjs`), barra storica a 36 tacche, alert servizi sloggati e timeline incidenti.
-   - `frontend/src/main.js`: monta `StatusView` su `#area-status`, espone `window.homeVueBridge` e pubblica il bridge retrocompatibile `window.statusManager`; `public/js/status.js` resta come fallback protetto da `if (!window.statusManager)`.
+2. **Store Pinia & Viste Migrate (`Stato Servizi` `#124` + `Calendario & Scadenze` `#126`)**:
+   - `frontend/src/stores/homeStore.js` (`useHomeStore`) + `frontend/src/views/StatusView.vue` (Fase 0, `#124`): gestisce stato `/api/system/status`, filtri (`all | issues | operational`), `authExpiredServices`, micro-grafico `Doughnut` (`vue-chartjs`), barra storica a 36 tacche e aggiornamento di `#nav-status-dot`.
+   - `frontend/src/stores/calendarStore.js` (`useCalendarStore`) + `frontend/src/views/CalendarView.vue` (Fase 1, `#126`): gestisce `/api/calendar/overview` (45gg), ricerca live (`searchQuery`), switch `Mese ↔ Agenda` cronologica, KPI con totale € bollette da pagare, `busyActionKey` selettivo e creazione rapida eventi (`POST /api/calendar/events`).
+   - `frontend/src/main.js`: monta `StatusView` su `#area-status` e `CalendarView` su `#area-calendar` con la stessa istanza `pinia`, espone `window.homeVueBridge` (`useHomeStore`, `useCalendarStore`) e pubblica i bridge retrocompatibili `window.statusManager` e `window.calendarManager`; `public/js/status.js` e `public/js/calendar.js` restano come fallback protetti da `if (!window.*)`.
 3. **Build Multi-Stage `Dockerfile`**:
    - Lo stage `node:20-bookworm-slim AS frontend-builder` installa le dipendenze in `frontend/` ed esegue `npm --prefix frontend run build`, copiando `/build/public/vue` nell'immagine finale (`/app/public/vue`).
 

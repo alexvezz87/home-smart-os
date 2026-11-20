@@ -291,7 +291,9 @@ module.exports = function registerMailNotificationsRoutes(app, services) {
 
   app.get('/api/calendar/overview', (req, res) => {
     try {
-      const days = Number(req.query.days) || 45;
+      const rawDays = Number(req.query.days);
+      const fallbackDays = Number(services.calendarHub.config?.daysAhead) || 45;
+      const days = Number.isFinite(rawDays) && rawDays > 0 ? rawDays : fallbackDays;
       res.json({ success: true, data: services.calendarHub.getCalendarOverview({ days }) });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -300,7 +302,11 @@ module.exports = function registerMailNotificationsRoutes(app, services) {
 
   app.post('/api/calendar/sync', async (req, res) => {
     try {
-      const days = Number(req.body?.days || 7);
+      const rawDays = Number(req.body?.days);
+      const fallbackDays = Number(services.calendarHub.config?.daysAhead) || 45;
+      const days = Number.isFinite(rawDays) && rawDays > 0
+        ? Math.min(90, Math.round(rawDays))
+        : fallbackDays;
       const result = await services.calendarHub.syncEvents({ days });
       res.json({ success: true, ...result, data: services.calendarHub.getStatus() });
     } catch (error) {
@@ -328,6 +334,51 @@ module.exports = function registerMailNotificationsRoutes(app, services) {
       res.json({ success: true, ...result });
     } catch (error) {
       res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post('/api/calendar/events', async (req, res) => {
+    try {
+      const {
+        summary,
+        date,
+        time,
+        durationMinutes,
+        description,
+        allDay,
+        startIso,
+        endIso
+      } = req.body || {};
+
+      const cleanSummary = String(summary || '').trim();
+      if (!cleanSummary) {
+        return res.status(400).json({ success: false, error: 'Inserisci un titolo per l\'evento.' });
+      }
+
+      const cleanDate = date !== undefined && date !== null ? String(date).trim() : '';
+      if (cleanDate && !/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
+        return res.status(400).json({ success: false, error: 'Formato data non valido (atteso YYYY-MM-DD).' });
+      }
+
+      const cleanTime = time !== undefined && time !== null ? String(time).trim() : '';
+      if (allDay === false && cleanTime && !/^\d{2}:\d{2}$/.test(cleanTime)) {
+        return res.status(400).json({ success: false, error: 'Formato orario non valido (atteso HH:mm).' });
+      }
+
+      const result = await services.calendarHub.createEvent({
+        summary: cleanSummary,
+        date: cleanDate || undefined,
+        time: cleanTime || undefined,
+        durationMinutes,
+        startIso,
+        endIso,
+        description,
+        allDay: allDay !== false
+      });
+      res.json({ success: true, ...result, data: services.calendarHub.getStatus() });
+    } catch (error) {
+      const isClientErr = /scope|token|valid|formato|titolo|mancante|obbligatori/i.test(String(error.message || ''));
+      res.status(isClientErr ? 400 : 500).json({ success: false, error: error.message });
     }
   });
 
