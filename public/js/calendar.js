@@ -424,4 +424,6 @@ class CalendarManager {
 }
 
 window.CalendarManager = CalendarManager;
-window.calendarManager = new CalendarManager();
+if (!window.calendarManager) {
+  window.calendarManager = new CalendarManager();
+}
