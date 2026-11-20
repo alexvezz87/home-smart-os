@@ -1,7 +1,11 @@
+const fs = require('fs');
+const path = require('path');
 const db = require('./db');
 const logger = require('./logger');
 
 const CONFIG_DB_KEY = 'email-alert-config';
+const LOGO_PATH = path.join(__dirname, '..', 'public', 'assets', 'logo-icon.png');
+const LOGO_CID = 'home-smart-os-logo';
 
 function parseEmailList(raw) {
   const arr = Array.isArray(raw)
@@ -130,7 +134,7 @@ class EmailSender {
     return this._transporter;
   }
 
-  async sendMail({ to = null, subject, text, html } = {}) {
+  async sendMail({ to = null, subject, text, html, attachments = null } = {}) {
     if (!this.config.enabled) {
       return { skipped: true, reason: 'email_disabled' };
     }
@@ -154,7 +158,8 @@ class EmailSender {
         to: recipients.join(', '),
         subject: String(subject || 'Home Smart OS — Avviso'),
         text: String(text || ''),
-        html: html ? String(html) : undefined
+        html: html ? String(html) : undefined,
+        attachments: Array.isArray(attachments) && attachments.length > 0 ? attachments : undefined
       });
       this.lastSentAt = new Date().toISOString();
       this.lastError = null;
@@ -174,7 +179,7 @@ class EmailSender {
     }
   }
 
-  async sendAlertEmail({ level = 'critical', category = 'system', title, message, details = {} } = {}) {
+  async sendAlertEmail({ to = null, level = 'critical', category = 'system', title, message, details = {} } = {}) {
     const badgeColor = level === 'critical' ? '#ef4444' : (level === 'warning' ? '#f59e0b' : '#38bdf8');
     const cleanTitle = String(title || 'Home Smart OS — Notifica');
     const cleanMsg = String(message || '');
@@ -183,6 +188,14 @@ class EmailSender {
       dateStyle: 'short',
       timeStyle: 'medium'
     }).format(new Date());
+
+    const hasLogo = fs.existsSync(LOGO_PATH);
+    const attachments = hasLogo
+      ? [{ filename: 'logo-icon.png', path: LOGO_PATH, cid: LOGO_CID, contentDisposition: 'inline' }]
+      : [];
+    const logoCell = hasLogo
+      ? `<td style="width:48px;vertical-align:middle;padding-right:12px;"><img src="cid:${LOGO_CID}" width="40" height="40" alt="Home Smart OS" style="width:40px;height:40px;border-radius:10px;border:1px solid #1e293b;display:block;" /></td>`
+      : '';
 
     const detailRows = Object.entries(details || {})
       .filter(([, v]) => v !== undefined && v !== null && v !== '')
@@ -194,8 +207,15 @@ class EmailSender {
 <body style="margin:0;padding:24px;background:#0b1120;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <div style="max-width:560px;margin:0 auto;background:#0f172a;border:1px solid #1e293b;border-radius:16px;overflow:hidden;">
     <div style="padding:16px 20px;background:#020617;border-bottom:2px solid ${badgeColor};">
-      <span style="display:inline-block;padding:3px 10px;border-radius:999px;background:${badgeColor};color:#ffffff;font-size:11px;font-weight:700;text-transform:uppercase;">${escapeHtml(level)} · ${escapeHtml(category)}</span>
-      <h2 style="margin:10px 0 0;color:#ffffff;font-size:18px;">${escapeHtml(cleanTitle)}</h2>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">
+        <tr>
+          ${logoCell}
+          <td style="vertical-align:middle;">
+            <span style="display:inline-block;padding:3px 10px;border-radius:999px;background:${badgeColor};color:#ffffff;font-size:11px;font-weight:700;text-transform:uppercase;">${escapeHtml(level)} · ${escapeHtml(category)}</span>
+            <h2 style="margin:8px 0 0;color:#ffffff;font-size:18px;">${escapeHtml(cleanTitle)}</h2>
+          </td>
+        </tr>
+      </table>
     </div>
     <div style="padding:20px;line-height:1.55;font-size:14px;color:#cbd5e1;">
       <p style="margin:0 0 14px;white-space:pre-line;">${escapeHtml(cleanMsg)}</p>
@@ -212,14 +232,17 @@ class EmailSender {
       .join('\n');
 
     return this.sendMail({
+      to,
       subject: `[Home Smart OS] ${cleanTitle}`,
       text: `${cleanTitle}\n\n${cleanMsg}${plainDetails ? `\n\nDettagli:\n${plainDetails}` : ''}\n\n${tsStr}`,
-      html
+      html,
+      attachments
     });
   }
 
   async sendTestEmail(to = null) {
     return this.sendAlertEmail({
+      to,
       level: 'info',
       category: 'system',
       title: 'Test Canale Email SMTP',
@@ -227,15 +250,6 @@ class EmailSender {
       details: {
         origine: 'PowerOutageWatchdog / Admin Test'
       }
-    }).then(async (res) => {
-      if (to && res?.skipped !== true) {
-        return this.sendMail({
-          to,
-          subject: '[Home Smart OS] Test Canale Email SMTP',
-          text: 'Il canale di allerta Email SMTP di Home Smart OS è configurato e operativo.'
-        });
-      }
-      return res;
     });
   }
 }
