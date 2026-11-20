@@ -361,8 +361,16 @@ module.exports = function registerMailNotificationsRoutes(app, services) {
       }
 
       const cleanTime = time !== undefined && time !== null ? String(time).trim() : '';
-      if (allDay === false && cleanTime && !/^\d{2}:\d{2}$/.test(cleanTime)) {
-        return res.status(400).json({ success: false, error: 'Formato orario non valido (atteso HH:mm).' });
+      if (allDay === false && !cleanTime && !startIso) {
+        return res.status(400).json({ success: false, error: 'Specifica un orario di inizio (HH:mm) per un evento non giornaliero.' });
+      }
+      if (allDay === false && cleanTime) {
+        const tm = /^(\d{2}):(\d{2})$/.exec(cleanTime);
+        const hh = tm ? Number(tm[1]) : -1;
+        const mm = tm ? Number(tm[2]) : -1;
+        if (!tm || hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+          return res.status(400).json({ success: false, error: 'Formato orario non valido (atteso HH:mm tra 00:00 e 23:59).' });
+        }
       }
 
       const result = await services.calendarHub.createEvent({

@@ -129,6 +129,14 @@ function isBusy(key) {
   return store.busyActionKey === key;
 }
 
+function itemBackendId(it) {
+  return it?.itemId || it?.id || '';
+}
+
+function isSafeHttpUrl(url) {
+  return /^https?:\/\//i.test(String(url || '').trim());
+}
+
 function feedbackClass(type) {
   if (type === 'error') return 'bg-rose-950/60 border-rose-500/40 text-rose-200';
   if (type === 'info') return 'bg-cyan-950/60 border-cyan-500/40 text-cyan-200';
@@ -567,41 +575,59 @@ function feedbackClass(type) {
                   <button
                     v-if="it.source === 'gmail_bill' && it.status !== 'paid'"
                     type="button"
-                    :disabled="isBusy(`bill:${it.id}`)"
-                    @click="store.markBillPaid(it.id)"
+                    :disabled="isBusy(`bill:${itemBackendId(it)}`)"
+                    @click="store.markBillPaid(itemBackendId(it))"
                     class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-600/80 hover:bg-emerald-500 text-white disabled:opacity-60 flex items-center gap-1"
                   >
-                    <i v-if="isBusy(`bill:${it.id}`)" class="fa-solid fa-circle-notch fa-spin"></i>
+                    <i v-if="isBusy(`bill:${itemBackendId(it)}`)" class="fa-solid fa-circle-notch fa-spin"></i>
                     <span>✓ Segna pagata</span>
                   </button>
 
                   <button
                     v-if="it.source === 'gmail_delivery' && it.status !== 'delivered'"
                     type="button"
-                    :disabled="isBusy(`delivery:${it.id}`)"
-                    @click="store.markDeliveryReceived(it.id)"
+                    :disabled="isBusy(`delivery:${itemBackendId(it)}`)"
+                    @click="store.markDeliveryReceived(itemBackendId(it))"
                     class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-indigo-600/80 hover:bg-indigo-500 text-white disabled:opacity-60 flex items-center gap-1"
                   >
-                    <i v-if="isBusy(`delivery:${it.id}`)" class="fa-solid fa-circle-notch fa-spin"></i>
+                    <i v-if="isBusy(`delivery:${itemBackendId(it)}`)" class="fa-solid fa-circle-notch fa-spin"></i>
                     <span>📦 Ricevuto</span>
                   </button>
 
                   <button
                     v-if="(it.source === 'gmail_bill' || it.source === 'gmail_delivery') && !it.calendarEventId"
                     type="button"
-                    :disabled="isBusy(`copy:${it.source === 'gmail_bill' ? 'bill' : 'delivery'}:${it.id}`)"
-                    @click="store.copyMailItemToCalendar(it.source === 'gmail_bill' ? 'bill' : 'delivery', it.id)"
+                    :disabled="isBusy(`copy:${it.source === 'gmail_bill' ? 'bill' : 'delivery'}:${itemBackendId(it)}`)"
+                    @click="store.copyMailItemToCalendar(it.source === 'gmail_bill' ? 'bill' : 'delivery', itemBackendId(it))"
                     class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-cyan-200 border border-slate-700 disabled:opacity-60 flex items-center gap-1"
                   >
                     <i
-                      v-if="isBusy(`copy:${it.source === 'gmail_bill' ? 'bill' : 'delivery'}:${it.id}`)"
+                      v-if="isBusy(`copy:${it.source === 'gmail_bill' ? 'bill' : 'delivery'}:${itemBackendId(it)}`)"
                       class="fa-solid fa-circle-notch fa-spin"
                     ></i>
                     <span>📅 Copia su Google Calendar</span>
                   </button>
 
+                  <template v-else-if="(it.source === 'gmail_bill' || it.source === 'gmail_delivery') && it.calendarEventId">
+                    <a
+                      v-if="isSafeHttpUrl(it.calendarHtmlLink)"
+                      :href="it.calendarHtmlLink"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30"
+                    >
+                      ✓ In Calendar ↗
+                    </a>
+                    <span
+                      v-else
+                      class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                    >
+                      ✓ In Calendar
+                    </span>
+                  </template>
+
                   <a
-                    v-if="it.htmlLink"
+                    v-if="isSafeHttpUrl(it.htmlLink)"
                     :href="it.htmlLink"
                     target="_blank"
                     rel="noopener noreferrer"
@@ -721,38 +747,66 @@ function feedbackClass(type) {
                   <button
                     v-if="it.source === 'gmail_bill' && it.status !== 'paid'"
                     type="button"
-                    :disabled="isBusy(`bill:${it.id}`)"
-                    @click="store.markBillPaid(it.id)"
+                    :disabled="isBusy(`bill:${itemBackendId(it)}`)"
+                    @click="store.markBillPaid(itemBackendId(it))"
                     class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-600/80 hover:bg-emerald-500 text-white disabled:opacity-60 flex items-center gap-1"
                   >
-                    <i v-if="isBusy(`bill:${it.id}`)" class="fa-solid fa-circle-notch fa-spin"></i>
+                    <i v-if="isBusy(`bill:${itemBackendId(it)}`)" class="fa-solid fa-circle-notch fa-spin"></i>
                     <span>✓ Segna pagata</span>
                   </button>
 
                   <button
                     v-if="it.source === 'gmail_delivery' && it.status !== 'delivered'"
                     type="button"
-                    :disabled="isBusy(`delivery:${it.id}`)"
-                    @click="store.markDeliveryReceived(it.id)"
+                    :disabled="isBusy(`delivery:${itemBackendId(it)}`)"
+                    @click="store.markDeliveryReceived(itemBackendId(it))"
                     class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-indigo-600/80 hover:bg-indigo-500 text-white disabled:opacity-60 flex items-center gap-1"
                   >
-                    <i v-if="isBusy(`delivery:${it.id}`)" class="fa-solid fa-circle-notch fa-spin"></i>
+                    <i v-if="isBusy(`delivery:${itemBackendId(it)}`)" class="fa-solid fa-circle-notch fa-spin"></i>
                     <span>📦 Ricevuto</span>
                   </button>
 
                   <button
                     v-if="(it.source === 'gmail_bill' || it.source === 'gmail_delivery') && !it.calendarEventId"
                     type="button"
-                    :disabled="isBusy(`copy:${it.source === 'gmail_bill' ? 'bill' : 'delivery'}:${it.id}`)"
-                    @click="store.copyMailItemToCalendar(it.source === 'gmail_bill' ? 'bill' : 'delivery', it.id)"
+                    :disabled="isBusy(`copy:${it.source === 'gmail_bill' ? 'bill' : 'delivery'}:${itemBackendId(it)}`)"
+                    @click="store.copyMailItemToCalendar(it.source === 'gmail_bill' ? 'bill' : 'delivery', itemBackendId(it))"
                     class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-cyan-200 border border-slate-700 disabled:opacity-60 flex items-center gap-1"
                   >
                     <i
-                      v-if="isBusy(`copy:${it.source === 'gmail_bill' ? 'bill' : 'delivery'}:${it.id}`)"
+                      v-if="isBusy(`copy:${it.source === 'gmail_bill' ? 'bill' : 'delivery'}:${itemBackendId(it)}`)"
                       class="fa-solid fa-circle-notch fa-spin"
                     ></i>
                     <span>📅 Copia su Google Calendar</span>
                   </button>
+
+                  <template v-else-if="(it.source === 'gmail_bill' || it.source === 'gmail_delivery') && it.calendarEventId">
+                    <a
+                      v-if="isSafeHttpUrl(it.calendarHtmlLink)"
+                      :href="it.calendarHtmlLink"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30"
+                    >
+                      ✓ In Calendar ↗
+                    </a>
+                    <span
+                      v-else
+                      class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                    >
+                      ✓ In Calendar
+                    </span>
+                  </template>
+
+                  <a
+                    v-if="isSafeHttpUrl(it.htmlLink)"
+                    :href="it.htmlLink"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+                  >
+                    Apri ↗
+                  </a>
                 </div>
               </div>
             </div>

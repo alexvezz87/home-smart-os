@@ -452,8 +452,13 @@ class CalendarHub {
 
     if (!allDay) {
       const cleanTime = String(time || '').trim();
-      if (!startIso && /^\d{2}:\d{2}$/.test(cleanTime)) {
-        const [hh, mm] = cleanTime.split(':').map(Number);
+      if (!startIso && cleanTime) {
+        const tm = /^(\d{2}):(\d{2})$/.exec(cleanTime);
+        const hh = tm ? Number(tm[1]) : -1;
+        const mm = tm ? Number(tm[2]) : -1;
+        if (!tm || hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+          throw new Error('Formato orario non valido (atteso HH:mm tra 00:00 e 23:59).');
+        }
         const dur = Math.max(15, Math.min(720, Number(durationMinutes) || 60));
         const totalMins = hh * 60 + mm + dur;
         const endDate = totalMins >= 1440 ? nextDayIsoDate(targetDate) : targetDate;

@@ -66,6 +66,7 @@ const [initYear, initMonth] = initialTodayKey.split('-').map(Number);
 
 export const useCalendarStore = defineStore('calendar', {
   state: () => ({
+    todayKey: initialTodayKey,
     viewYear: initYear,
     viewMonth: initMonth,
     selectedDateKey: initialTodayKey,
@@ -81,8 +82,6 @@ export const useCalendarStore = defineStore('calendar', {
   }),
 
   getters: {
-    todayKey: () => getRomeTodayKey(),
-
     status: (state) => state.overview?.status || {},
 
     allItems: (state) => (
@@ -245,6 +244,7 @@ export const useCalendarStore = defineStore('calendar', {
     },
 
     async loadOverview({ silent = false } = {}) {
+      this.todayKey = getRomeTodayKey();
       if (!silent) {
         this.loading = true;
         this.error = null;
@@ -274,6 +274,7 @@ export const useCalendarStore = defineStore('calendar', {
 
     async syncNow() {
       if (this.syncing) return;
+      this.todayKey = getRomeTodayKey();
       this.syncing = true;
       this.clearFeedback();
       try {
@@ -289,7 +290,16 @@ export const useCalendarStore = defineStore('calendar', {
           return;
         }
         await this.loadOverview({ silent: true });
-        this.setFeedback('success', 'Sincronizzazione Google Calendar completata.');
+        if (json.synced === false) {
+          const msg = json.error
+            || (json.reason === 'calendar_scope_missing'
+              ? 'Scope Google Calendar mancante per Alex: ricollega l\'account in Amministrazione.'
+              : 'Sincronizzazione Google Calendar non eseguita.');
+          this.setFeedback('error', msg);
+          return;
+        }
+        const countSuffix = Number.isFinite(Number(json.count)) ? ` (${json.count} eventi)` : '';
+        this.setFeedback('success', `Sincronizzazione Google Calendar completata${countSuffix}.`);
       } catch (err) {
         this.setFeedback('error', err?.message || 'Errore di rete durante la sincronizzazione.');
       } finally {
@@ -317,6 +327,7 @@ export const useCalendarStore = defineStore('calendar', {
 
     goToToday() {
       const today = getRomeTodayKey();
+      this.todayKey = today;
       const [y, m] = today.split('-').map(Number);
       this.viewYear = y;
       this.viewMonth = m;

@@ -3470,6 +3470,10 @@ test('Fase 1 Frontend Vue 3 + Pinia: Calendario, Agenda, Creazione Eventi & Fix 
   const viewSrc = fs.readFileSync(viewPath, 'utf8');
   assert.ok(viewSrc.includes('store.searchQuery'), 'CalendarView deve collegare store.searchQuery');
   assert.ok(viewSrc.includes("store.setViewMode('agenda')"), 'CalendarView deve supportare vista Agenda');
+  assert.ok(viewSrc.includes('itemBackendId') && viewSrc.includes('itemId'), 'CalendarView deve risolvere it.itemId tramite itemBackendId');
+  assert.ok(!viewSrc.includes('store.markBillPaid(it.id)'), 'CalendarView non deve passare it.id a markBillPaid');
+  assert.ok(!viewSrc.includes('store.markDeliveryReceived(it.id)'), 'CalendarView non deve passare it.id a markDeliveryReceived');
+  assert.ok(!viewSrc.includes(", it.id)"), 'CalendarView non deve passare it.id a copyMailItemToCalendar');
 
   const mainSrc = fs.readFileSync(mainPath, 'utf8');
   assert.ok(mainSrc.includes("getElementById('area-calendar')"), 'main.js deve montare CalendarView su #area-calendar');
@@ -3530,6 +3534,16 @@ test('Fase 1 Frontend Vue 3 + Pinia: Calendario, Agenda, Creazione Eventi & Fix 
   await createHandler({ body: { summary: '   ' } }, resBad);
   assert.equal(resBad.statusCode, 400);
   assert.equal(resBad.body.success, false);
+
+  const resBadTime = makeRes();
+  await createHandler({ body: { summary: 'Test', date: '2026-11-22', allDay: false, time: '25:99' } }, resBadTime);
+  assert.equal(resBadTime.statusCode, 400);
+  assert.equal(resBadTime.body.success, false);
+
+  const resMissingTime = makeRes();
+  await createHandler({ body: { summary: 'Test', date: '2026-11-22', allDay: false } }, resMissingTime);
+  assert.equal(resMissingTime.statusCode, 400);
+  assert.equal(resMissingTime.body.success, false);
 
   const resOk = makeRes();
   await createHandler({
