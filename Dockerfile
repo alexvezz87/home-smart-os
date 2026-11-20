@@ -1,3 +1,11 @@
+FROM node:20-bookworm-slim AS frontend-builder
+
+WORKDIR /build
+COPY frontend/package*.json ./frontend/
+RUN npm --prefix frontend ci --no-audit --no-fund || npm --prefix frontend install --no-audit --no-fund
+COPY frontend/ ./frontend/
+RUN npm --prefix frontend run build
+
 FROM node:20-bookworm-slim
 
 ARG TARGETARCH=amd64
@@ -21,6 +29,7 @@ RUN npm ci --omit=dev || npm install --omit=dev
 COPY server.js ./
 COPY src/ ./src/
 COPY public/ ./public/
+COPY --from=frontend-builder /build/public/vue ./public/vue
 COPY scripts/ ./scripts/
 
 RUN mkdir -p /app/data /app/bin /app/public/snapshots /app/logs

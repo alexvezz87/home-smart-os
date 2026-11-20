@@ -299,6 +299,22 @@ Per completare la **Fase 4/4** del refactoring Zero-Regression riducendo `src/se
 3. **Resilienza Cloud ↔ Casa (`VPS + WireGuard + PowerOutageWatchdog`)**:
    - L'esecuzione del server su VPS connessa via **WireGuard** (e proxy HTTPS **Caddy 2** con `flush_interval -1` su `/api/events*`) mantiene attivi i refresh OAuth2, il Bot Telegram e il `PowerOutageWatchdog` anche in caso di blackout elettrico in abitazione.
 
+---
+
+## 14. Fondazione Frontend Vue 3 + Vite + Pinia & Migrazione Incrementale (*Strangler Fig*, `#124`)
+
+Per abilitare lo sviluppo di nuove viste reattive senza riscritture traumatiche dei moduli Vanilla JS esistenti, dalla Fase 0 (`#124`) il progetto affianca a `public/js/*` un workspace `frontend/` compilato in un bundle IIFE deterministico:
+
+1. **Workspace `frontend/` (Node 16.17 & Node 20 LTS Safe)**:
+   - Stack: **Vue 3** (`^3.4.38`), **Pinia** (`^2.2.2`), **Chart.js** (`^4.4.4`) + **`vue-chartjs`** (`^5.3.1`), **Vite** (`^4.5.5`) + `@vitejs/plugin-vue` (`^4.6.2`).
+   - `frontend/vite.config.js` compila `src/main.js` in formato `iife` (`HomeSmartVue`) generando `public/vue/home-vue.js` e `public/vue/home-vue.css` (entrambi esclusi da Git via `.gitignore`).
+2. **Store Pinia & Vista Pilota `Stato Servizi`**:
+   - `frontend/src/stores/homeStore.js` (`useHomeStore`): gestisce stato `/api/system/status`, filtri (`all | issues | operational`), `authExpiredServices` e aggiornamento di `#nav-status-dot`.
+   - `frontend/src/views/StatusView.vue`: sostituisce la resa imperativa di `#area-status` con filtri reattivi live, micro-grafico `Doughnut` (`vue-chartjs`), barra storica a 36 tacche, alert servizi sloggati e timeline incidenti.
+   - `frontend/src/main.js`: monta `StatusView` su `#area-status`, espone `window.homeVueBridge` e pubblica il bridge retrocompatibile `window.statusManager`; `public/js/status.js` resta come fallback protetto da `if (!window.statusManager)`.
+3. **Build Multi-Stage `Dockerfile`**:
+   - Lo stage `node:20-bookworm-slim AS frontend-builder` installa le dipendenze in `frontend/` ed esegue `npm --prefix frontend run build`, copiando `/build/public/vue` nell'immagine finale (`/app/public/vue`).
+
 
 
 

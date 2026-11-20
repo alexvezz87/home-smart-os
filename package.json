@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "build:frontend": "npm --prefix frontend run build",
     "test": "node --test scripts/test-guardrails.js",
     "db:clone-wamp": "node scripts/sync-db-to-wamp.js"
   },
