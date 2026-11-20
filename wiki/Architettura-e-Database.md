@@ -272,6 +272,33 @@ Per completare la **Fase 4/4** del refactoring Zero-Regression riducendo `src/se
    - `camera-ptz-onvif.provider.js`: driver Tapo/ONVIF, reachability, watcher eventi real-time, privacy, imaging, snapshot HD, PTZ, preset e simulazione movimento (`getRTSPUrl`, `updateCameraNetwork`, `getTapoClient`, `getOnvifCam`, `startOnvifEventListeners`, `attachCameraEventWatcher`, `toggleCameraPrivacy`, `captureSnapshot`, `ptzMove`, `pointToAngle`, `applyPreset`).
    - `sentinel-vision.provider.js`: Sentinella Fuori Casa, Hue Sentinel SSE, accredito temporaneo Persona Fidata (`trustedGuest`), riferimenti pet Lucifero & Camilla e Rolling Memory Buffer (`initHueSentinel`, `initSentinel`, `_isCasaAway`, `setTrustedGuest`, `runSentinelPatrol`, `pushRollingFrame`, `captureRollingFrame`).
 
+---
+
+## 13. Stack Tecnologico & Specifiche di Progetto (`#122`)
+
+**Home Smart OS** adotta un'architettura **full-stack JavaScript** volutamente snella e modulare, progettata per consumare pochissima RAM sulla VPS cloud mantenendo tempi di caricamento immediati anche su smartphone e tablet Kiosk a parete (senza bundler o framework SPA pesanti).
+
+| Livello | Tecnologie, Linguaggi & Librerie Principali |
+| :--- | :--- |
+| **Linguaggi** | **JavaScript (ES2022+ full-stack)**, **HTML5**, **CSS3**, **SVG** (Digital Twin), **SQL** |
+| **Backend & API** | **Node.js 20 LTS** (`node:20-bookworm-slim`), **Express 5** (`^5.3.0`), `server.js` + 6 route modules (`src/routes/*`) + provider (`src/providers/*`, `src/security/*`), `ws`, **Server-Sent Events (SSE)** + `EventBus` |
+| **Sicurezza & Test** | `helmet`, `cookie-parser`, `cors`, **Google OAuth 2.0**, **PIN Kiosk LAN**, `node:crypto` (**AES-256-GCM** & **HMAC-SHA1**), runner nativo **`node:test`** (`scripts/test-guardrails.js`) |
+| **Frontend & PWA** | **Vanilla JS modulare a classi** (`public/js/*.js`, `public/js/admin/*.js`, `legacy-kiosk.js`, zero React/Vue/build), **Tailwind CSS** (dark glassmorphism), **Font Awesome 6.4**, **Chart.js 4.4**, **PWA** (`manifest.json`, Service Worker, `web-push` VAPID) |
+| **Database & Log** | **TiDB Cloud Serverless** (`db_home_os`, `mysql2/promise` su TLS) + `LogArchiver` giornaliero su volume Docker |
+| **Media, AI & Email** | **Google Gemini API** (Vision, orchestrazione, TTS), **FFmpeg** (transcodifica MP3), **Google Cast v2** (`castv2-client`), **`go2rtc`** (WebRTC/MSE/HLS), fallback **JSMpeg**, **SMTP SSL/TLS** (`nodemailer`), `pdf-parse`, `xlsx` |
+| **Protocolli IoT** | **ONVIF** (`onvif`), **RTSP** (`rtsp-relay`), `tapo-camera-client`, **Philips Hue CLIP v2** (HTTPS/SSE), **Bosch EasyControl** (`@xmpp/client`, `bosch-xmpp`), **Dyson HP11** (MQTT locale), **Pantum** (IPP 2.0), **Iliadbox** (FreeboxOS API), `meross-cloud`, REST (`axios`) |
+| **Infrastruttura & CI/CD** | **Docker & Docker Compose**, **GitHub Actions** (build multi-arch `amd64`/`arm64` su GHCR + sync Wiki), **Caddy 2** (HTTPS/TLS Let's Encrypt, `zstd/gzip`, SSE `flush_interval -1`), tunnel VPN **WireGuard** (VPS ↔ LAN casa) |
+
+### 🔍 Dettaglio delle Scelte Architetturali
+1. **Frontend senza bundler (`Vanilla JS + Tailwind + SVG`)**:
+   - L'interfaccia è suddivisa in classi dedicate (`floorplan.js`, `drag-editor.js`, `device-sheet.js`, `energy.js`, `mobility.js`, `calendar.js`, `notifications.js`, `status.js`, `admin.js` + `admin/*.js`, più `legacy-kiosk.js` per compatibilità con tablet meno recenti).
+   - La planimetria è un **Digital Twin SVG** con coordinate percentuali (`src/spatial-engine.js`), layer selettivi e supporto **WebRTC/MSE/HLS** tramite `go2rtc` (con fallback **JSMpeg**).
+2. **Backend Modulare & Comunicazione Real-Time**:
+   - `server.js` funge da orchestratore centrale delegando gli endpoint ai 6 moduli di `src/routes/` e l'interfacciamento hardware ai provider sotto `src/providers/` e `src/security/`.
+   - Lo stream **SSE (`/api/events`)** collegato a `EventBus` consente aggiornamenti istantanei di luci, sensori, presenza Wi-Fi e notifiche senza polling aggressivo.
+3. **Resilienza Cloud ↔ Casa (`VPS + WireGuard + PowerOutageWatchdog`)**:
+   - L'esecuzione del server su VPS connessa via **WireGuard** (e proxy HTTPS **Caddy 2** con `flush_interval -1` su `/api/events*`) mantiene attivi i refresh OAuth2, il Bot Telegram e il `PowerOutageWatchdog` anche in caso di blackout elettrico in abitazione.
+
 
 
 
