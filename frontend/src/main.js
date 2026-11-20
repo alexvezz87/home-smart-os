@@ -30,7 +30,7 @@ function mountHomeVue() {
   };
 }
 
-if (document.readyState !== 'loading') {
+if (document.getElementById('area-status') || document.readyState !== 'loading') {
   mountHomeVue();
 } else {
   document.addEventListener('DOMContentLoaded', mountHomeVue);
