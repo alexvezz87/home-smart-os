@@ -7,7 +7,7 @@ Benvenuto nella Wiki tecnica e funzionale di **Home Smart OS** (`home-smart-os`)
 ## 🗺️ Mappa della Documentazione
 
 1. 🏗️ **[Architettura e Database (`db_home_os`)](./Architettura-e-Database.md)**  
-   Infrastruttura Cloud (`home.alexsoluzioniweb.it` su Google Cloud), persistenza su **TiDB Cloud (`db_home_os`)**, interazione con la rete locale tramite router **Iliadbox** e livelli di sicurezza.
+   **Stack Tecnologico & Specifiche di Progetto** (Node.js 20, Express 5, Vanilla JS/Tailwind/SVG, PWA), infrastruttura Cloud (`home.alexsoluzioniweb.it`) con Caddy 2 + WireGuard, persistenza su **TiDB Cloud (`db_home_os`)**, interazione LAN tramite router **Iliadbox** e livelli di sicurezza.
 2. ⚙️ **[Funzionalità e Moduli Applicativi](./Funzionalita-e-Moduli.md)**  
    Dettaglio dei moduli del sistema: Dashboard unificata, Digital Twin Spaziale a 32 Pin, Energy Intelligence, Sicurezza & PTZ, Assistente Vocale e Modalità Kiosk Tablet (PWA).
 3. 🔌 **[Ecosistemi e API Esterne](./Ecosistemi-e-API-Esterne.md)**  
