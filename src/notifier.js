@@ -130,7 +130,8 @@ class Notifier {
       data = {},
       dedupKey = null,
       cooldownMs = undefined,
-      force = false
+      force = false,
+      sendEmail = false
     } = payload;
 
     if (!force && (!this.isCategoryEnabled(category) || this.isMuted(category))) {
@@ -197,6 +198,17 @@ class Notifier {
         });
         if (pushRes && pushRes.sent > 0) record.channels.push('webpush');
       }
+    }
+
+    if (sendEmail === true && this.deps.emailSender && typeof this.deps.emailSender.sendAlertEmail === 'function') {
+      const emailRes = await this.deps.emailSender.sendAlertEmail({
+        level,
+        category,
+        title,
+        message,
+        details: data
+      }).catch(() => null);
+      if (emailRes && emailRes.sent) record.channels.push('email');
     }
 
     this._recordHistory(record);

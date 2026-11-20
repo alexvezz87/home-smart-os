@@ -259,6 +259,13 @@ Riorganizzata con un'architettura **modulare responsive**: su desktop/tablet ori
 - **Azioni 1-Tap, `/agenda` & Assistente (`src/delivery-billing-parser.js`, `src/telegram-bot.js`, `src/assistant.js`, `public/js/notifications.js`, `public/js/admin/admin-system-backbone.js`)**: comando `/agenda` su Telegram e query dirette in `Assistant` (0 token AI), callback `cal_add:*`, bottone **`📅 Aggiungi al Calendario`** su Telegram/Centro Notifiche e card **Google Calendar (Alex)** in Amministrazione.
 - **Macro-Area Principale `📅 Calendario` (`public/js/calendar.js`, `GET /api/calendar/overview`, `#112`)**: finestra estesa a `45` giorni (`maxResults: 100`), sync immediata al callback OAuth `gmail_sync:alex` e vista dedicata dark-glass con griglia mensile interattiva, filtri rapidi (`Tutti | Calendar | Bollette | Consegne`), KPI strip, pannello dettaglio giorno con azioni 1-tap (`✓ Segna pagata`, `📦 Ricevuto`, `📅 Copia su Google Calendar`).
 
+---
+
+## ⚡ 22. `PowerOutageWatchdog` (Rilevamento Blackout) & Canale Allerta Email SMTP (`#115`)
+- **Monitoraggio Multi-Segnale dalla VPS (`src/power-watchdog.js`)**: esegue un probe ogni `60s` (0 token AI) su router Iliadbox e nodi 230V LAN (Hue Bridge, telecamere Tapo, prese Meross) con isteresi configurabile (default `3` check consecutivi), distinguendo tra **Blackout Confermato (`POWER_OUTAGE_CONFIRMED`)** (Iliadbox attiva su UPS, nodi 230V offline) e **Casa Offline / Possibile Blackout (`HOME_UNREACHABLE_POSSIBLE_BLACKOUT`)**.
+- **Diagnosi Sovraccarico & Avviso Frigo/Freezer**: correla l'ultimo carico noto rispetto ai limiti `3 kW` casa / `6 kW` contatore totale e l'eventuale interruzione ricarica **Volvo EX30**; al ripristino (`POWER_RESTORED`), calcola la durata dell'interruzione (persistita su TiDB `power-watchdog-state`) ed emette un avviso frigorifero/freezer se la durata supera `fridgeAlertHours` (default `2` ore).
+- **Canale Email SMTP & Pannello Admin (`src/email-sender.js`, `src/notifier.js`, `src/service-status.js`, `public/js/admin/admin-system-backbone.js`)**: invio email HTML responsive via `nodemailer` usando esclusivamente credenziali `.env` (`SMTP_*`, fallback destinatari `ALERT_EMAIL_TO || ALLOWED_GOOGLE_EMAILS`), stato servizio `power_watchdog` e card Admin con test immediato (`POST /api/power-watchdog/test-email`).
+
 
 
 

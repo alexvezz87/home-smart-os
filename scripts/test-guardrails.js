@@ -3234,6 +3234,158 @@ test('Nomi Stanze & Split Corridoio/Ingresso (#120)', () => {
   }
 });
 
+test('PowerOutageWatchdog & Canale Email SMTP (#115)', async () => {
+  const db = require('../src/db');
+  const { EmailSender } = require('../src/email-sender');
+  const { PowerOutageWatchdog } = require('../src/power-watchdog');
+  const { Notifier } = require('../src/notifier');
+  const { evaluateServicesSnapshot } = require('../src/service-status');
+
+  const prevEnv = {
+    SMTP_HOST: process.env.SMTP_HOST,
+    SMTP_PORT: process.env.SMTP_PORT,
+    SMTP_USER: process.env.SMTP_USER,
+    SMTP_PASS: process.env.SMTP_PASS,
+    SMTP_FROM: process.env.SMTP_FROM,
+    ALERT_EMAIL_TO: process.env.ALERT_EMAIL_TO,
+    ALLOWED_GOOGLE_EMAILS: process.env.ALLOWED_GOOGLE_EMAILS
+  };
+  const origDbGet = db.get;
+  const origDbSet = db.set;
+  const memDb = new Map();
+  db.get = async (k) => memDb.get(k) || null;
+  db.set = async (k, v) => { memDb.set(k, JSON.parse(JSON.stringify(v))); };
+
+  try {
+    // 1. EmailSender: legge env mockate, non espone SMTP_PASS, fallback ALLOWED_GOOGLE_EMAILS, usa transporter mockato
+    process.env.SMTP_HOST = 'mail.example.com';
+    process.env.SMTP_PORT = '465';
+    process.env.SMTP_USER = 'home@example.com';
+    process.env.SMTP_PASS = 'super-secret-smtp-pass';
+    process.env.SMTP_FROM = 'Home Smart OS <home@example.com>';
+    process.env.ALERT_EMAIL_TO = '';
+    process.env.ALLOWED_GOOGLE_EMAILS = 'user1@example.com, user2@example.com';
+
+    const sentMails = [];
+    const mockTransporter = {
+      sendMail: async (mail) => {
+        sentMails.push(mail);
+        return { messageId: `<msg-${sentMails.length}@example.com>` };
+      }
+    };
+    const emailSender = new EmailSender({ transporter: mockTransporter });
+    await emailSender.init();
+
+    const st = emailSender.getStatus();
+    assert.equal(st.configured, true);
+    assert.equal(st.host, 'mail.example.com');
+    assert.equal(st.port, 465);
+    assert.equal(Object.prototype.hasOwnProperty.call(st, 'pass'), false);
+    assert.equal(JSON.stringify(st).includes('super-secret-smtp-pass'), false);
+    assert.deepEqual(st.recipients, ['user1@example.com', 'user2@example.com']);
+
+    const testMailRes = await emailSender.sendTestEmail();
+    assert.equal(testMailRes.sent, true);
+    assert.equal(sentMails.length, 1);
+
+    // 2. PowerOutageWatchdog: isteresi 3 cicli, Livello B POWER_OUTAGE_CONFIRMED, diagnosi 3 kW, 1 sola email, ripristino >= 2h15m
+    const notif = new Notifier();
+    notif.init({ emailSender });
+    const busEvents = [];
+    const mockBus = { publish: (ev, data) => busEvents.push({ ev, data }) };
+
+    const wd = new PowerOutageWatchdog({
+      notifier: notif,
+      emailSender,
+      eventBus: mockBus
+    });
+    await wd.init();
+
+    const t0 = Date.parse('2026-11-20T10:00:00Z');
+    // Campione iniziale online con carico 2950 W (prossimo a soglia 3 kW)
+    const onlineRes = await wd.evaluateProbe({
+      nowMs: t0,
+      probe: {
+        iliadboxConfigured: true,
+        iliadboxReachable: true,
+        configuredLocalNodes: 3,
+        reachableLocalNodes: 3,
+        housePowerW: 2950,
+        wallboxPowerW: 0,
+        volvoCharging: false
+      }
+    });
+    assert.equal(onlineRes.status, 'online');
+
+    const outageProbe = {
+      iliadboxConfigured: true,
+      iliadboxReachable: true,
+      configuredLocalNodes: 3,
+      reachableLocalNodes: 0,
+      housePowerW: 0,
+      wallboxPowerW: 0,
+      volvoCharging: false
+    };
+
+    // 2 fallimenti sotto soglia isteresi (3) non attivano l'allerta
+    const f1 = await wd.evaluateProbe({ nowMs: t0 + 60_000, probe: outageProbe });
+    assert.equal(f1.status, 'online');
+    assert.equal(f1.consecutiveFailures, 1);
+
+    const f2 = await wd.evaluateProbe({ nowMs: t0 + 120_000, probe: outageProbe });
+    assert.equal(f2.status, 'online');
+    assert.equal(f2.consecutiveFailures, 2);
+    assert.equal(sentMails.length, 1);
+
+    // 3° fallimento consecutivo -> POWER_OUTAGE_CONFIRMED + diagnosi 3 kW + 1 email
+    const f3 = await wd.evaluateProbe({ nowMs: t0 + 180_000, probe: outageProbe });
+    assert.equal(f3.status, 'outage');
+    assert.equal(f3.outageType, 'POWER_OUTAGE_CONFIRMED');
+    assert.equal(sentMails.length, 2);
+    assert.ok(sentMails[1].text.includes('3 kW'));
+    assert.ok(busEvents.some((e) => e.ev === 'power:outage' && e.data.type === 'POWER_OUTAGE_CONFIRMED'));
+
+    // Verifica persistenza stato su TiDB (power-watchdog-state)
+    const persisted = memDb.get('power-watchdog-state');
+    assert.ok(persisted);
+    assert.equal(persisted.status, 'outage');
+
+    // Verifica evaluateServicesSnapshot con power_watchdog in stato outage
+    const snapOutage = evaluateServicesSnapshot({ powerWatchdog: wd, emailSender });
+    const pwSrv = snapOutage.find((s) => s.id === 'power_watchdog');
+    assert.ok(pwSrv);
+    assert.equal(pwSrv.status, 'outage');
+
+    // Ripristino dopo 2h 15m -> POWER_RESTORED + avviso frigo/freezer + email ripristino
+    const restoreMs = t0 + 180_000 + (2 * 60 + 15) * 60_000;
+    const rRes = await wd.evaluateProbe({
+      nowMs: restoreMs,
+      probe: {
+        iliadboxConfigured: true,
+        iliadboxReachable: true,
+        configuredLocalNodes: 3,
+        reachableLocalNodes: 3,
+        housePowerW: 350,
+        wallboxPowerW: 0,
+        volvoCharging: false
+      }
+    });
+    assert.equal(rRes.status, 'online');
+    assert.equal(rRes.transitioned, 'restored');
+    assert.equal(rRes.fridgeAlert, true);
+    assert.equal(sentMails.length, 3);
+    assert.ok(sentMails[2].text.includes('frigorifero e freezer'));
+    assert.ok(busEvents.some((e) => e.ev === 'power:restored' && e.data.fridgeAlert === true));
+  } finally {
+    db.get = origDbGet;
+    db.set = origDbSet;
+    for (const [k, v] of Object.entries(prevEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+});
+
 
 
 

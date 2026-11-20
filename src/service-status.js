@@ -161,6 +161,31 @@ function evaluateServicesSnapshot(modules = {}) {
     actionArea: 'admin'
   });
 
+  const pwStatusObj = safeCall(() => modules.powerWatchdog?.getStatus(), null);
+  const emailStatusObj = safeCall(() => modules.emailSender?.getStatus(), null);
+  if (pwStatusObj || emailStatusObj) {
+    const pwState = pwStatusObj?.state || {};
+    const pwCfg = pwStatusObj?.config || {};
+    let pwStatus = 'operational';
+    if (pwState.status === 'outage') {
+      pwStatus = 'outage';
+    } else if (pwCfg.enabled === false) {
+      pwStatus = 'degraded';
+    }
+    const smtpStr = emailStatusObj?.configured ? 'SMTP OK' : 'SMTP non config.';
+    const pwDetail = pwState.status === 'outage'
+      ? `${pwState.outageType || 'BLACKOUT'} (${smtpStr})`
+      : (pwCfg.enabled === false ? `Disabilitato (${smtpStr})` : `Linea OK · ${smtpStr}`);
+    services.push({
+      id: 'power_watchdog',
+      category: 'core',
+      name: 'Watchdog Blackout & Email SMTP',
+      status: pwStatus,
+      detail: pwDetail,
+      actionArea: 'admin'
+    });
+  }
+
   // 3. Casa & Rete LAN
   const iliad = modules.iliadboxClient;
   const iliadState = safeCall(() => iliad?.getPresenceState(), null);
