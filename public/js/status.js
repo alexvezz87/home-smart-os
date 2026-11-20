@@ -221,4 +221,6 @@ class StatusManager {
   }
 }
 
-window.statusManager = new StatusManager();
+if (!window.statusManager) {
+  window.statusManager = new StatusManager();
+}

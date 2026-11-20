@@ -3388,6 +3388,67 @@ test('PowerOutageWatchdog & Canale Email SMTP (#115)', async () => {
   }
 });
 
+test('Fondazione Frontend Vue 3 + Vite + Pinia & Vista Pilota Stato Servizi (#124)', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const rootDir = path.join(__dirname, '..');
+
+  // 1. frontend/package.json e dipendenze richieste
+  const fePkgPath = path.join(rootDir, 'frontend', 'package.json');
+  assert.ok(fs.existsSync(fePkgPath), 'frontend/package.json deve esistere');
+  const fePkg = JSON.parse(fs.readFileSync(fePkgPath, 'utf8'));
+  assert.ok(fePkg.dependencies?.vue, 'dipendenza vue richiesta');
+  assert.ok(fePkg.dependencies?.pinia, 'dipendenza pinia richiesta');
+  assert.ok(fePkg.dependencies?.['chart.js'], 'dipendenza chart.js richiesta');
+  assert.ok(fePkg.dependencies?.['vue-chartjs'], 'dipendenza vue-chartjs richiesta');
+  assert.ok(fePkg.devDependencies?.vite, 'devDependency vite richiesta');
+  assert.ok(fePkg.devDependencies?.['@vitejs/plugin-vue'], 'devDependency @vitejs/plugin-vue richiesta');
+
+  // 2. File sorgente frontend/
+  for (const rel of [
+    'frontend/vite.config.js',
+    'frontend/src/stores/homeStore.js',
+    'frontend/src/views/StatusView.vue',
+    'frontend/src/main.js'
+  ]) {
+    assert.ok(fs.existsSync(path.join(rootDir, rel)), `${rel} deve esistere`);
+  }
+  const viteCfg = fs.readFileSync(path.join(rootDir, 'frontend/vite.config.js'), 'utf8');
+  assert.ok(viteCfg.includes("formats: ['iife']") && viteCfg.includes('home-vue.js'), 'Vite config IIFE non conforme');
+
+  // 3. Script build:frontend nel root package.json
+  const rootPkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
+  assert.equal(rootPkg.scripts?.['build:frontend'], 'npm --prefix frontend run build');
+
+  // 4. Multi-stage Dockerfile
+  const dockerfile = fs.readFileSync(path.join(rootDir, 'Dockerfile'), 'utf8');
+  assert.ok(dockerfile.includes('AS frontend-builder'), 'Dockerfile deve contenere stage frontend-builder');
+  assert.ok(
+    dockerfile.includes('COPY --from=frontend-builder /build/public/vue ./public/vue'),
+    'Dockerfile deve copiare il bundle Vue compilato in ./public/vue'
+  );
+
+  // 5. Integrazione in public/index.html e guardia fallback in public/js/status.js
+  const indexHtml = fs.readFileSync(path.join(rootDir, 'public/index.html'), 'utf8');
+  assert.ok(indexHtml.includes('/vue/home-vue.css'), 'public/index.html deve includere /vue/home-vue.css');
+  assert.ok(indexHtml.includes('/vue/home-vue.js'), 'public/index.html deve includere /vue/home-vue.js');
+
+  const statusJs = fs.readFileSync(path.join(rootDir, 'public/js/status.js'), 'utf8');
+  assert.ok(statusJs.includes('if (!window.statusManager)'), 'public/js/status.js deve avere la guardia fallback');
+
+  // 6. .gitignore & integrità bundle se generato su disco
+  const gitignore = fs.readFileSync(path.join(rootDir, '.gitignore'), 'utf8');
+  assert.ok(gitignore.includes('public/vue/'), '.gitignore deve escludere public/vue/');
+  assert.ok(gitignore.includes('frontend/node_modules/'), '.gitignore deve escludere frontend/node_modules/');
+
+  const bundleJsPath = path.join(rootDir, 'public/vue/home-vue.js');
+  if (fs.existsSync(bundleJsPath)) {
+    const bundleJs = fs.readFileSync(bundleJsPath, 'utf8');
+    assert.ok(bundleJs.length > 1000, 'Bundle home-vue.js troppo piccolo o vuoto');
+    assert.ok(bundleJs.includes('homeVueBridge'), 'Bundle home-vue.js deve esporre homeVueBridge');
+  }
+});
+
 
 
 
