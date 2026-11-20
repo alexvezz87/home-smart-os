@@ -3449,6 +3449,120 @@ test('Fondazione Frontend Vue 3 + Vite + Pinia & Vista Pilota Stato Servizi (#12
   }
 });
 
+test('Fase 1 Frontend Vue 3 + Pinia: Calendario, Agenda, Creazione Eventi & Fix Sync (#126)', async () => {
+  const fs = require('fs');
+  const path = require('path');
+  const rootDir = path.join(__dirname, '..');
+
+  // 1. File sorgente Vue 3 + Pinia per Calendario
+  const storePath = path.join(rootDir, 'frontend/src/stores/calendarStore.js');
+  const viewPath = path.join(rootDir, 'frontend/src/views/CalendarView.vue');
+  const mainPath = path.join(rootDir, 'frontend/src/main.js');
+  assert.ok(fs.existsSync(storePath), 'calendarStore.js deve esistere');
+  assert.ok(fs.existsSync(viewPath), 'CalendarView.vue deve esistere');
+
+  const storeSrc = fs.readFileSync(storePath, 'utf8');
+  assert.ok(storeSrc.includes("defineStore('calendar'"), 'useCalendarStore deve definire store calendar');
+  assert.ok(storeSrc.includes('unpaidBillsTotalEur'), 'calendarStore deve esporre unpaidBillsTotalEur');
+  assert.ok(storeSrc.includes('agendaGroups'), 'calendarStore deve esporre agendaGroups');
+  assert.ok(storeSrc.includes('createQuickEvent'), 'calendarStore deve esporre createQuickEvent');
+
+  const viewSrc = fs.readFileSync(viewPath, 'utf8');
+  assert.ok(viewSrc.includes('store.searchQuery'), 'CalendarView deve collegare store.searchQuery');
+  assert.ok(viewSrc.includes("store.setViewMode('agenda')"), 'CalendarView deve supportare vista Agenda');
+  assert.ok(viewSrc.includes('itemBackendId') && viewSrc.includes('itemId'), 'CalendarView deve risolvere it.itemId tramite itemBackendId');
+  assert.ok(!viewSrc.includes('store.markBillPaid(it.id)'), 'CalendarView non deve passare it.id a markBillPaid');
+  assert.ok(!viewSrc.includes('store.markDeliveryReceived(it.id)'), 'CalendarView non deve passare it.id a markDeliveryReceived');
+  assert.ok(!viewSrc.includes(", it.id)"), 'CalendarView non deve passare it.id a copyMailItemToCalendar');
+
+  const mainSrc = fs.readFileSync(mainPath, 'utf8');
+  assert.ok(mainSrc.includes("getElementById('area-calendar')"), 'main.js deve montare CalendarView su #area-calendar');
+  assert.ok(mainSrc.includes('useCalendarStore'), 'main.js deve esporre useCalendarStore in homeVueBridge');
+  assert.ok(mainSrc.includes('window.calendarManager'), 'main.js deve esporre bridge window.calendarManager');
+
+  // 2. Guardia fallback legacy in public/js/calendar.js
+  const legacyCal = fs.readFileSync(path.join(rootDir, 'public/js/calendar.js'), 'utf8');
+  assert.ok(legacyCal.includes('window.CalendarManager = CalendarManager;'), 'public/js/calendar.js deve preservare window.CalendarManager');
+  assert.ok(legacyCal.includes('if (!window.calendarManager)'), 'public/js/calendar.js deve avere guardia fallback');
+
+  // 3. Verifica handler backend POST /api/calendar/sync (45gg) e POST /api/calendar/events
+  const registerMailRoutes = require('../src/routes/mail-notifications.routes');
+  const routes = { get: new Map(), post: new Map() };
+  const mockApp = {
+    get: (p, ...handlers) => routes.get.set(p, handlers[handlers.length - 1]),
+    post: (p, ...handlers) => routes.post.set(p, handlers[handlers.length - 1]),
+    delete: () => {},
+    put: () => {},
+    patch: () => {}
+  };
+  let syncDaysArg = null;
+  let createdEventPayload = null;
+  const mockServices = {
+    calendarHub: {
+      config: { daysAhead: 45 },
+      syncEvents: async ({ days }) => {
+        syncDaysArg = days;
+        return { synced: 3, days };
+      },
+      createEvent: async (payload) => {
+        createdEventPayload = payload;
+        return { created: true, eventId: 'evt-test-1', summary: payload.summary, start: { date: payload.date || '2026-11-21' } };
+      },
+      getStatus: () => ({ hasCalendarScope: true, config: { daysAhead: 45 } }),
+      getCalendarOverview: ({ days }) => ({ status: { config: { daysAhead: days } }, items: [] })
+    }
+  };
+  registerMailRoutes(mockApp, mockServices);
+
+  const makeRes = () => {
+    const out = { statusCode: 200, body: null };
+    out.status = (code) => { out.statusCode = code; return out; };
+    out.json = (data) => { out.body = data; return out; };
+    return out;
+  };
+
+  const syncHandler = routes.post.get('/api/calendar/sync');
+  assert.ok(typeof syncHandler === 'function', 'POST /api/calendar/sync deve essere registrata');
+  const resSync = makeRes();
+  await syncHandler({ body: {} }, resSync);
+  assert.equal(resSync.statusCode, 200);
+  assert.equal(syncDaysArg, 45, 'POST /api/calendar/sync con body vuoto deve usare daysAhead (45), non 7');
+
+  const createHandler = routes.post.get('/api/calendar/events');
+  assert.ok(typeof createHandler === 'function', 'POST /api/calendar/events deve essere registrata');
+  const resBad = makeRes();
+  await createHandler({ body: { summary: '   ' } }, resBad);
+  assert.equal(resBad.statusCode, 400);
+  assert.equal(resBad.body.success, false);
+
+  const resBadTime = makeRes();
+  await createHandler({ body: { summary: 'Test', date: '2026-11-22', allDay: false, time: '25:99' } }, resBadTime);
+  assert.equal(resBadTime.statusCode, 400);
+  assert.equal(resBadTime.body.success, false);
+
+  const resMissingTime = makeRes();
+  await createHandler({ body: { summary: 'Test', date: '2026-11-22', allDay: false } }, resMissingTime);
+  assert.equal(resMissingTime.statusCode, 400);
+  assert.equal(resMissingTime.body.success, false);
+
+  const resOk = makeRes();
+  await createHandler({
+    body: { summary: 'Controllo Caldaia', date: '2026-11-22', allDay: false, time: '10:30', durationMinutes: 60 }
+  }, resOk);
+  assert.equal(resOk.statusCode, 200);
+  assert.equal(resOk.body.success, true);
+  assert.equal(createdEventPayload.summary, 'Controllo Caldaia');
+  assert.equal(createdEventPayload.time, '10:30');
+  assert.equal(createdEventPayload.allDay, false);
+
+  // 4. Verifica bundle compilato se presente su disco
+  const bundleJsPath = path.join(rootDir, 'public/vue/home-vue.js');
+  if (fs.existsSync(bundleJsPath)) {
+    const bundleJs = fs.readFileSync(bundleJsPath, 'utf8');
+    assert.ok(bundleJs.includes('calendarManager'), 'Bundle home-vue.js deve esporre calendarManager');
+  }
+});
+
 
 
 
