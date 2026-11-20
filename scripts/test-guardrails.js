@@ -3287,6 +3287,8 @@ test('PowerOutageWatchdog & Canale Email SMTP (#115)', async () => {
     const testMailRes = await emailSender.sendTestEmail();
     assert.equal(testMailRes.sent, true);
     assert.equal(sentMails.length, 1);
+    assert.ok(sentMails[0].html && sentMails[0].html.includes('cid:home-smart-os-logo'));
+    assert.ok(Array.isArray(sentMails[0].attachments) && sentMails[0].attachments.some((a) => a.cid === 'home-smart-os-logo'));
 
     // 2. PowerOutageWatchdog: isteresi 3 cicli, Livello B POWER_OUTAGE_CONFIRMED, diagnosi 3 kW, 1 sola email, ripristino >= 2h15m
     const notif = new Notifier();
