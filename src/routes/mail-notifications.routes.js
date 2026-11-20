@@ -330,4 +330,46 @@ module.exports = function registerMailNotificationsRoutes(app, services) {
       res.status(400).json({ success: false, error: error.message });
     }
   });
+
+  // PowerOutageWatchdog & Canale Email SMTP (#115)
+  app.get('/api/power-watchdog/status', (req, res) => {
+    try {
+      res.json({
+        success: true,
+        watchdog: services.powerWatchdog.getStatus(),
+        email: services.emailSender.getStatus()
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post('/api/power-watchdog/config', async (req, res) => {
+    try {
+      const { enabled, hysteresisChecks, fridgeAlertHours, sendEmailOnOutage, sendEmailOnRestore, emailEnabled, recipients } = req.body || {};
+      const watchdog = await services.powerWatchdog.updateConfig({
+        enabled,
+        hysteresisChecks,
+        fridgeAlertHours,
+        sendEmailOnOutage,
+        sendEmailOnRestore
+      });
+      let email = services.emailSender.getStatus();
+      if (emailEnabled !== undefined || recipients !== undefined) {
+        email = await services.emailSender.updateConfig({ enabled: emailEnabled, recipients });
+      }
+      res.json({ success: true, watchdog, email });
+    } catch (error) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post('/api/power-watchdog/test-email', async (req, res) => {
+    try {
+      const result = await services.emailSender.sendTestEmail(req.body?.to || null);
+      res.json({ success: !result?.error, ...result });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
 };
