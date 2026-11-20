@@ -4,6 +4,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Frontend build & dipendenze Vite / Vue 3
+public/vue/
+frontend/node_modules/
+
 # Variabili d'ambiente e Credenziali (MAI committare)
 .env
 .env.*
