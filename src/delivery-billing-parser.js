@@ -598,6 +598,27 @@ Rispondi SOLO con JSON valido: {"items":[ ... ]}\n\n${digest}`;
     item.updatedAt = new Date().toISOString();
 
     await db.set(cleanType === 'bill' ? BILLS_KEY : DELIVERIES_KEY, list, false).catch(() => {});
+    if (this.notifier && Array.isArray(this.notifier.feed)) {
+      let touched = false;
+      for (const nf of this.notifier.feed) {
+        if (
+          nf.metadata?.calendarAction?.itemId === id
+          || nf.metadata?.billId === id
+          || nf.metadata?.deliveryId === id
+        ) {
+          nf.metadata = {
+            ...(nf.metadata || {}),
+            calendarAdded: true,
+            calendarEventId: item.calendarEventId,
+            calendarHtmlLink: item.calendarHtmlLink
+          };
+          touched = true;
+        }
+      }
+      if (touched) {
+        await this.notifier._persistFeed?.().catch(() => {});
+      }
+    }
     if (this.notifier && typeof this.notifier.upsertFeedItem === 'function') {
       await this._syncDeliveriesAndBillsToNotifierFeed().catch(() => {});
     }

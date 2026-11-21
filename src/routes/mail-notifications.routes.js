@@ -232,6 +232,15 @@ module.exports = function registerMailNotificationsRoutes(app, services) {
     }
   });
 
+  app.delete('/api/notifications/archive', async (req, res) => {
+    try {
+      const result = await services.notifier.clearReadArchive();
+      res.json({ success: true, ...result });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   app.delete('/api/notifications/:id', async (req, res) => {
     try {
       const deleted = await services.notifier.deleteNotification(req.params.id);
@@ -245,6 +254,16 @@ module.exports = function registerMailNotificationsRoutes(app, services) {
   app.post('/api/notifications/:id/package-received', async (req, res) => {
     try {
       const item = await services.notifier.markPackageReceived(req.params.id);
+      const { unreadCount } = services.notifier.getFeed({ filter: 'unread', limit: 1 });
+      res.json({ success: true, item, unreadCount });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post('/api/notifications/:id/bill-paid', async (req, res) => {
+    try {
+      const item = await services.notifier.markBillPaid(req.params.id);
       const { unreadCount } = services.notifier.getFeed({ filter: 'unread', limit: 1 });
       res.json({ success: true, item, unreadCount });
     } catch (error) {

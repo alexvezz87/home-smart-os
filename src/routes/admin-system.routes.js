@@ -20,7 +20,8 @@ module.exports = function registerAdminSystemRoutes(app, services) {
       'sensor:temperature',
       'sensor:lux',
       'presence:changed',
-      'ai:guardrail_blocked'
+      'ai:guardrail_blocked',
+      'notifications:updated'
     ]);
 
     const onEvent = (evt) => {

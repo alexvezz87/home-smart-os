@@ -3563,6 +3563,157 @@ test('Fase 1 Frontend Vue 3 + Pinia: Calendario, Agenda, Creazione Eventi & Fix 
   }
 });
 
+test('Fase 2 Frontend Vue 3 + Pinia: Centro Notifiche, Popover Topbar, bill-paid, Archive & SSE (#128)', async () => {
+  const fs = require('fs');
+  const path = require('path');
+  const rootDir = path.join(__dirname, '..');
+
+  // 1. File sorgente Vue 3 + Pinia per Centro Notifiche & Popover
+  const storePath = path.join(rootDir, 'frontend/src/stores/notificationsStore.js');
+  const viewPath = path.join(rootDir, 'frontend/src/views/NotificationsView.vue');
+  const popPath = path.join(rootDir, 'frontend/src/views/NotificationsPopover.vue');
+  const mainPath = path.join(rootDir, 'frontend/src/main.js');
+  for (const p of [storePath, viewPath, popPath, mainPath]) {
+    assert.ok(fs.existsSync(p), `${path.basename(p)} deve esistere`);
+  }
+
+  const mainSrc = fs.readFileSync(mainPath, 'utf8');
+  assert.ok(mainSrc.includes("getElementById('area-notifications')"), 'main.js deve montare NotificationsView su #area-notifications');
+  assert.ok(mainSrc.includes("getElementById('header-notifications-popover')"), 'main.js deve montare NotificationsPopover su #header-notifications-popover');
+  assert.ok(mainSrc.includes('useNotificationsStore'), 'main.js deve esporre useNotificationsStore in homeVueBridge');
+  assert.ok(mainSrc.includes('window.notificationsManager'), 'main.js deve esporre bridge window.notificationsManager');
+
+  // 2. Guardia fallback legacy in public/js/notifications.js
+  const legacyNotif = fs.readFileSync(path.join(rootDir, 'public/js/notifications.js'), 'utf8');
+  assert.ok(legacyNotif.includes('window.NotificationsManager = NotificationsManager;'), 'public/js/notifications.js deve preservare window.NotificationsManager');
+  assert.ok(legacyNotif.includes('if (!window.notificationsManager)'), 'public/js/notifications.js deve avere guardia fallback');
+
+  // 3. Verifica unit/funzionale su Notifier (getFeed, markBillPaid, clearReadArchive)
+  const db = require('../src/db');
+  const eventBus = require('../src/event-bus');
+  const { Notifier } = require('../src/notifier');
+  const origDbGet = db.get;
+  const origDbSet = db.set;
+  db.get = async () => null;
+  db.set = async () => {};
+
+  const publishedEvents = [];
+  const onBusEvt = (evt) => publishedEvents.push(evt);
+  eventBus.on('notifications:updated', onBusEvt);
+
+  try {
+    let paidBillId = null;
+    const notifier = new Notifier();
+    await notifier.init({
+      deliveryBillingParser: {
+        updateBillStatus: async (billId, status) => {
+          paidBillId = `${billId}:${status}`;
+        }
+      }
+    });
+
+    // Popola > 5 notifiche non lette + 1 letta
+    notifier.feed = [
+      { id: 'n1', title: 'Bolletta Luce', sourceType: 'mail_bill', sourceKey: 'bill:b1', attentionTier: 'actionable', read: false, metadata: { billId: 'b1', billStatus: 'unpaid' } },
+      { id: 'n2', title: 'Pacco Amazon', sourceType: 'mail_delivery', sourceKey: 'trk:t1', attentionTier: 'informative', read: false, metadata: { deliveryId: 'd1' } },
+      { id: 'n3', title: 'Allarme', sourceType: 'security', sourceKey: 'sec:1', attentionTier: 'urgent', read: false, metadata: {} },
+      { id: 'n4', title: 'Clima 1', sourceType: 'automation', sourceKey: 'clim:1', attentionTier: 'informative', read: false, metadata: {} },
+      { id: 'n5', title: 'Clima 2', sourceType: 'automation', sourceKey: 'clim:2', attentionTier: 'informative', read: false, metadata: {} },
+      { id: 'n6', title: 'Clima 3', sourceType: 'automation', sourceKey: 'clim:3', attentionTier: 'informative', read: false, metadata: {} },
+      { id: 'n7', title: 'Vecchia letta', sourceType: 'automation', sourceKey: 'old:1', attentionTier: 'informative', read: true, metadata: {} }
+    ];
+
+    const feed = notifier.getFeed({ filter: 'unread', limit: 60 });
+    assert.equal(feed.items.length, 6, 'getFeed(unread, 60) non deve troncare a 5 item');
+    assert.equal(feed.unreadPreview.length, 5, 'unreadPreview deve contenere le prime 5 non lette');
+    assert.deepEqual(feed.counts, {
+      unread: 6,
+      attention: 2,
+      mail: 2,
+      automation: 4,
+      archive: 1,
+      total: 7
+    });
+
+    // markBillPaid
+    const paidItem = await notifier.markBillPaid('n1');
+    assert.equal(paidBillId, 'b1:paid');
+    assert.equal(paidItem.metadata.billStatus, 'paid');
+    assert.equal(paidItem.read, true);
+    assert.ok(publishedEvents.length >= 1, 'markBillPaid deve pubblicare notifications:updated');
+
+    // clearReadArchive
+    const cleared = await notifier.clearReadArchive();
+    assert.equal(cleared.clearedCount, 2);
+    assert.equal(cleared.unreadCount, 5);
+    assert.equal(notifier.feed.length, 5);
+    assert.ok(notifier.dismissedSourceKeys.has('old:1'), 'sourceKey rimosso deve entrare in dismissedSourceKeys');
+    assert.ok(notifier.dismissedSourceKeys.has('bill:b1'), 'sourceKey bolletta pagata rimossa deve entrare in dismissedSourceKeys');
+
+    // Reinserimento bloccato per sourceKey in dismissedSourceKeys
+    const reinsert = await notifier.upsertFeedItem({ title: 'Dup', sourceKey: 'old:1' });
+    assert.equal(reinsert, null);
+  } finally {
+    eventBus.off('notifications:updated', onBusEvt);
+    db.get = origDbGet;
+    db.set = origDbSet;
+  }
+
+  // 4. Verifica route order DELETE /api/notifications/archive prima di :id + POST /api/notifications/:id/bill-paid
+  const registerMailRoutes = require('../src/routes/mail-notifications.routes');
+  const deleteOrder = [];
+  const postRoutes = new Map();
+  const mockApp = {
+    get: () => {},
+    post: (p, ...handlers) => postRoutes.set(p, handlers[handlers.length - 1]),
+    delete: (p, ...handlers) => deleteOrder.push({ path: p, handler: handlers[handlers.length - 1] })
+  };
+  let billPaidCalledWith = null;
+  let archiveCalled = false;
+  registerMailRoutes(mockApp, {
+    notifier: {
+      clearReadArchive: async () => { archiveCalled = true; return { clearedCount: 2, unreadCount: 1 }; },
+      markBillPaid: async (id) => { billPaidCalledWith = id; return { id, read: true }; },
+      getFeed: () => ({ unreadCount: 1 })
+    }
+  });
+
+  const idxArchive = deleteOrder.findIndex((r) => r.path === '/api/notifications/archive');
+  const idxById = deleteOrder.findIndex((r) => r.path === '/api/notifications/:id');
+  assert.ok(idxArchive >= 0 && idxById >= 0 && idxArchive < idxById, 'DELETE /api/notifications/archive deve essere registrata prima di :id');
+
+  const makeRes = () => {
+    const out = { statusCode: 200, body: null };
+    out.status = (c) => { out.statusCode = c; return out; };
+    out.json = (d) => { out.body = d; return out; };
+    return out;
+  };
+  const resArch = makeRes();
+  await deleteOrder[idxArchive].handler({}, resArch);
+  assert.equal(archiveCalled, true);
+  assert.equal(resArch.body.success, true);
+
+  const billPaidHandler = postRoutes.get('/api/notifications/:id/bill-paid');
+  assert.ok(typeof billPaidHandler === 'function', 'POST /api/notifications/:id/bill-paid deve essere registrata');
+  const resBill = makeRes();
+  await billPaidHandler({ params: { id: 'notif-42' } }, resBill);
+  assert.equal(billPaidCalledWith, 'notif-42');
+  assert.equal(resBill.body.success, true);
+
+  // 5. SSE notifications:updated in admin-system.routes.js e floorplan.js
+  const adminSysSrc = fs.readFileSync(path.join(rootDir, 'src/routes/admin-system.routes.js'), 'utf8');
+  assert.ok(adminSysSrc.includes("'notifications:updated'"), 'PUSH_EVENTS deve includere notifications:updated');
+  const floorplanSrc = fs.readFileSync(path.join(rootDir, 'public/js/floorplan.js'), 'utf8');
+  assert.ok(floorplanSrc.includes("addEventListener('notifications:updated'"), 'floorplan.js deve ascoltare notifications:updated via SSE');
+
+  // 6. Verifica bundle compilato se presente su disco
+  const bundleJsPath = path.join(rootDir, 'public/vue/home-vue.js');
+  if (fs.existsSync(bundleJsPath)) {
+    const bundleJs = fs.readFileSync(bundleJsPath, 'utf8');
+    assert.ok(bundleJs.includes('notificationsManager'), 'Bundle home-vue.js deve esporre notificationsManager');
+  }
+});
+
 
 
 
