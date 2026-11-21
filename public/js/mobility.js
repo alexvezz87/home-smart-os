@@ -1631,4 +1631,7 @@ class MobilityManager {
   }
 }
 
-window.mobilityManager = new MobilityManager();
+window.MobilityManager = MobilityManager;
+if (!window.mobilityManager) {
+  window.mobilityManager = new MobilityManager();
+}
