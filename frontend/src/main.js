@@ -6,6 +6,7 @@ import { useNotificationsStore } from './stores/notificationsStore';
 import { useEnergyStore } from './stores/energyStore';
 import { useMobilityStore } from './stores/mobilityStore';
 import { filterAdminSearchIndex, useAdminStore } from './stores/adminStore';
+import { useFloorplanStore } from './stores/floorplanStore';
 import StatusView from './views/StatusView.vue';
 import CalendarView from './views/CalendarView.vue';
 import NotificationsView from './views/NotificationsView.vue';
@@ -13,6 +14,7 @@ import NotificationsPopover from './views/NotificationsPopover.vue';
 import EnergyView from './views/EnergyView.vue';
 import MobilityView from './views/MobilityView.vue';
 import AdminView from './views/AdminView.vue';
+import FloorplanDrawerView from './views/FloorplanDrawerView.vue';
 
 function mountHomeVue() {
   const pinia = createPinia();
@@ -66,12 +68,21 @@ function mountHomeVue() {
     adminApp.mount(adminEl);
   }
 
+  const rightDrawerEl = document.getElementById('right-sidebar-content');
+  if (rightDrawerEl) {
+    const drawerApp = createApp(FloorplanDrawerView);
+    drawerApp.use(pinia);
+    drawerApp.mount(rightDrawerEl);
+    window.__vueFloorplanDrawerMounted = true;
+  }
+
   const store = useHomeStore(pinia);
   const calendarStore = useCalendarStore(pinia);
   const notificationsStore = useNotificationsStore(pinia);
   const energyStore = useEnergyStore(pinia);
   const mobilityStore = useMobilityStore(pinia);
   const adminStore = useAdminStore(pinia);
+  const floorplanStore = useFloorplanStore(pinia);
 
   if (!window.__homeNotificationsClickBound) {
     window.__homeNotificationsClickBound = true;
@@ -101,7 +112,9 @@ function mountHomeVue() {
     useEnergyStore,
     useMobilityStore,
     useAdminStore,
-    version: '0.6.0'
+    useFloorplanStore,
+    floorplanStore,
+    version: '1.0.0'
   };
 
   window.statusManager = {
@@ -264,6 +277,56 @@ function mountHomeVue() {
   legacyAdmin.onSystemSearchInput = (val) => adminStore.onSystemSearchInput(val);
   legacyAdmin.resetSystemFilters = () => adminStore.resetSystemFilters();
   window.adminManager = legacyAdmin;
+
+  const legacyFp = window.floorplan || (window.FloorplanEngine ? new window.FloorplanEngine() : null);
+  if (legacyFp) {
+    floorplanStore.bindLegacyFloorplan(legacyFp);
+    if (typeof legacyFp.render === 'function') {
+      legacyFp._origRender = legacyFp.render.bind(legacyFp);
+    }
+
+    const fpProps = [
+      'selectedPin', 'selectedRoom', 'activeLayer', 'bgStyle',
+      'showProximity', 'showFurniture', 'heatMapActive', 'zoomPreset',
+      'statusFilter', 'rightDrawerOpen', 'rightDrawerTab', 'searchQuery',
+      'hueDynamicMode'
+    ];
+    const propDefs = {};
+    for (const k of fpProps) {
+      propDefs[k] = {
+        get() { return floorplanStore[k]; },
+        set(val) { floorplanStore[k] = val; },
+        configurable: true
+      };
+    }
+    propDefs.dayPhaseOverride = {
+      get() { return floorplanStore.dayPhaseOverride; },
+      set(val) {
+        floorplanStore.dayPhaseOverride = val || 'auto';
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('fp_day_phase_override', floorplanStore.dayPhaseOverride);
+        }
+      },
+      configurable: true
+    };
+    Object.defineProperties(legacyFp, propDefs);
+
+    legacyFp.render = () => {
+      legacyFp._origRender?.();
+      floorplanStore.syncFromHomeData();
+    };
+    legacyFp.renderRightDrawer = () => {
+      floorplanStore.syncFromHomeData();
+    };
+    legacyFp.setLayer = (layer) => floorplanStore.setLayer(layer);
+    legacyFp.setStatusFilter = (status) => floorplanStore.setStatusFilter(status);
+    legacyFp.selectRoom = (roomName, openDrawer = false) => floorplanStore.selectRoom(roomName, openDrawer);
+    legacyFp.setRightDrawerTab = (tab) => floorplanStore.setRightDrawerTab(tab);
+    legacyFp.setSearchQuery = (q) => floorplanStore.setSearchQuery(q);
+    legacyFp.toggleRightDrawer = (forceState) => floorplanStore.toggleRightDrawer(forceState);
+    legacyFp.toggleHueDynamicMode = () => floorplanStore.toggleHueDynamicMode();
+    window.floorplan = legacyFp;
+  }
 }
 
 if (document.readyState !== 'loading') {
@@ -276,6 +339,7 @@ if (document.readyState !== 'loading') {
   || document.getElementById('area-energy')
   || document.getElementById('area-mobility')
   || document.getElementById('area-admin')
+  || document.getElementById('right-sidebar-content')
 ) {
   mountHomeVue();
 } else {
