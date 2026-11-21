@@ -14,7 +14,7 @@ const hueEffects = [
   { id: 'fire', label: 'Fuoco', icon: 'fa-fire', cls: 'text-orange-400' },
   { id: 'prism', label: 'Prisma', icon: 'fa-gem', cls: 'text-fuchsia-300' },
   { id: 'sparkle', label: 'Brillio', icon: 'fa-sparkles', cls: 'text-cyan-300' },
-  { id: 'none', label: 'Stop', icon: 'fa-stop', cls: 'text-slate-300' }
+  { id: 'no_effect', label: 'Stop', icon: 'fa-stop', cls: 'text-slate-300' }
 ];
 
 function sceneGradient(scene) {
@@ -123,7 +123,7 @@ function sceneGradient(scene) {
       </div>
 
       <!-- 5. Filtro Stanza -->
-      <div class="flex items-center gap-1.5 overflow-x-auto pb-1">
+      <div class="flex flex-wrap items-center gap-1.5">
         <button
           type="button"
           @click="store.selectRoom(null, false)"
@@ -243,6 +243,8 @@ function sceneGradient(scene) {
                 <div class="font-bold text-white truncate">{{ p.name }}</div>
                 <div class="text-[10px] text-slate-400 truncate">
                   {{ p.room }}
+                  <span v-if="p.category === 'light' || p.category === 'chandelier'"> · {{ p.isOn ? `${p.brightness || 80}%` : 'Spenta' }}</span>
+                  <span v-if="p.category === 'camera'" class="text-emerald-300"> · {{ (p.name || '').includes('Baby') || (p.name || '').includes('Francesco') ? '2K Live' : 'WebRTC Live' }}</span>
                   <span v-if="p.temperature != null"> · {{ p.temperature }}°C</span>
                   <span v-if="p.category === 'plug' && p.powerW != null" class="font-mono text-cyan-300"> · {{ Math.round(p.powerW) }}W</span>
                 </div>
@@ -256,7 +258,7 @@ function sceneGradient(scene) {
                 @click="store.adjustValve(p.pin, -0.5)"
                 class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold"
               >-</button>
-              <span class="font-mono text-[11px] text-amber-300 w-9 text-center">{{ p.setpoint ?? '--' }}°</span>
+              <span class="font-mono text-[11px] text-amber-300 w-9 text-center">{{ (Number(p.setpoint) || 20.5).toFixed(1) }}°</span>
               <button
                 type="button"
                 @click="store.adjustValve(p.pin, 0.5)"
@@ -267,7 +269,7 @@ function sceneGradient(scene) {
             <button
               v-else-if="p.category === 'camera'"
               type="button"
-              @click="store.openCameraTheater(p.cameraId || p.pin)"
+              @click="store.openCameraTheater(p)"
               class="px-2 py-1 rounded-lg text-[10px] font-bold bg-purple-600/80 hover:bg-purple-500 text-white shrink-0"
             >
               Teatro

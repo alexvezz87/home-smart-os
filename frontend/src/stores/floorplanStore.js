@@ -317,7 +317,11 @@ export const useFloorplanStore = defineStore('floorplan', {
 
     openCameraTheater(camIdOrPin) {
       if (typeof window !== 'undefined') {
-        window.cameraTheater?.open?.(camIdOrPin);
+        const isNumericId = typeof camIdOrPin === 'number' || (typeof camIdOrPin === 'string' && /^\d+$/.test(camIdOrPin.trim()));
+        const target = isNumericId
+          ? (this.pins.find((p) => p.pin === Number(camIdOrPin)) || camIdOrPin)
+          : camIdOrPin;
+        window.cameraTheater?.open?.(target);
       }
     },
 

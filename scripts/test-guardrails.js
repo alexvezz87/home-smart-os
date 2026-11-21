@@ -3974,7 +3974,9 @@ test('Fase 6 (Finale) Frontend Vue 3 + Pinia: La Mia Casa & Floorplan Drawer v1.
     'id="right-drawer-search"',
     'id="right-drawer-device-list"',
     'hueSceneSearch',
-    'roomTelemetry'
+    'roomTelemetry',
+    'no_effect',
+    'openCameraTheater(p)'
   ]) {
     assert.ok(viewSrc.includes(sym), `FloorplanDrawerView.vue deve contenere ${sym}`);
   }
