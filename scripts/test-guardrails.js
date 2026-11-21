@@ -3743,6 +3743,19 @@ test('Fase 3 Frontend Vue 3 + Pinia + vue-chartjs: Consumi & Energy Intelligence
   assert.ok(viewSrc.includes('voltageV'), 'EnergyView.vue deve usare voltageV');
   assert.ok(viewSrc.includes('uuid'), 'EnergyView.vue deve usare p.uuid');
   assert.ok(viewSrc.includes('/api/energy/export-csv'), 'EnergyView.vue deve esporre Export CSV');
+  assert.ok(
+    viewSrc.includes('tActual') && viewSrc.includes('tSet') && viewSrc.includes('valvePos'),
+    'EnergyView.vue deve mappare tActual, tSet e valvePos nei punti termici'
+  );
+  assert.ok(
+    viewSrc.includes('estimatedSavedM3PerMonth') && viewSrc.includes('aboveTargetPct') && viewSrc.includes('valveOpenHours'),
+    'EnergyView.vue deve mostrare le colonne termiche reali e estimatedSavedM3PerMonth'
+  );
+  assert.ok(
+    viewSrc.includes('plugModalStats') && viewSrc.includes('todayKwh') && viewSrc.includes('periodCostEur'),
+    'EnergyView.vue deve leggere le statistiche della modale presa da data.stats'
+  );
+  assert.ok(viewSrc.includes('amountEur'), 'EnergyView.vue deve leggere amountEur nelle bollette extra');
 
   const mainSrc = fs.readFileSync(mainPath, 'utf8');
   assert.ok(mainSrc.includes("getElementById('area-energy')"), 'main.js deve montare EnergyView su #area-energy');

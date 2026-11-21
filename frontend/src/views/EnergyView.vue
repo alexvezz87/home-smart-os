@@ -138,7 +138,10 @@ const thermalChartData = computed(() => {
       if (p.label) return p.label;
       if (!p.ts) return '';
       try {
-        return new Date(p.ts).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+        const d = new Date(p.ts);
+        return store.thermalDays <= 1
+          ? d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
+          : `${d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' })} ${d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
       } catch {
         return '';
       }
@@ -146,7 +149,7 @@ const thermalChartData = computed(() => {
     datasets: [
       {
         label: 'Temp Reale (°C)',
-        data: pts.map((p) => p.temp ?? p.temperature ?? null),
+        data: pts.map((p) => p.tActual ?? p.temp ?? p.temperature ?? null),
         borderColor: '#38bdf8',
         backgroundColor: 'rgba(56, 189, 248, 0.12)',
         borderWidth: 2,
@@ -157,7 +160,7 @@ const thermalChartData = computed(() => {
       },
       {
         label: 'Setpoint (°C)',
-        data: pts.map((p) => p.setpoint ?? null),
+        data: pts.map((p) => p.tSet ?? p.setpoint ?? null),
         borderColor: '#fbbf24',
         borderDash: [4, 4],
         borderWidth: 1.8,
@@ -167,7 +170,7 @@ const thermalChartData = computed(() => {
       },
       {
         label: 'Valvola (%)',
-        data: pts.map((p) => p.valvePct ?? p.valve ?? null),
+        data: pts.map((p) => p.valvePos ?? p.valvePct ?? p.valve ?? null),
         borderColor: '#a855f7',
         borderWidth: 1.5,
         pointRadius: 0,
@@ -234,11 +237,28 @@ const plugDailyChartOptions = {
   }
 };
 
+const boschUnitRatio = computed(() => {
+  const c = store.boschChartComputed;
+  return c.sumTotM3 > 0 ? (c.sumCostEur / c.sumTotM3) : c.defaultTariff;
+});
+
+const plugModalStats = computed(() => (
+  store.plugDetailModal.data?.stats || store.plugDetailModal.data || {}
+));
+
 const billsTotalPendingEur = computed(() => (
   store.extraBills
     .filter((b) => b.status !== 'paid')
-    .reduce((acc, b) => acc + (Number(b.amount) || 0), 0)
+    .reduce((acc, b) => acc + (Number(b.amountEur ?? b.amount ?? 0) || 0), 0)
 ));
+
+function billAmountEur(b) {
+  return Number(b?.amountEur ?? b?.amount ?? 0) || 0;
+}
+
+function hasBillAmount(b) {
+  return b?.amountEur !== undefined || b?.amount !== undefined;
+}
 
 function fmtIt(v, dec = 1) {
   return (Number(v) || 0).toLocaleString('it-IT', {
@@ -256,9 +276,13 @@ function feedbackClass(type) {
 function billDueBadge(bill) {
   if (bill.status === 'paid') return { text: 'Pagata', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' };
   if (!bill.dueDate) return { text: 'In attesa', cls: 'bg-slate-800 text-slate-300 border-slate-700' };
-  const diff = Math.ceil((new Date(bill.dueDate).getTime() - Date.now()) / 86400000);
-  if (diff < 0) return { text: 'Scaduta', cls: 'bg-rose-500/20 text-rose-300 border-rose-500/40' };
-  return { text: `Tra ${diff}g`, cls: 'bg-amber-500/15 text-amber-300 border-amber-500/30' };
+  const dueMs = Date.parse(`${bill.dueDate}T12:00:00Z`);
+  if (!Number.isFinite(dueMs)) return { text: 'In attesa', cls: 'bg-slate-800 text-slate-300 border-slate-700' };
+  const daysLeft = Math.ceil((dueMs - Date.now()) / 86400000);
+  if (daysLeft <= 0) return { text: 'Scaduta', cls: 'bg-rose-500/20 text-rose-300 border-rose-500/40' };
+  if (daysLeft <= 3) return { text: `Tra ${daysLeft}g`, cls: 'bg-rose-500/20 text-rose-300 border-rose-500/40' };
+  if (daysLeft <= 7) return { text: `Tra ${daysLeft}g`, cls: 'bg-amber-500/15 text-amber-300 border-amber-500/30' };
+  return { text: `Tra ${daysLeft}g`, cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' };
 }
 
 function activePlugLive(plug) {
@@ -288,11 +312,11 @@ function activePlugLive(plug) {
       <div class="flex items-center gap-2 flex-wrap">
         <button
           type="button"
-          :disabled="store.loading"
-          @click="store.renderView(false)"
+          :disabled="store.loading || store.busyActionKey === 'refresh-energy'"
+          @click="store.refreshNow()"
           class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 flex items-center gap-1.5 disabled:opacity-60"
         >
-          <i class="fa-solid fa-rotate" :class="{ 'fa-spin': store.loading }"></i>
+          <i class="fa-solid fa-rotate" :class="{ 'fa-spin': store.loading || store.busyActionKey === 'refresh-energy' }"></i>
           <span>🔄 Aggiorna</span>
         </button>
 
@@ -468,17 +492,25 @@ function activePlugLive(plug) {
                     Nessun elettrodomestico attivo in questo momento.
                   </div>
                   <div v-else class="space-y-1.5 text-xs">
-                    <div v-if="store.washerTracker" class="p-2 rounded-xl bg-slate-900/70 border border-slate-800 flex items-center justify-between">
+                    <div
+                      v-if="store.washerTracker && !store.smartAppliances.some((a) => a.type === 'washer')"
+                      class="p-2 rounded-xl bg-slate-900/70 border border-slate-800 flex items-center justify-between"
+                    >
                       <span class="text-slate-200 font-semibold">Lavatrice</span>
                       <span class="font-mono text-cyan-300">{{ store.washerTracker.state || store.washerTracker.status || 'Standby' }}</span>
                     </div>
                     <div
                       v-for="(app, idx) in store.smartAppliances"
-                      :key="idx"
-                      class="p-2 rounded-xl bg-slate-900/70 border border-slate-800 flex items-center justify-between"
+                      :key="app.id || app.name || idx"
+                      class="p-2 rounded-xl bg-slate-900/70 border border-slate-800 flex items-center justify-between gap-2"
                     >
-                      <span class="text-slate-200 font-semibold">{{ app.name }}</span>
-                      <span class="font-mono text-emerald-300">{{ app.status || app.state || `${app.powerW || 0}W` }}</span>
+                      <span class="text-slate-200 font-semibold truncate">{{ app.name }}</span>
+                      <span
+                        class="font-mono shrink-0"
+                        :class="app.isRunning ? 'text-emerald-300 font-bold' : 'text-slate-400'"
+                      >
+                        {{ app.status || app.state || `${app.powerW || 0}W` }}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -571,13 +603,17 @@ function activePlugLive(plug) {
                   <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
                     <span class="text-[10px] text-slate-400 uppercase font-semibold">Riscaldamento</span>
                     <div class="text-lg font-black text-red-400 mt-0.5">
-                      {{ fmtIt(store.boschChartComputed.sumChM3, 1) }} m³
+                      {{ store.boschChartComputed.isEur
+                        ? `${fmtIt(store.boschChartComputed.sumChM3 * boschUnitRatio, 2)} €`
+                        : `${fmtIt(store.boschChartComputed.sumChM3, 1)} m³` }}
                     </div>
                   </div>
                   <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
                     <span class="text-[10px] text-slate-400 uppercase font-semibold">Acqua calda</span>
                     <div class="text-lg font-black text-fuchsia-400 mt-0.5">
-                      {{ fmtIt(store.boschChartComputed.sumHwM3, 1) }} m³
+                      {{ store.boschChartComputed.isEur
+                        ? `${fmtIt(store.boschChartComputed.sumHwM3 * boschUnitRatio, 2)} €`
+                        : `${fmtIt(store.boschChartComputed.sumHwM3, 1)} m³` }}
                     </div>
                   </div>
                   <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
@@ -750,10 +786,12 @@ function activePlugLive(plug) {
                   <table class="w-full text-left text-xs border-collapse">
                     <thead>
                       <tr class="border-b border-slate-800 text-slate-400 text-[11px]">
-                        <th class="py-2 pr-3">Zona</th>
+                        <th class="py-2 pr-3">Stanza</th>
                         <th class="py-2 pr-3">Media °C</th>
-                        <th class="py-2 pr-3">Setpoint °C</th>
-                        <th class="py-2 pr-3">Valvola %</th>
+                        <th class="py-2 pr-3">Sopra Target</th>
+                        <th class="py-2 pr-3">Ore Valvola</th>
+                        <th class="py-2 pr-3">Raffr. °C/h</th>
+                        <th class="py-2 pr-3">Guadagno Passivo</th>
                       </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-800/60">
@@ -761,27 +799,35 @@ function activePlugLive(plug) {
                         v-for="z in store.thermalReport.zones"
                         :key="z.zoneId"
                         @click="store.selectThermalZone(z.zoneId)"
-                        class="cursor-pointer hover:bg-slate-900/70"
+                        class="cursor-pointer hover:bg-slate-900/70 transition-colors"
+                        :class="z.zoneId === store.thermalSelectedZone ? 'bg-indigo-950/35' : ''"
                       >
                         <td class="py-2 pr-3 font-semibold text-white">{{ z.name }}</td>
-                        <td class="py-2 pr-3 font-mono text-cyan-300">{{ z.avgTemp ?? '--' }}°</td>
-                        <td class="py-2 pr-3 font-mono text-amber-300">{{ z.avgSetpoint ?? '--' }}°</td>
-                        <td class="py-2 pr-3 font-mono text-purple-300">{{ z.avgValvePct ?? '--' }}%</td>
+                        <td class="py-2 pr-3 font-mono text-cyan-300">{{ z.avgTemp ?? '--' }}°C</td>
+                        <td class="py-2 pr-3 font-mono">{{ z.aboveTargetPct ?? 0 }}%</td>
+                        <td class="py-2 pr-3 font-mono">{{ z.valveOpenHours ?? 0 }}h</td>
+                        <td class="py-2 pr-3 font-mono">{{ (z.coolingRatePerHour !== null && z.coolingRatePerHour !== undefined) ? z.coolingRatePerHour : '--' }}</td>
+                        <td class="py-2 pr-3 font-mono text-emerald-400">{{ z.passiveGainHours > 0 ? `+${z.passiveGainHours}h` : '0h' }}</td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
 
-                <div v-if="(store.thermalReport?.recommendations || []).length > 0" class="space-y-2">
+                <div v-if="(store.thermalReport?.recommendations || []).length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
                   <div
                     v-for="(rec, rIdx) in store.thermalReport.recommendations"
                     :key="rIdx"
-                    class="p-3 rounded-xl bg-emerald-950/25 border border-emerald-500/30 text-xs flex items-center justify-between gap-2"
+                    class="p-3 rounded-xl bg-slate-900/90 border border-emerald-500/30 space-y-1 text-xs"
                   >
-                    <span class="text-slate-200">{{ rec.message || rec.title || rec }}</span>
-                    <span v-if="rec.estimatedSavingsM3" class="font-mono text-emerald-300 font-bold shrink-0">
-                      -{{ rec.estimatedSavingsM3 }} m³/mese
-                    </span>
+                    <div class="flex items-center justify-between gap-2">
+                      <span class="font-bold text-emerald-300">{{ rec.title || 'Suggerimento Risparmio' }}</span>
+                      <span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 font-mono text-[10px] shrink-0">
+                        -{{ rec.estimatedSavedM3PerMonth ?? rec.estimatedSavingsM3 ?? 0 }} m³/mese
+                      </span>
+                    </div>
+                    <p v-if="rec.detail || rec.message" class="text-[11px] text-slate-300 leading-relaxed">
+                      {{ rec.detail || rec.message }}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -831,8 +877,10 @@ function activePlugLive(plug) {
                         </span>
                       </div>
                       <div class="text-[11px] text-slate-400">
-                        <span v-if="b.amount" class="font-mono text-amber-300 mr-2">{{ fmtIt(b.amount, 2) }} €</span>
+                        <span v-if="hasBillAmount(b)" class="font-mono text-amber-300 mr-2">{{ fmtIt(billAmountEur(b), 2) }} €</span>
                         <span v-if="b.dueDate">Scadenza: {{ b.dueDate }}</span>
+                        <span> · Intestato: <strong class="text-slate-200">{{ b.recipient || 'Casa' }}</strong></span>
+                        <span v-if="b.billedUnits"> · {{ b.billedUnits }}</span>
                       </div>
                     </div>
 
@@ -901,20 +949,26 @@ function activePlugLive(plug) {
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
             <div class="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
               <div class="text-[10px] text-slate-400">Oggi</div>
-              <div class="font-mono font-bold text-cyan-300">{{ store.plugDetailModal.data.todayKwh ?? '--' }} kWh</div>
+              <div class="font-mono font-bold text-cyan-300">{{ plugModalStats.todayKwh ?? '--' }} kWh</div>
             </div>
             <div class="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
               <div class="text-[10px] text-slate-400">Ieri</div>
-              <div class="font-mono font-bold text-slate-200">{{ store.plugDetailModal.data.yesterdayKwh ?? '--' }} kWh</div>
+              <div class="font-mono font-bold text-slate-200">{{ plugModalStats.yesterdayKwh ?? '--' }} kWh</div>
             </div>
             <div class="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
               <div class="text-[10px] text-slate-400">Periodo</div>
-              <div class="font-mono font-bold text-emerald-300">{{ store.plugDetailModal.data.periodKwh ?? '--' }} kWh</div>
+              <div class="font-mono font-bold text-emerald-300">{{ plugModalStats.periodKwh ?? '--' }} kWh</div>
+              <div v-if="plugModalStats.periodCostEur !== undefined" class="text-[10px] font-mono text-emerald-400/90 mt-0.5">
+                ~{{ fmtIt(plugModalStats.periodCostEur, 2) }} €
+              </div>
             </div>
             <div class="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
               <div class="text-[10px] text-slate-400">Tensione / Corrente</div>
               <div class="font-mono font-bold text-amber-300">
                 {{ store.plugDetailModal.data.live?.voltageV || 230 }}V · {{ store.plugDetailModal.data.live?.currentA ?? '--' }}A
+              </div>
+              <div v-if="plugModalStats.peakDay" class="text-[10px] font-mono text-slate-400 mt-0.5 truncate">
+                Picco: {{ plugModalStats.peakDay.kwh }} kWh ({{ plugModalStats.peakDay.date }})
               </div>
             </div>
           </div>

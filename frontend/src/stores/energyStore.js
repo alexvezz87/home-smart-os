@@ -376,6 +376,22 @@ export const useEnergyStore = defineStore('energy', {
       }
     },
 
+    async refreshNow() {
+      this.busyActionKey = 'refresh-energy';
+      try {
+        await this.loadIntelligence({ silent: true });
+        if (this.activeTab === 'gas') {
+          await this.loadBoschHistoryIfNeeded(true);
+        } else if (this.activeTab === 'thermal') {
+          await this.loadThermalAnalytics({ silent: true });
+        } else if (this.activeTab === 'bills') {
+          await this.loadExtraBills(this.extraBillsFilter, { silent: true });
+        }
+      } finally {
+        this.busyActionKey = null;
+      }
+    },
+
     selectTab(tabId) {
       if (this.isMobileView && this.activeTab === tabId) {
         this.activeTab = null;
