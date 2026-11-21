@@ -1689,6 +1689,10 @@ class FloorplanEngine {
   }
 
   renderRightDrawer(onlyUpdateList = false) {
+    if (typeof window !== 'undefined' && window.__vueFloorplanDrawerMounted) {
+      window.homeVueBridge?.floorplanStore?.syncFromHomeData?.();
+      return;
+    }
     const drawerContent = document.getElementById('right-sidebar-content');
     if (!drawerContent) return;
 
@@ -2039,6 +2043,9 @@ class FloorplanEngine {
   }
 }
 
-window.floorplan = new FloorplanEngine();
+window.FloorplanEngine = FloorplanEngine;
+if (!window.floorplan) {
+  window.floorplan = new FloorplanEngine();
+}
 
 
