@@ -3782,6 +3782,96 @@ test('Fase 3 Frontend Vue 3 + Pinia + vue-chartjs: Consumi & Energy Intelligence
   }
 });
 
+test('Fase 4 Frontend Vue 3 + Pinia + vue-chartjs: Mobilità Elettrica & Wallbox (#132)', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const rootDir = path.join(__dirname, '..');
+
+  // 1. File sorgente Vue 3 + Pinia per Mobilità Elettrica
+  const storePath = path.join(rootDir, 'frontend/src/stores/mobilityStore.js');
+  const viewPath = path.join(rootDir, 'frontend/src/views/MobilityView.vue');
+  const mainPath = path.join(rootDir, 'frontend/src/main.js');
+  for (const p of [storePath, viewPath, mainPath]) {
+    assert.ok(fs.existsSync(p), `${path.basename(p)} deve esistere`);
+  }
+
+  const storeSrc = fs.readFileSync(storePath, 'utf8');
+  assert.ok(storeSrc.includes("defineStore('mobility'"), 'useMobilityStore deve definire store mobility');
+  for (const ep of [
+    '/api/ev-climate/status',
+    '/api/ev-climate/volvo',
+    '/api/ev-climate/wallbox',
+    '/api/ev-climate/sync',
+    '/api/ev-climate/volvo/trips',
+    '/api/ev-climate/wallbox/history'
+  ]) {
+    assert.ok(storeSrc.includes(ep), `mobilityStore.js deve chiamare ${ep}`);
+  }
+  assert.ok(!storeSrc.includes('/api/ev-climate/volvo/callback'), 'mobilityStore.js non deve usare /api/ev-climate/volvo/callback come redirectUri');
+  for (const token of ['${window.location.origin}/callback', 'ratedCurrentA', 'admin_active_tab', 'avgKwh100', 'totalCostEur', 'wallboxKwh', 'publicKwh']) {
+    assert.ok(storeSrc.includes(token), `mobilityStore.js deve includere ${token}`);
+  }
+
+  const viewSrc = fs.readFileSync(viewPath, 'utf8');
+  assert.ok(viewSrc.includes('BarController'), 'MobilityView.vue deve registrare BarController');
+  assert.ok(viewSrc.includes('LineController'), 'MobilityView.vue deve registrare LineController');
+  assert.ok(viewSrc.includes('DoughnutController'), 'MobilityView.vue deve registrare DoughnutController');
+  assert.ok(viewSrc.includes('<Bar'), 'MobilityView.vue deve usare componente <Bar');
+  assert.ok(viewSrc.includes('<Doughnut'), 'MobilityView.vue deve usare componente <Doughnut');
+  assert.ok(viewSrc.includes('maskedVin') && storeSrc.includes('••••'), 'VIN deve essere mascherato');
+  for (const amp of ['6', '10', '13', '16']) {
+    assert.ok(viewSrc.includes(`${amp}A`), `MobilityView.vue deve includere preset ${amp}A`);
+  }
+  for (const field of [
+    'electricRangeKm',
+    'avgConsumptionKwh100',
+    'chargerConnectionStatus',
+    'chargingStatus',
+    'carLocked',
+    'climatizationActive',
+    'apiScopeStatus',
+    'frontLeftWindow',
+    'warnings?.bulbFailure',
+    'statistics?.averageSpeed',
+    'location.address',
+    'status?.years',
+    'savingsDieselEur',
+    'startAddress',
+    'endAddress',
+    'durationHours',
+    'avgCostPerKwh',
+    'stoppedAt',
+    'costEur'
+  ]) {
+    assert.ok(viewSrc.includes(field), `MobilityView.vue deve mappare il campo reale ${field}`);
+  }
+
+  const mainSrc = fs.readFileSync(mainPath, 'utf8');
+  assert.ok(mainSrc.includes("getElementById('area-mobility')"), 'main.js deve montare MobilityView su #area-mobility');
+  assert.ok(mainSrc.includes('useMobilityStore'), 'main.js deve esporre useMobilityStore in homeVueBridge');
+  assert.ok(mainSrc.includes('window.mobilityManager'), 'main.js deve esporre bridge window.mobilityManager');
+  assert.ok(mainSrc.includes('set activeTab(') && mainSrc.includes('set tripsData(') && mainSrc.includes('set wallboxHistoryData('), 'bridge mobilityManager deve avere getter e setter');
+
+  // 2. Ordine script in public/index.html: /vue/home-vue.js PRIMA di /js/mobility.js
+  const indexHtml = fs.readFileSync(path.join(rootDir, 'public/index.html'), 'utf8');
+  const idxVue = indexHtml.indexOf('/vue/home-vue.js');
+  const idxMobility = indexHtml.indexOf('/js/mobility.js');
+  assert.ok(idxVue > 0 && idxMobility > 0 && idxVue < idxMobility, '/vue/home-vue.js deve essere caricato prima di /js/mobility.js');
+
+  // 3. Guardia fallback legacy in public/js/mobility.js
+  const legacyMobility = fs.readFileSync(path.join(rootDir, 'public/js/mobility.js'), 'utf8');
+  assert.ok(legacyMobility.includes('window.MobilityManager = MobilityManager;'), 'public/js/mobility.js deve preservare window.MobilityManager');
+  assert.ok(legacyMobility.includes('if (!window.mobilityManager)'), 'public/js/mobility.js deve avere guardia fallback');
+
+  // 4. Verifica bundle compilato se presente su disco
+  const bundleJsPath = path.join(rootDir, 'public/vue/home-vue.js');
+  if (fs.existsSync(bundleJsPath)) {
+    const bundleJs = fs.readFileSync(bundleJsPath, 'utf8');
+    assert.ok(bundleJs.includes('useMobilityStore'), 'Bundle home-vue.js deve includere useMobilityStore');
+    assert.ok(bundleJs.includes('mobilityManager'), 'Bundle home-vue.js deve esporre mobilityManager');
+  }
+});
+
 
 
 
