@@ -5,12 +5,14 @@ import { useCalendarStore } from './stores/calendarStore';
 import { useNotificationsStore } from './stores/notificationsStore';
 import { useEnergyStore } from './stores/energyStore';
 import { useMobilityStore } from './stores/mobilityStore';
+import { filterAdminSearchIndex, useAdminStore } from './stores/adminStore';
 import StatusView from './views/StatusView.vue';
 import CalendarView from './views/CalendarView.vue';
 import NotificationsView from './views/NotificationsView.vue';
 import NotificationsPopover from './views/NotificationsPopover.vue';
 import EnergyView from './views/EnergyView.vue';
 import MobilityView from './views/MobilityView.vue';
+import AdminView from './views/AdminView.vue';
 
 function mountHomeVue() {
   const pinia = createPinia();
@@ -57,11 +59,19 @@ function mountHomeVue() {
     mobilityApp.mount(mobilityEl);
   }
 
+  const adminEl = document.getElementById('area-admin');
+  if (adminEl) {
+    const adminApp = createApp(AdminView);
+    adminApp.use(pinia);
+    adminApp.mount(adminEl);
+  }
+
   const store = useHomeStore(pinia);
   const calendarStore = useCalendarStore(pinia);
   const notificationsStore = useNotificationsStore(pinia);
   const energyStore = useEnergyStore(pinia);
   const mobilityStore = useMobilityStore(pinia);
+  const adminStore = useAdminStore(pinia);
 
   if (!window.__homeNotificationsClickBound) {
     window.__homeNotificationsClickBound = true;
@@ -79,6 +89,7 @@ function mountHomeVue() {
     window.addEventListener('resize', () => {
       energyStore.syncViewportWidth();
       mobilityStore.syncViewportWidth();
+      adminStore.syncViewportWidth();
     });
   }
 
@@ -89,7 +100,8 @@ function mountHomeVue() {
     useNotificationsStore,
     useEnergyStore,
     useMobilityStore,
-    version: '0.5.0'
+    useAdminStore,
+    version: '0.6.0'
   };
 
   window.statusManager = {
@@ -205,6 +217,53 @@ function mountHomeVue() {
     toggleWallboxSessions: () => mobilityStore.toggleWallboxSessions(),
     openDriveAdminSettings: () => mobilityStore.openDriveAdminSettings()
   };
+
+  const legacyAdmin = window.adminManager || (window.AdminManager ? new window.AdminManager() : {});
+  adminStore.bindLegacyManager(legacyAdmin);
+  Object.defineProperties(legacyAdmin, {
+    activeTab: {
+      get() { return adminStore.activeTab; },
+      set(val) {
+        adminStore.activeTab = val;
+        if (val && typeof localStorage !== 'undefined') {
+          localStorage.setItem('admin_active_tab', val);
+        }
+      },
+      configurable: true
+    },
+    systemCategory: {
+      get() { return adminStore.systemCategory; },
+      set(val) {
+        adminStore.systemCategory = val || 'all';
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('admin_sys_category', adminStore.systemCategory);
+        }
+      },
+      configurable: true
+    },
+    systemSearchQuery: {
+      get() { return adminStore.systemSearchQuery; },
+      set(val) { adminStore.systemSearchQuery = String(val || ''); },
+      configurable: true
+    },
+    globalSearchQuery: {
+      get() { return adminStore.globalSearchQuery; },
+      set(val) { adminStore.globalSearchQuery = String(val || ''); },
+      configurable: true
+    }
+  });
+  legacyAdmin.renderView = (force = false) => adminStore.renderView(force);
+  legacyAdmin.selectTab = (tabId) => adminStore.selectTab(tabId);
+  legacyAdmin.getGlobalSearchMatches = (query) => (
+    filterAdminSearchIndex(query ?? adminStore.globalSearchQuery)
+  );
+  legacyAdmin.onGlobalSearchInput = (val) => adminStore.onGlobalSearchInput(val);
+  legacyAdmin.clearGlobalSearch = () => adminStore.clearGlobalSearch();
+  legacyAdmin.jumpToAdminOption = (entryId) => adminStore.jumpToAdminOption(entryId);
+  legacyAdmin.setSystemCategory = (cat) => adminStore.setSystemCategory(cat);
+  legacyAdmin.onSystemSearchInput = (val) => adminStore.onSystemSearchInput(val);
+  legacyAdmin.resetSystemFilters = () => adminStore.resetSystemFilters();
+  window.adminManager = legacyAdmin;
 }
 
 if (document.readyState !== 'loading') {
@@ -216,6 +275,7 @@ if (document.readyState !== 'loading') {
   || document.getElementById('header-notifications-popover')
   || document.getElementById('area-energy')
   || document.getElementById('area-mobility')
+  || document.getElementById('area-admin')
 ) {
   mountHomeVue();
 } else {
