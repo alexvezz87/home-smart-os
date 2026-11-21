@@ -3,10 +3,12 @@ import { createPinia } from 'pinia';
 import { useHomeStore } from './stores/homeStore';
 import { useCalendarStore } from './stores/calendarStore';
 import { useNotificationsStore } from './stores/notificationsStore';
+import { useEnergyStore } from './stores/energyStore';
 import StatusView from './views/StatusView.vue';
 import CalendarView from './views/CalendarView.vue';
 import NotificationsView from './views/NotificationsView.vue';
 import NotificationsPopover from './views/NotificationsPopover.vue';
+import EnergyView from './views/EnergyView.vue';
 
 function mountHomeVue() {
   const pinia = createPinia();
@@ -39,9 +41,17 @@ function mountHomeVue() {
     popoverApp.mount(popoverEl);
   }
 
+  const energyEl = document.getElementById('area-energy');
+  if (energyEl) {
+    const energyApp = createApp(EnergyView);
+    energyApp.use(pinia);
+    energyApp.mount(energyEl);
+  }
+
   const store = useHomeStore(pinia);
   const calendarStore = useCalendarStore(pinia);
   const notificationsStore = useNotificationsStore(pinia);
+  const energyStore = useEnergyStore(pinia);
 
   if (!window.__homeNotificationsClickBound) {
     window.__homeNotificationsClickBound = true;
@@ -54,12 +64,20 @@ function mountHomeVue() {
     });
   }
 
+  if (!window.__homeEnergyResizeBound) {
+    window.__homeEnergyResizeBound = true;
+    window.addEventListener('resize', () => {
+      energyStore.syncViewportWidth();
+    });
+  }
+
   window.homeVueBridge = {
     pinia,
     useHomeStore,
     useCalendarStore,
     useNotificationsStore,
-    version: '0.3.0'
+    useEnergyStore,
+    version: '0.4.0'
   };
 
   window.statusManager = {
@@ -112,6 +130,30 @@ function mountHomeVue() {
     addToCalendarFromNotification: (type, id, notifId = null) =>
       notificationsStore.addToCalendarFromNotification(type, id, notifId)
   };
+
+  window.energyManager = {
+    get activeTab() { return energyStore.activeTab; },
+    get boschTimeframe() { return energyStore.boschTimeframe; },
+    get boschUnit() { return energyStore.boschUnit; },
+    get thermalDays() { return energyStore.thermalDays; },
+    get thermalSelectedZone() { return energyStore.thermalSelectedZone; },
+    renderView: (skipFetch = false) => energyStore.renderView(skipFetch),
+    selectTab: (tabId) => energyStore.selectTab(tabId),
+    toggleHeatmapOnHome: () => energyStore.toggleHeatmapOnHome(),
+    switchBoschTimeframe: (tf) => energyStore.switchBoschTimeframe(tf),
+    switchBoschUnit: (unit) => energyStore.switchBoschUnit(unit),
+    stepBoschPeriod: (delta) => energyStore.stepBoschPeriod(delta),
+    renderBoschGasChart: () => energyStore.loadBoschHistoryIfNeeded(),
+    openPlugDetail: (name, id, isOn, isKitchen = false) => energyStore.openPlugDetail(name, id, isOn, isKitchen),
+    closePlugDetail: () => energyStore.closePlugDetail(),
+    loadThermalAnalytics: () => energyStore.loadThermalAnalytics(),
+    switchThermalDays: (days) => energyStore.switchThermalDays(days),
+    selectThermalZone: (zoneId) => energyStore.selectThermalZone(zoneId),
+    runThermalAnalyzeNow: () => energyStore.runThermalAnalyzeNow(),
+    renderThermalZoneChart: () => energyStore.loadThermalZoneSeries(),
+    loadExtraBills: (statusFilter = 'all') => energyStore.loadExtraBills(statusFilter),
+    toggleExtraBillStatus: (id, status) => energyStore.toggleExtraBillStatus(id, status)
+  };
 }
 
 if (document.readyState !== 'loading') {
@@ -121,6 +163,7 @@ if (document.readyState !== 'loading') {
   || document.getElementById('area-calendar')
   || document.getElementById('area-notifications')
   || document.getElementById('header-notifications-popover')
+  || document.getElementById('area-energy')
 ) {
   mountHomeVue();
 } else {
