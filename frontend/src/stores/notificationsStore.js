@@ -33,7 +33,7 @@ export const useNotificationsStore = defineStore('notifications', {
       const q = String(this.searchQuery || '').trim().toLowerCase();
       if (!q) return this.items;
       return this.items.filter((item) => {
-        const meta = item?.metadata || {};
+        const meta = { ...(item?.meta || {}), ...(item?.metadata || {}) };
         const hints = Array.isArray(item?.actionHints) ? item.actionHints : [];
         const fields = [
           item.title,
@@ -341,7 +341,7 @@ export const useNotificationsStore = defineStore('notifications', {
       try {
         const res = await fetch('/api/mail/sync', { method: 'POST' });
         const data = await res.json();
-        if (!res.ok || !data?.success) {
+        if (!res.ok || !data?.success || data?.synced === false) {
           const errMsg = data?.error || 'Errore sincronizzazione Gmail (verifica OAuth in Amministrazione).';
           this.setFeedback('error', errMsg);
           window.showToast?.(errMsg, 'error');

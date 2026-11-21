@@ -3583,6 +3583,9 @@ test('Fase 2 Frontend Vue 3 + Pinia: Centro Notifiche, Popover Topbar, bill-paid
   assert.ok(mainSrc.includes('useNotificationsStore'), 'main.js deve esporre useNotificationsStore in homeVueBridge');
   assert.ok(mainSrc.includes('window.notificationsManager'), 'main.js deve esporre bridge window.notificationsManager');
 
+  const viewSrc = fs.readFileSync(viewPath, 'utf8');
+  assert.ok(viewSrc.includes('amountEur') && viewSrc.includes('billAmountFormatted'), 'NotificationsView deve leggere metadata.amountEur tramite billAmountFormatted');
+
   // 2. Guardia fallback legacy in public/js/notifications.js
   const legacyNotif = fs.readFileSync(path.join(rootDir, 'public/js/notifications.js'), 'utf8');
   assert.ok(legacyNotif.includes('window.NotificationsManager = NotificationsManager;'), 'public/js/notifications.js deve preservare window.NotificationsManager');

@@ -485,6 +485,25 @@ Rispondi SOLO con JSON valido: {"items":[ ... ]}\n\n${digest}`;
     item.receivedAt = now;
     item.updatedAt = now;
     await db.set(DELIVERIES_KEY, this.deliveries, false);
+    if (this.notifier && Array.isArray(this.notifier.feed)) {
+      let touched = false;
+      for (const nf of this.notifier.feed) {
+        if (nf.metadata?.deliveryId === id || nf.sourceKey === `delivery:${id}`) {
+          nf.metadata = { ...(nf.metadata || {}), deliveryStatus: 'delivered', receivedAt: now };
+          nf.attentionTier = 'informative';
+          nf.level = 'info';
+          nf.read = true;
+          nf.readAt = now;
+          nf.updatedAt = now;
+          touched = true;
+        }
+      }
+      if (touched) {
+        await this.notifier._persistFeed?.().catch(() => {});
+        const unreadCount = this.notifier.feed.filter((i) => !i.read).length;
+        eventBus.publish('notifications:updated', { unreadCount });
+      }
+    }
     eventBus.publish('mail:delivery_update', {
       deliveryId: item.id,
       status: 'delivered',
@@ -584,6 +603,26 @@ Rispondi SOLO con JSON valido: {"items":[ ... ]}\n\n${digest}`;
     target.status = status;
     target.updatedAt = new Date().toISOString();
     await db.set(BILLS_KEY, this.bills, false);
+    if (status === 'paid' && this.notifier && Array.isArray(this.notifier.feed)) {
+      const now = target.updatedAt;
+      let touched = false;
+      for (const nf of this.notifier.feed) {
+        if (nf.metadata?.billId === id || nf.sourceKey === `bill:${id}`) {
+          nf.metadata = { ...(nf.metadata || {}), billStatus: 'paid', paidAt: now };
+          nf.attentionTier = 'informative';
+          nf.level = 'info';
+          nf.read = true;
+          nf.readAt = now;
+          nf.updatedAt = now;
+          touched = true;
+        }
+      }
+      if (touched) {
+        await this.notifier._persistFeed?.().catch(() => {});
+        const unreadCount = this.notifier.feed.filter((i) => !i.read).length;
+        eventBus.publish('notifications:updated', { unreadCount });
+      }
+    }
     return target;
   }
 

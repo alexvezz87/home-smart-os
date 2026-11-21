@@ -9,7 +9,9 @@ const previewItems = computed(() => (
 ));
 
 function itemMeta(item) {
-  return item?.metadata || {};
+  if (!item) return {};
+  if (item.metadata && item.meta) return { ...item.meta, ...item.metadata };
+  return item.metadata || item.meta || {};
 }
 
 function calMeta(item) {

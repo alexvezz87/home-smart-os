@@ -13,7 +13,17 @@ const filterTabs = computed(() => [
 ]);
 
 function itemMeta(item) {
-  return item?.metadata || {};
+  if (!item) return {};
+  if (item.metadata && item.meta) return { ...item.meta, ...item.metadata };
+  return item.metadata || item.meta || {};
+}
+
+function billAmountFormatted(item) {
+  const m = itemMeta(item);
+  const raw = m.amountEur ?? m.amount;
+  if (raw === undefined || raw === null || raw === '') return '';
+  const n = Number(raw);
+  return Number.isFinite(n) ? `${n.toFixed(2)} €` : `${raw} €`;
 }
 
 function calMeta(item) {
@@ -260,7 +270,7 @@ function feedbackClass(type) {
                   📋 Copia
                 </button>
               </span>
-              <span v-if="itemMeta(item).amount" class="font-mono text-amber-300">💶 {{ itemMeta(item).amount }}€</span>
+              <span v-if="billAmountFormatted(item)" class="font-mono text-amber-300">💶 {{ billAmountFormatted(item) }}</span>
               <span v-if="itemMeta(item).dueDate">📅 Scadenza: {{ itemMeta(item).dueDate }}</span>
             </div>
 
@@ -422,7 +432,7 @@ function feedbackClass(type) {
               📋 Copia
             </button>
           </div>
-          <div v-if="itemMeta(store.selectedItem).amount"><strong>Importo:</strong> {{ itemMeta(store.selectedItem).amount }}€</div>
+          <div v-if="billAmountFormatted(store.selectedItem)"><strong>Importo:</strong> {{ billAmountFormatted(store.selectedItem) }}</div>
           <div v-if="itemMeta(store.selectedItem).dueDate"><strong>Scadenza:</strong> {{ itemMeta(store.selectedItem).dueDate }}</div>
           <div v-if="itemMeta(store.selectedItem).mailSnippet" class="pt-1 border-t border-slate-800 text-[11px] text-slate-400">
             {{ itemMeta(store.selectedItem).mailSnippet }}
@@ -440,6 +450,21 @@ function feedbackClass(type) {
             >
               📅 Aggiungi al Calendario
             </button>
+            <a
+              v-else-if="isCalendarAdded(store.selectedItem) && isSafeHttpUrl(itemMeta(store.selectedItem).calendarHtmlLink)"
+              :href="itemMeta(store.selectedItem).calendarHtmlLink"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+            >
+              ✓ In Calendar ↗
+            </a>
+            <span
+              v-else-if="isCalendarAdded(store.selectedItem)"
+              class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+            >
+              ✓ In Calendar
+            </span>
             <button
               v-if="canReceivePackage(store.selectedItem)"
               type="button"
@@ -466,6 +491,23 @@ function feedbackClass(type) {
               class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white"
             >
               🤝 Persona Fidata
+            </button>
+            <button
+              v-if="!store.selectedItem.read"
+              type="button"
+              :disabled="isBusy(`read:${store.selectedItem.id}`)"
+              @click="store.markAsRead(store.selectedItem.id); store.closeDetails()"
+              class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600/85 hover:bg-indigo-500 text-white disabled:opacity-60"
+            >
+              ✓ Segna come letta
+            </button>
+            <button
+              type="button"
+              :disabled="isBusy(`delete:${store.selectedItem.id}`)"
+              @click="store.deleteNotification(store.selectedItem.id)"
+              class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 disabled:opacity-60"
+            >
+              🗑️ Elimina
             </button>
           </div>
 
