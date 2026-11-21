@@ -379,4 +379,7 @@ class NotificationsManager {
   }
 }
 
-window.notificationsManager = new NotificationsManager();
+window.NotificationsManager = NotificationsManager;
+if (!window.notificationsManager) {
+  window.notificationsManager = new NotificationsManager();
+}

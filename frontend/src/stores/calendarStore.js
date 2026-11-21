@@ -368,6 +368,7 @@ export const useCalendarStore = defineStore('calendar', {
           return;
         }
         await this.loadOverview({ silent: true });
+        window.notificationsManager?.refreshBadgeAndFeed?.(true);
         this.setFeedback('success', 'Bolletta segnata come pagata.');
       } catch (err) {
         this.setFeedback('error', err?.message || 'Errore di rete.');
@@ -390,6 +391,7 @@ export const useCalendarStore = defineStore('calendar', {
           return;
         }
         await this.loadOverview({ silent: true });
+        window.notificationsManager?.refreshBadgeAndFeed?.(true);
         this.setFeedback('success', 'Consegna segnata come ricevuta.');
       } catch (err) {
         this.setFeedback('error', err?.message || 'Errore di rete.');
@@ -414,6 +416,7 @@ export const useCalendarStore = defineStore('calendar', {
           return;
         }
         await this.loadOverview({ silent: true });
+        window.notificationsManager?.refreshBadgeAndFeed?.(true);
         if (json.alreadyExists) {
           this.setFeedback('info', 'Evento già presente su Google Calendar.');
         } else {

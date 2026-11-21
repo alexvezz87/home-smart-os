@@ -284,6 +284,9 @@ class FloorplanEngine {
           }
         } catch (_) {}
       });
+      es.addEventListener('notifications:updated', () => {
+        window.notificationsManager?.refreshBadgeAndFeed(true);
+      });
     } catch (_) {}
   }
 
