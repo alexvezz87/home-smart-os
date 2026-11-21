@@ -3717,6 +3717,58 @@ test('Fase 2 Frontend Vue 3 + Pinia: Centro Notifiche, Popover Topbar, bill-paid
   }
 });
 
+test('Fase 3 Frontend Vue 3 + Pinia + vue-chartjs: Consumi & Energy Intelligence (#130)', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const rootDir = path.join(__dirname, '..');
+
+  // 1. File sorgente Vue 3 + Pinia per Energy Intelligence
+  const storePath = path.join(rootDir, 'frontend/src/stores/energyStore.js');
+  const viewPath = path.join(rootDir, 'frontend/src/views/EnergyView.vue');
+  const mainPath = path.join(rootDir, 'frontend/src/main.js');
+  for (const p of [storePath, viewPath, mainPath]) {
+    assert.ok(fs.existsSync(p), `${path.basename(p)} deve esistere`);
+  }
+
+  const storeSrc = fs.readFileSync(storePath, 'utf8');
+  assert.ok(storeSrc.includes("defineStore('energy'"), 'useEnergyStore deve definire store energy');
+  assert.ok(storeSrc.includes('/api/ev-climate/bosch/energy-history'), 'energyStore deve avere fetch autonomo storico Bosch');
+  assert.ok(storeSrc.includes('/api/device/'), 'energyStore deve interrogare /api/device/:id/energy-detail');
+  assert.ok(storeSrc.includes('notificationsManager'), 'energyStore deve sincronizzare notificationsManager');
+  assert.ok(storeSrc.includes('calendarManager'), 'energyStore deve sincronizzare calendarManager');
+
+  const viewSrc = fs.readFileSync(viewPath, 'utf8');
+  assert.ok(viewSrc.includes('BarController'), 'EnergyView.vue deve registrare BarController');
+  assert.ok(viewSrc.includes('LineController'), 'EnergyView.vue deve registrare LineController');
+  assert.ok(viewSrc.includes('voltageV'), 'EnergyView.vue deve usare voltageV');
+  assert.ok(viewSrc.includes('uuid'), 'EnergyView.vue deve usare p.uuid');
+  assert.ok(viewSrc.includes('/api/energy/export-csv'), 'EnergyView.vue deve esporre Export CSV');
+
+  const mainSrc = fs.readFileSync(mainPath, 'utf8');
+  assert.ok(mainSrc.includes("getElementById('area-energy')"), 'main.js deve montare EnergyView su #area-energy');
+  assert.ok(mainSrc.includes('useEnergyStore'), 'main.js deve esporre useEnergyStore in homeVueBridge');
+  assert.ok(mainSrc.includes('window.energyManager'), 'main.js deve esporre bridge window.energyManager');
+
+  // 2. Ordine script in public/index.html: /vue/home-vue.js PRIMA di /js/energy.js
+  const indexHtml = fs.readFileSync(path.join(rootDir, 'public/index.html'), 'utf8');
+  const idxVue = indexHtml.indexOf('/vue/home-vue.js');
+  const idxEnergy = indexHtml.indexOf('/js/energy.js');
+  assert.ok(idxVue > 0 && idxEnergy > 0 && idxVue < idxEnergy, '/vue/home-vue.js deve essere caricato prima di /js/energy.js');
+
+  // 3. Guardia fallback legacy in public/js/energy.js
+  const legacyEnergy = fs.readFileSync(path.join(rootDir, 'public/js/energy.js'), 'utf8');
+  assert.ok(legacyEnergy.includes('window.EnergyManager = EnergyManager;'), 'public/js/energy.js deve preservare window.EnergyManager');
+  assert.ok(legacyEnergy.includes('if (!window.energyManager)'), 'public/js/energy.js deve avere guardia fallback');
+
+  // 4. Verifica bundle compilato se presente su disco
+  const bundleJsPath = path.join(rootDir, 'public/vue/home-vue.js');
+  if (fs.existsSync(bundleJsPath)) {
+    const bundleJs = fs.readFileSync(bundleJsPath, 'utf8');
+    assert.ok(bundleJs.includes('useEnergyStore'), 'Bundle home-vue.js deve includere useEnergyStore');
+    assert.ok(bundleJs.includes('energyManager'), 'Bundle home-vue.js deve esporre energyManager');
+  }
+});
+
 
 
 
