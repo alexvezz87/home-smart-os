@@ -3913,7 +3913,10 @@ test('Fase 5 Frontend Vue 3 + Pinia: Amministrazione & Hub (#134)', () => {
   assert.ok(mainSrc.includes("getElementById('area-admin')"), 'main.js deve montare AdminView su #area-admin');
   assert.ok(mainSrc.includes('useAdminStore'), 'main.js deve esporre useAdminStore');
   assert.ok(mainSrc.includes('bindLegacyManager'), 'main.js deve collegare bindLegacyManager');
-  assert.ok(mainSrc.includes("version: '0.6.0'"), 'homeVueBridge deve essere alla versione 0.6.0');
+  assert.ok(
+    mainSrc.includes("version: '0.6.0'") || mainSrc.includes("version: '1.0.0'"),
+    'homeVueBridge deve essere alla versione >= 0.6.0'
+  );
 
   // 2. Ordine script in public/index.html
   const indexHtml = fs.readFileSync(path.join(rootDir, 'public/index.html'), 'utf8');
@@ -3937,6 +3940,62 @@ test('Fase 5 Frontend Vue 3 + Pinia: Amministrazione & Hub (#134)', () => {
   if (fs.existsSync(bundleJsPath)) {
     const bundleJs = fs.readFileSync(bundleJsPath, 'utf8');
     assert.ok(bundleJs.includes('useAdminStore'), 'Bundle home-vue.js deve includere useAdminStore');
+  }
+});
+
+test('Fase 6 (Finale) Frontend Vue 3 + Pinia: La Mia Casa & Floorplan Drawer v1.0.0 (#136)', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const rootDir = path.join(__dirname, '..');
+
+  // 1. File sorgente Vue 3 + Pinia per Floorplan Drawer
+  const storePath = path.join(rootDir, 'frontend/src/stores/floorplanStore.js');
+  const viewPath = path.join(rootDir, 'frontend/src/views/FloorplanDrawerView.vue');
+  const mainPath = path.join(rootDir, 'frontend/src/main.js');
+  for (const p of [storePath, viewPath, mainPath]) {
+    assert.ok(fs.existsSync(p), `${path.basename(p)} deve esistere`);
+  }
+
+  const storeSrc = fs.readFileSync(storePath, 'utf8');
+  for (const sym of [
+    "defineStore('floorplan'",
+    'FLOORPLAN_LAYERS',
+    'INTERACTIVE_ROOMS',
+    'roomTelemetry',
+    'roomHueScenes',
+    'bindLegacyFloorplan',
+    'resetFilters'
+  ]) {
+    assert.ok(storeSrc.includes(sym), `floorplanStore.js deve contenere ${sym}`);
+  }
+
+  const viewSrc = fs.readFileSync(viewPath, 'utf8');
+  for (const sym of [
+    'id="right-drawer-search"',
+    'id="right-drawer-device-list"',
+    'hueSceneSearch',
+    'roomTelemetry'
+  ]) {
+    assert.ok(viewSrc.includes(sym), `FloorplanDrawerView.vue deve contenere ${sym}`);
+  }
+
+  const mainSrc = fs.readFileSync(mainPath, 'utf8');
+  assert.ok(mainSrc.includes("getElementById('right-sidebar-content')"), 'main.js deve montare FloorplanDrawerView su #right-sidebar-content');
+  assert.ok(mainSrc.includes('useFloorplanStore'), 'main.js deve esporre useFloorplanStore');
+  assert.ok(mainSrc.includes('bindLegacyFloorplan'), 'main.js deve collegare bindLegacyFloorplan');
+  assert.ok(mainSrc.includes("version: '1.0.0'"), 'homeVueBridge deve essere alla versione 1.0.0');
+
+  // 2. Guardie in public/js/floorplan.js e mantenimento listener SSE notifications:updated
+  const legacyFp = fs.readFileSync(path.join(rootDir, 'public/js/floorplan.js'), 'utf8');
+  assert.ok(legacyFp.includes('__vueFloorplanDrawerMounted'), 'floorplan.js deve avere guardia __vueFloorplanDrawerMounted in renderRightDrawer');
+  assert.ok(legacyFp.includes('if (!window.floorplan)'), 'floorplan.js deve avere guardia fallback if (!window.floorplan)');
+  assert.ok(legacyFp.includes("addEventListener('notifications:updated'"), 'floorplan.js deve mantenere listener SSE notifications:updated');
+
+  // 3. Verifica bundle compilato se presente su disco
+  const bundleJsPath = path.join(rootDir, 'public/vue/home-vue.js');
+  if (fs.existsSync(bundleJsPath)) {
+    const bundleJs = fs.readFileSync(bundleJsPath, 'utf8');
+    assert.ok(bundleJs.includes('useFloorplanStore'), 'Bundle home-vue.js deve includere useFloorplanStore');
   }
 });
 
