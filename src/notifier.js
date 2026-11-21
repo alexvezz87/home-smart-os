@@ -547,12 +547,16 @@ class Notifier {
     const unreadItems = this.feed.filter((i) => !i.read);
     const unreadCount = unreadItems.length;
     const attentionCount = unreadItems.filter((i) => i.attentionTier === 'urgent' || i.attentionTier === 'actionable').length;
+    const mailItems = unreadItems.filter((i) => i.sourceType === 'mail_delivery' || i.sourceType === 'mail_bill');
+    const mailCount = mailItems.length;
+    const automationCount = unreadItems.length - mailCount;
+    const archiveCount = this.feed.filter((i) => i.read === true).length;
 
     let items = this.feed;
     if (filter === 'unread') {
       items = unreadItems;
     } else if (filter === 'mail') {
-      items = unreadItems.filter((i) => i.sourceType === 'mail_delivery' || i.sourceType === 'mail_bill');
+      items = mailItems;
     } else if (filter === 'automation') {
       items = unreadItems.filter((i) => i.sourceType !== 'mail_delivery' && i.sourceType !== 'mail_bill');
     } else if (filter === 'attention') {
@@ -564,7 +568,19 @@ class Notifier {
     return {
       unreadCount,
       attentionCount,
+      mailCount,
+      automationCount,
+      archiveCount,
       totalCount: this.feed.length,
+      counts: {
+        unread: unreadCount,
+        attention: attentionCount,
+        mail: mailCount,
+        automation: automationCount,
+        archive: archiveCount,
+        total: this.feed.length
+      },
+      unreadPreview: unreadItems.slice(0, 5),
       items: items.slice(0, Math.max(1, Number(limit) || 60))
     };
   }
@@ -632,6 +648,64 @@ class Notifier {
     const unreadCount = this.feed.filter((i) => !i.read).length;
     eventBus.publish('notifications:updated', { unreadCount });
     return item || null;
+  }
+
+  async markBillPaid(idOrBillId) {
+    const item = this.feed.find(
+      (i) => i.id === idOrBillId || i.metadata?.billId === idOrBillId || i.sourceKey === `bill:${idOrBillId}`
+    );
+    const billId = item?.metadata?.billId || (String(idOrBillId || '').startsWith('bill:') ? String(idOrBillId).slice(5) : idOrBillId);
+
+    if (billId && this.deps.deliveryBillingParser && typeof this.deps.deliveryBillingParser.updateBillStatus === 'function') {
+      await this.deps.deliveryBillingParser.updateBillStatus(billId, 'paid').catch(() => {});
+    }
+
+    const now = new Date().toISOString();
+    let updated = false;
+    for (const nf of this.feed) {
+      if (nf.id === idOrBillId || (billId && (nf.metadata?.billId === billId || nf.sourceKey === `bill:${billId}`))) {
+        nf.metadata = { ...(nf.metadata || {}), billStatus: 'paid', paidAt: now };
+        nf.attentionTier = 'informative';
+        nf.level = 'info';
+        nf.read = true;
+        nf.readAt = now;
+        nf.updatedAt = now;
+        updated = true;
+      }
+    }
+
+    if (updated) {
+      await this._persistFeed();
+    }
+
+    const unreadCount = this.feed.filter((i) => !i.read).length;
+    eventBus.publish('notifications:updated', { unreadCount });
+    return item || null;
+  }
+
+  async clearReadArchive() {
+    const remainingUnread = [];
+    let clearedCount = 0;
+
+    for (const item of this.feed) {
+      if (item.read === true) {
+        clearedCount += 1;
+        if (item.sourceKey) {
+          this.dismissedSourceKeys.add(item.sourceKey);
+        }
+      } else {
+        remainingUnread.push(item);
+      }
+    }
+
+    this.feed = remainingUnread;
+    if (clearedCount > 0) {
+      await this._persistFeed();
+    }
+
+    const unreadCount = this.feed.filter((i) => !i.read).length;
+    eventBus.publish('notifications:updated', { unreadCount });
+    return { clearedCount, unreadCount };
   }
 
   getConfig() {
