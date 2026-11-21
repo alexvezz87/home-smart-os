@@ -3807,6 +3807,10 @@ test('Fase 4 Frontend Vue 3 + Pinia + vue-chartjs: Mobilità Elettrica & Wallbox
   ]) {
     assert.ok(storeSrc.includes(ep), `mobilityStore.js deve chiamare ${ep}`);
   }
+  assert.ok(!storeSrc.includes('/api/ev-climate/volvo/callback'), 'mobilityStore.js non deve usare /api/ev-climate/volvo/callback come redirectUri');
+  for (const token of ['${window.location.origin}/callback', 'ratedCurrentA', 'admin_active_tab', 'avgKwh100', 'totalCostEur', 'wallboxKwh', 'publicKwh']) {
+    assert.ok(storeSrc.includes(token), `mobilityStore.js deve includere ${token}`);
+  }
 
   const viewSrc = fs.readFileSync(viewPath, 'utf8');
   assert.ok(viewSrc.includes('BarController'), 'MobilityView.vue deve registrare BarController');
@@ -3817,6 +3821,29 @@ test('Fase 4 Frontend Vue 3 + Pinia + vue-chartjs: Mobilità Elettrica & Wallbox
   assert.ok(viewSrc.includes('maskedVin') && storeSrc.includes('••••'), 'VIN deve essere mascherato');
   for (const amp of ['6', '10', '13', '16']) {
     assert.ok(viewSrc.includes(`${amp}A`), `MobilityView.vue deve includere preset ${amp}A`);
+  }
+  for (const field of [
+    'electricRangeKm',
+    'avgConsumptionKwh100',
+    'chargerConnectionStatus',
+    'chargingStatus',
+    'carLocked',
+    'climatizationActive',
+    'apiScopeStatus',
+    'frontLeftWindow',
+    'warnings?.bulbFailure',
+    'statistics?.averageSpeed',
+    'location.address',
+    'status?.years',
+    'savingsDieselEur',
+    'startAddress',
+    'endAddress',
+    'durationHours',
+    'avgCostPerKwh',
+    'stoppedAt',
+    'costEur'
+  ]) {
+    assert.ok(viewSrc.includes(field), `MobilityView.vue deve mappare il campo reale ${field}`);
   }
 
   const mainSrc = fs.readFileSync(mainPath, 'utf8');

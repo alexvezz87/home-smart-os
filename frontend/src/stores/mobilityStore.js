@@ -8,6 +8,16 @@ export function safeUrl(url) {
   return /^https?:\/\//i.test(trimmed) ? trimmed : '';
 }
 
+export function formatMonthLabel(m) {
+  if (!m || typeof m !== 'object') return '';
+  if (m.monthName) {
+    const mon = String(m.monthName).slice(0, 3);
+    const yr = m.year ? ` ${String(m.year).slice(-2)}` : '';
+    return `${mon}${yr}`;
+  }
+  return m.label || m.yearMonth || '';
+}
+
 export function formatPressureValue(tyreObj, unit = 'bar') {
   if (tyreObj === null || tyreObj === undefined) {
     return { text: '--', status: null, warn: false, statusOnly: false };
@@ -61,6 +71,33 @@ export function formatOpenClosed(val) {
   };
 }
 
+export function formatWarningInfo(val, okLabel = 'OK') {
+  if (val === null || val === undefined || val === '') {
+    return {
+      label: 'N/D',
+      cls: 'bg-slate-800/80 text-slate-400 border-slate-700/60'
+    };
+  }
+  const upper = String(val).toUpperCase();
+  if (upper === 'UNSPECIFIED') {
+    return {
+      label: 'Nessun avviso',
+      cls: 'bg-slate-800/80 text-slate-300 border-slate-700/60'
+    };
+  }
+  const isOk = ['NO_WARNING', 'NONE', 'OK', 'NORMAL', 'FALSE', 'CLOSED', 'LOCKED'].includes(upper);
+  if (isOk) {
+    return {
+      label: okLabel,
+      cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+    };
+  }
+  return {
+    label: String(val),
+    cls: 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+  };
+}
+
 function getInitialTab() {
   if (typeof localStorage === 'undefined') return 'live';
   const saved = localStorage.getItem('mobility_active_tab');
@@ -104,15 +141,24 @@ export const useMobilityStore = defineStore('mobility', {
 
     maskedVin() {
       const vin = this.volvo?.vin;
-      return vin ? `••••${String(vin).slice(-6)}` : '--';
+      return vin ? `••••${String(vin).slice(-6)}` : 'VIN N/D';
+    },
+
+    wbMaxA() {
+      return Number(this.wallbox?.ratedCurrentA || this.wallbox?.maxCurrentA) || 32;
+    },
+
+    missingScopes() {
+      return Object.entries(this.volvo?.apiScopeStatus || {})
+        .filter(([, st]) => st === 'scope_missing')
+        .map(([k]) => k);
     },
 
     climatizationRemainingMin() {
-      const endsAt = this.volvo?.climatizationEndsAt;
-      if (!endsAt) return null;
-      const diffMs = new Date(endsAt).getTime() - Date.now();
+      if (!this.volvo?.climatizationActive || !this.volvo?.climatizationEndsAt) return null;
+      const diffMs = new Date(this.volvo.climatizationEndsAt).getTime() - Date.now();
       if (!Number.isFinite(diffMs) || diffMs <= 0) return null;
-      return Math.max(0, Math.ceil(diffMs / 60000));
+      return Math.max(1, Math.ceil(diffMs / 60000));
     },
 
     estimatedChargeToTarget() {
@@ -121,9 +167,9 @@ export const useMobilityStore = defineStore('mobility', {
       const soc = Number(socRaw);
       const target = Number(this.volvo?.targetBatteryChargeLevel || 80);
       if (soc >= target) {
-        return { reached: true, missingKwh: 0, formatted: 'Target già raggiunto' };
+        return { reached: true, missingKwh: 0, target, formatted: 'Target già raggiunto' };
       }
-      const capacityKwh = Number(this.volvo?.batteryCapacityKWH) || 69;
+      const capacityKwh = Number(this.volvo?.vehicleDetails?.batteryCapacityKWH ?? this.volvo?.batteryCapacityKWH) || 69;
       const missingKwh = +(((target - soc) / 100) * capacityKwh).toFixed(1);
       const voltage = Number(this.wallbox?.voltageV) || 230;
       const powerW = Number(this.wallbox?.powerW) > 500
@@ -141,7 +187,7 @@ export const useMobilityStore = defineStore('mobility', {
         ? [...state.tripsData.monthlySummaries].reverse()
         : [];
       const hasSummaries = summaries.length > 0;
-      const labels = summaries.map((m) => m.label || m.yearMonth || '');
+      const labels = summaries.map(formatMonthLabel);
       const hasDrivers = summaries.some((m) => (Number(m.alexKm) || 0) > 0 || (Number(m.cinziaKm) || 0) > 0);
 
       const kmDatasets = hasDrivers
@@ -157,7 +203,7 @@ export const useMobilityStore = defineStore('mobility', {
             {
               label: 'Cinzia (km)',
               data: summaries.map((m) => Number(m.cinziaKm) || 0),
-              backgroundColor: 'rgba(168, 85, 247, 0.78)',
+              backgroundColor: 'rgba(129, 140, 248, 0.78)',
               borderRadius: 4,
               stack: 'km',
               yAxisID: 'y'
@@ -166,7 +212,7 @@ export const useMobilityStore = defineStore('mobility', {
         : [
             {
               label: 'Km Percorsi',
-              data: summaries.map((m) => Number(m.totalKm) || 0),
+              data: summaries.map((m) => Number(m.km ?? m.totalKm) || 0),
               backgroundColor: 'rgba(56, 189, 248, 0.78)',
               borderRadius: 4,
               yAxisID: 'y'
@@ -176,12 +222,15 @@ export const useMobilityStore = defineStore('mobility', {
       kmDatasets.push({
         type: 'line',
         label: 'Consumo (kWh/100km)',
-        data: summaries.map((m) => Number(m.avgConsumptionKwh100Km) || 0),
+        data: summaries.map((m) => {
+          const val = m.avgKwh100 ?? m.avgConsumptionKwh100Km;
+          return val !== null && val !== undefined ? Number(Number(val).toFixed(2)) : null;
+        }),
         borderColor: '#fbbf24',
-        backgroundColor: 'rgba(251, 191, 36, 0.15)',
+        backgroundColor: '#fbbf24',
         borderWidth: 2,
         pointRadius: 2.5,
-        tension: 0.35,
+        tension: 0.3,
         fill: false,
         yAxisID: 'y1'
       });
@@ -193,28 +242,34 @@ export const useMobilityStore = defineStore('mobility', {
         datasets: [
           {
             label: 'Costo EV (€)',
-            data: summaries.map((m) => Number(m.estimatedCostEur) || 0),
-            backgroundColor: 'rgba(34, 211, 238, 0.75)',
+            data: summaries.map((m) => +(Number(m.totalCostEur ?? m.estimatedCostEur) || 0).toFixed(2)),
+            backgroundColor: 'rgba(56, 189, 248, 0.8)',
             borderRadius: 4
           },
           {
             label: 'Risparmio Diesel (€)',
-            data: summaries.map((m) => Number(m.savingsVsDieselEur) || 0),
-            backgroundColor: 'rgba(16, 185, 129, 0.75)',
+            data: summaries.map((m) => +(Number(m.savingsDieselEur ?? m.savingsVsDieselEur) || 0).toFixed(2)),
+            backgroundColor: 'rgba(16, 185, 129, 0.82)',
             borderRadius: 4
           },
           {
             label: 'Risparmio Benzina (€)',
-            data: summaries.map((m) => Number(m.savingsVsPetrolEur) || 0),
-            backgroundColor: 'rgba(132, 204, 22, 0.75)',
+            data: summaries.map((m) => +(Number(m.savingsPetrolEur ?? m.savingsVsPetrolEur) || 0).toFixed(2)),
+            backgroundColor: 'rgba(45, 212, 191, 0.65)',
             borderRadius: 4
           }
         ]
       };
 
       const totals = state.tripsData?.totals || {};
-      const homeKwh = Number(totals.chargedHomeKwh ?? totals.wallboxKwh ?? 0);
-      const pubKwh = Number(totals.chargedPublicKwh ?? totals.publicKwh ?? 0);
+      const monthHomeKwh = summaries.reduce((s, m) => s + (Number(m.wallboxKwh) || 0), 0);
+      const monthPubKwh = summaries.reduce((s, m) => s + (Number(m.publicKwh) || 0), 0);
+      const homeKwh = monthHomeKwh > 0 || monthPubKwh > 0
+        ? monthHomeKwh
+        : Number(totals.chargedHomeKwh ?? totals.wallboxKwh ?? 0);
+      const pubKwh = monthHomeKwh > 0 || monthPubKwh > 0
+        ? monthPubKwh
+        : Number(totals.chargedPublicKwh ?? totals.publicKwh ?? 0);
       const sumKwh = homeKwh + pubKwh;
       const homePct = sumKwh > 0 ? Math.round((homeKwh / sumKwh) * 100) : 0;
       const pubPct = sumKwh > 0 ? (100 - homePct) : 0;
@@ -223,10 +278,10 @@ export const useMobilityStore = defineStore('mobility', {
         labels: ['Wallbox Casa (kWh)', 'Colonnine Pubbliche (kWh)'],
         datasets: [
           {
-            data: [homeKwh, pubKwh],
-            backgroundColor: ['rgba(16, 185, 129, 0.85)', 'rgba(251, 191, 36, 0.85)'],
-            borderColor: ['#10b981', '#fbbf24'],
-            borderWidth: 1
+            data: [Math.round(homeKwh), Math.round(pubKwh)],
+            backgroundColor: ['rgba(56, 189, 248, 0.85)', 'rgba(168, 85, 247, 0.85)'],
+            borderColor: '#0f172a',
+            borderWidth: 2
           }
         ]
       };
@@ -245,7 +300,7 @@ export const useMobilityStore = defineStore('mobility', {
       const q = String(state.tripsFilter.search || '').trim().toLowerCase();
       if (!q) return list;
       return list.filter((t) => (
-        [t.departureAddress, t.arrivalAddress, t.category, t.driver, t.notes, t.dateLabel]
+        [t.startAddress, t.endAddress, t.category, t.notes, t.startedAt, t.driver]
           .some((v) => String(v || '').toLowerCase().includes(q))
       ));
     },
@@ -255,15 +310,15 @@ export const useMobilityStore = defineStore('mobility', {
         ? [...state.wallboxHistoryData.monthlySummaries].reverse()
         : [];
       const hasSummaries = summaries.length > 0;
-      const labels = summaries.map((m) => m.label || m.yearMonth || '');
+      const labels = summaries.map(formatMonthLabel);
 
       const energySessionsChartData = {
         labels,
         datasets: [
           {
             label: 'Energia (kWh)',
-            data: summaries.map((m) => Number(m.totalEnergyKwh) || 0),
-            backgroundColor: 'rgba(16, 185, 129, 0.78)',
+            data: summaries.map((m) => +(Number(m.energyKwh ?? m.totalEnergyKwh) || 0).toFixed(1)),
+            backgroundColor: 'rgba(56, 189, 248, 0.8)',
             borderRadius: 4,
             yAxisID: 'y'
           },
@@ -271,10 +326,11 @@ export const useMobilityStore = defineStore('mobility', {
             type: 'line',
             label: 'Sessioni',
             data: summaries.map((m) => Number(m.sessionsCount) || 0),
-            borderColor: '#38bdf8',
+            borderColor: '#fbbf24',
+            backgroundColor: '#fbbf24',
             borderWidth: 2,
             pointRadius: 2.5,
-            tension: 0.35,
+            tension: 0.3,
             fill: false,
             yAxisID: 'y1'
           }
@@ -286,19 +342,23 @@ export const useMobilityStore = defineStore('mobility', {
         datasets: [
           {
             label: 'Costo (€)',
-            data: summaries.map((m) => Number(m.totalCostEur) || 0),
-            backgroundColor: 'rgba(245, 158, 11, 0.78)',
+            data: summaries.map((m) => +(Number(m.costEur ?? m.totalCostEur) || 0).toFixed(2)),
+            backgroundColor: 'rgba(16, 185, 129, 0.82)',
             borderRadius: 4,
             yAxisID: 'y'
           },
           {
             type: 'line',
             label: '€/kWh',
-            data: summaries.map((m) => Number(m.avgEurPerKwh) || 0),
+            data: summaries.map((m) => {
+              const rate = m.avgCostPerKwh ?? m.avgEurPerKwh;
+              return rate !== null && rate !== undefined ? Number(Number(rate).toFixed(3)) : null;
+            }),
             borderColor: '#c084fc',
+            backgroundColor: '#c084fc',
             borderWidth: 2,
             pointRadius: 2.5,
-            tension: 0.35,
+            tension: 0.25,
             fill: false,
             yAxisID: 'y1'
           }
@@ -313,7 +373,7 @@ export const useMobilityStore = defineStore('mobility', {
       const q = String(state.wallboxSearch || '').trim().toLowerCase();
       if (!q) return list;
       return list.filter((s) => (
-        [s.startTime, s.endTime, s.dateLabel, s.sourceFile, s.energyKwh, s.estimatedCostEur]
+        [s.startedAt, s.stoppedAt, s.duration, s.sourceFile, s.energyKwh, s.costEur]
           .some((v) => String(v || '').toLowerCase().includes(q))
       ));
     }
@@ -328,6 +388,10 @@ export const useMobilityStore = defineStore('mobility', {
       return formatOpenClosed(val);
     },
 
+    formatWarning(val, okLabel = 'OK') {
+      return formatWarningInfo(val, okLabel);
+    },
+
     safeUrl(url) {
       return safeUrl(url);
     },
@@ -339,7 +403,7 @@ export const useMobilityStore = defineStore('mobility', {
       }
     },
 
-    setFeedback(type, text) {
+    setFeedback(type, text, durationMs = 6000) {
       const ts = Date.now();
       this.lastFeedback = { type, text, ts };
       if (feedbackTimer) clearTimeout(feedbackTimer);
@@ -347,7 +411,7 @@ export const useMobilityStore = defineStore('mobility', {
         if (this.lastFeedback?.ts === ts) {
           this.lastFeedback = null;
         }
-      }, 6000);
+      }, durationMs);
     },
 
     triggerEffect(effectName, durationMs = 4500) {
@@ -391,9 +455,9 @@ export const useMobilityStore = defineStore('mobility', {
       }
 
       if (!this.wbSliderDirty) {
-        const limitA = this.evData?.wallbox?.currentLimitA ?? this.evData?.wallbox?.maxCurrentA;
+        const limitA = this.evData?.wallbox?.currentLimitA ?? this.evData?.wallbox?.ratedCurrentA;
         if (limitA !== undefined && limitA !== null) {
-          this.wbSliderAmps = Number(limitA) || 16;
+          this.wbSliderAmps = Math.min(this.wbMaxA, Math.max(6, Number(limitA) || 16));
         }
       }
     },
@@ -433,14 +497,24 @@ export const useMobilityStore = defineStore('mobility', {
     },
 
     setWallboxSliderAmps(amps, markDirty = true) {
-      const clamped = Math.min(16, Math.max(6, Number(amps) || 16));
+      const clamped = Math.min(this.wbMaxA, Math.max(6, Number(amps) || 16));
       this.wbSliderAmps = clamped;
       this.wbSliderDirty = markDirty;
     },
 
     async sendVolvoCommand(action) {
       if (!action) return;
+      const labels = {
+        lock: 'Blocco portiere',
+        unlock: 'Sblocco portiere',
+        climatization_start: 'Avvio climatizzazione',
+        climatization_stop: 'Arresto climatizzazione',
+        flash: 'Lampeggio luci',
+        honk_flash: 'Clacson e lampeggio'
+      };
+      const label = labels[action] || action;
       this.busyAction = `volvo:${action}`;
+      this.setFeedback('info', `${label}: invio comando alla Volvo EX30 in corso...`, 10000);
       try {
         const res = await fetch('/api/ev-climate/volvo', {
           method: 'POST',
@@ -449,8 +523,17 @@ export const useMobilityStore = defineStore('mobility', {
         });
         const json = await res.json();
         if (!res.ok || !json?.success) {
-          this.setFeedback('err', json?.error || `Errore comando Volvo (${action})`);
+          const errMsg = json?.error || `Errore comando Volvo (${action})`;
+          this.setFeedback('err', errMsg, 8000);
+          window.showToast?.(errMsg, 'error');
           return;
+        }
+        if (json.volvo) {
+          this.evData = { ...this.evData, volvo: json.volvo };
+          if (typeof window !== 'undefined') {
+            window.homeData = window.homeData || {};
+            window.homeData.evClimate = { ...(window.homeData.evClimate || {}), volvo: json.volvo };
+          }
         }
         const effMap = {
           lock: 'lock',
@@ -460,15 +543,26 @@ export const useMobilityStore = defineStore('mobility', {
           honk_flash: 'honk_flash'
         };
         if (effMap[action]) {
-          this.triggerEffect(effMap[action]);
+          this.triggerEffect(effMap[action], action === 'climatization_start' ? 5000 : (['lock', 'unlock'].includes(action) ? 3500 : 4500));
         } else if (action === 'climatization_stop') {
           this.activeEffect = null;
         }
-        this.setFeedback('ok', json.message || `Comando Volvo "${action}" eseguito!`);
+        const doneMsg = json.message || `${label} completato sul veicolo!`;
+        this.setFeedback('ok', doneMsg);
+        window.showToast?.(doneMsg, 'success');
         window.loadDashboard?.();
         await this.refreshEvStatus({ fetchRemote: true });
+
+        if (['lock', 'unlock', 'climatization_start', 'climatization_stop'].includes(action)) {
+          setTimeout(() => {
+            window.loadDashboard?.();
+            this.refreshEvStatus({ fetchRemote: true });
+          }, 4000);
+        }
       } catch (err) {
-        this.setFeedback('err', err?.message || 'Errore di rete comando Volvo.');
+        const errMsg = err?.message || 'Errore di rete comando Volvo.';
+        this.setFeedback('err', errMsg, 8000);
+        window.showToast?.(errMsg, 'error');
       } finally {
         this.busyAction = null;
       }
@@ -485,18 +579,24 @@ export const useMobilityStore = defineStore('mobility', {
         });
         const json = await res.json();
         if (!res.ok || !json?.success) {
-          this.setFeedback('err', json?.error || `Errore comando Wallbox (${action})`);
+          const errMsg = json?.error || `Errore comando Wallbox (${action})`;
+          this.setFeedback('err', errMsg);
+          window.showToast?.(errMsg, 'error');
           return;
         }
         if (action === 'set_current' && value !== null) {
-          this.wbSliderAmps = Number(value) || 16;
+          this.wbSliderAmps = Math.min(this.wbMaxA, Math.max(6, Number(value) || 16));
           this.wbSliderDirty = false;
         }
-        this.setFeedback('ok', json.message || `Comando Wallbox "${action}" eseguito!`);
+        const msg = json.message || `Comando Wallbox "${action}" eseguito!`;
+        this.setFeedback('ok', msg);
+        window.showToast?.(msg, 'success');
         window.loadDashboard?.();
         await this.refreshEvStatus({ fetchRemote: true });
       } catch (err) {
-        this.setFeedback('err', err?.message || 'Errore di rete comando Wallbox.');
+        const errMsg = err?.message || 'Errore di rete comando Wallbox.';
+        this.setFeedback('err', errMsg);
+        window.showToast?.(errMsg, 'error');
       } finally {
         this.busyAction = null;
       }
@@ -508,7 +608,9 @@ export const useMobilityStore = defineStore('mobility', {
         const res = await fetch('/api/ev-climate/sync', { method: 'POST' });
         const json = await res.json();
         if (!res.ok || !json?.success) {
-          this.setFeedback('err', json?.error || 'Errore sincronizzazione mobilità.');
+          const errMsg = json?.error || 'Errore sincronizzazione mobilità.';
+          this.setFeedback('err', errMsg);
+          window.showToast?.(errMsg, 'error');
           return;
         }
         const payload = json.data || json;
@@ -523,9 +625,13 @@ export const useMobilityStore = defineStore('mobility', {
             window.homeData.evClimate = { ...(window.homeData.evClimate || {}), ...this.evData };
           }
         }
-        this.setFeedback('ok', 'Sincronizzazione Volvo EX30 & Wallbox ABB completata!');
+        this.setFeedback('ok', 'Telemetria Volvo EX30 & Wallbox ABB aggiornata!');
+        window.showToast?.('Telemetria Volvo & Wallbox aggiornata', 'success');
+        window.loadDashboard?.();
       } catch (err) {
-        this.setFeedback('err', err?.message || 'Errore di rete durante sincronizzazione.');
+        const errMsg = err?.message || 'Errore di rete durante sincronizzazione.';
+        this.setFeedback('err', errMsg);
+        window.showToast?.(errMsg, 'error');
       } finally {
         this.busyAction = null;
       }
@@ -534,11 +640,13 @@ export const useMobilityStore = defineStore('mobility', {
     async openVolvoReauth() {
       this.busyAction = 'volvo:oauth';
       try {
-        const redirectUri = `${window.location.origin}/api/ev-climate/volvo/callback`;
+        const redirectUri = `${window.location.origin}/callback`;
         const res = await fetch(`/api/ev-climate/volvo/oauth-url?redirectUri=${encodeURIComponent(redirectUri)}`);
         const json = await res.json();
         if (!res.ok || !json?.url) {
-          this.setFeedback('err', json?.error || 'Impossibile generare URL OAuth Volvo.');
+          const errMsg = json?.error || 'Impossibile generare URL OAuth Volvo.';
+          this.setFeedback('err', errMsg);
+          window.showToast?.(errMsg, 'error');
           return;
         }
         const win = window.open(json.url, '_blank', 'noopener');
@@ -546,7 +654,9 @@ export const useMobilityStore = defineStore('mobility', {
           this.setFeedback('err', 'Popup bloccato dal browser: abilita i popup o incolla il codice manualmente.');
         }
       } catch (err) {
-        this.setFeedback('err', err?.message || 'Errore apertura OAuth Volvo.');
+        const errMsg = err?.message || 'Errore apertura OAuth Volvo.';
+        this.setFeedback('err', errMsg);
+        window.showToast?.(errMsg, 'error');
       } finally {
         this.busyAction = null;
       }
@@ -556,39 +666,48 @@ export const useMobilityStore = defineStore('mobility', {
       const raw = String(this.volvoDirectToken || '').trim();
       const refresh = String(this.volvoDirectRefresh || '').trim();
       if (!raw) {
-        this.setFeedback('err', 'Incolla l\'URL callback o l\'Access Token Volvo.');
+        const errMsg = 'Incolla l\'URL di callback o l\'Access Token Volvo.';
+        this.setFeedback('err', errMsg);
+        window.showToast?.(errMsg, 'error');
         return;
       }
       this.busyAction = 'volvo:token';
       try {
+        const isCallbackOrCode = raw.includes('code=') || !raw.includes('.');
         let res;
-        if (raw.includes('code=')) {
+        if (isCallbackOrCode) {
           const match = raw.match(/[?&]code=([^&]+)/);
           const code = match ? decodeURIComponent(match[1]) : raw;
-          const redirectUri = `${window.location.origin}/api/ev-climate/volvo/callback`;
+          const redirectUri = `${window.location.origin}/callback`;
           res = await fetch('/api/ev-climate/volvo/oauth-callback', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code, redirectUri })
+            body: JSON.stringify({ callbackUrl: raw, code, redirectUri })
           });
         } else {
           res = await fetch('/api/ev-climate/volvo/direct-token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ accessToken: raw, refreshToken: refresh || undefined })
+            body: JSON.stringify({ accessToken: raw, refreshToken: refresh || null })
           });
         }
         const json = await res.json();
         if (!res.ok || !json?.success) {
-          this.setFeedback('err', json?.error || 'Errore salvataggio token Volvo.');
+          const errMsg = json?.error || 'Errore salvataggio token Volvo.';
+          this.setFeedback('err', errMsg);
+          window.showToast?.(errMsg, 'error');
           return;
         }
         this.volvoDirectToken = '';
         this.volvoDirectRefresh = '';
-        this.setFeedback('ok', 'Token Volvo EX30 salvato con successo!');
+        this.setFeedback('ok', 'Volvo EX30 autenticata e sincronizzata!');
+        window.showToast?.('Volvo EX30 autenticata e sincronizzata!', 'success');
+        window.loadDashboard?.();
         await this.refreshEvStatus({ fetchRemote: true });
       } catch (err) {
-        this.setFeedback('err', err?.message || 'Errore di rete salvataggio token.');
+        const errMsg = err?.message || 'Errore di rete salvataggio token.';
+        this.setFeedback('err', errMsg);
+        window.showToast?.(errMsg, 'error');
       } finally {
         this.busyAction = null;
       }
@@ -616,32 +735,53 @@ export const useMobilityStore = defineStore('mobility', {
     async syncTripsFromDrive(force = false) {
       this.busyAction = force ? 'trips:force' : 'trips:sync';
       try {
-        const res = await fetch('/api/ev-climate/volvo/trips/sync', {
+        const params = new URLSearchParams({
+          year: String(this.tripsFilter.year || 'all'),
+          month: String(this.tripsFilter.month || 'all'),
+          search: String(this.tripsFilter.search || ''),
+          limit: String(this.tripsFilter.limit || 60)
+        });
+        const res = await fetch(`/api/ev-climate/volvo/trips/sync?${params.toString()}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ year: this.tripsFilter.year, force })
+          body: JSON.stringify({ force })
         });
         const json = await res.json();
         if (!res.ok || !json?.success) {
-          this.setFeedback('err', json?.error || 'Errore sincronizzazione viaggi da Drive.');
+          const errMsg = json?.error || 'Errore sincronizzazione viaggi da Drive.';
+          this.setFeedback('err', errMsg);
+          window.showToast?.(errMsg, 'error');
           return;
         }
-        await this.loadTripsData();
-        const imported = json.imported ?? json.count ?? 0;
-        this.setFeedback('ok', `Storico viaggi sincronizzato (${imported} importati).`);
+        if (json.data) {
+          this.tripsData = json.data;
+        } else {
+          await this.loadTripsData();
+        }
+        const total = json.data?.status?.totalTrips ?? this.tripsData?.tripsCount ?? 0;
+        const msg = `Drive sincronizzato: ${total} viaggi`;
+        this.setFeedback('ok', msg);
+        window.showToast?.(msg, 'success');
       } catch (err) {
-        this.setFeedback('err', err?.message || 'Errore di rete sync viaggi.');
+        const errMsg = err?.message || 'Errore di rete sync viaggi.';
+        this.setFeedback('err', errMsg);
+        window.showToast?.(errMsg, 'error');
       } finally {
         this.busyAction = null;
       }
     },
 
-    updateTripsFilter(key, value) {
-      this.tripsFilter[key] = value;
-      if (key === 'year' || key === 'month' || key === 'search') {
+    updateTripsFilter(keyOrPatch, value) {
+      const patch = (keyOrPatch && typeof keyOrPatch === 'object')
+        ? { ...keyOrPatch }
+        : { [keyOrPatch]: value };
+      const keys = Object.keys(patch);
+      const hasLimit = Object.prototype.hasOwnProperty.call(patch, 'limit');
+      Object.assign(this.tripsFilter, patch);
+      if (!hasLimit && keys.some((k) => ['year', 'month', 'search'].includes(k))) {
         this.tripsFilter.limit = 60;
       }
-      if (key === 'search') {
+      if (keys.length === 1 && keys[0] === 'search') {
         if (tripsSearchDebounce) clearTimeout(tripsSearchDebounce);
         tripsSearchDebounce = setTimeout(() => {
           this.loadTripsData();
@@ -681,28 +821,51 @@ export const useMobilityStore = defineStore('mobility', {
     async syncWallboxFromDrive(force = false) {
       this.busyAction = force ? 'wb:force' : 'wb:sync';
       try {
-        const res = await fetch('/api/ev-climate/wallbox/history/sync', {
+        const params = new URLSearchParams({
+          year: String(this.wallboxFilter.year || 'all'),
+          month: String(this.wallboxFilter.month || 'all'),
+          limit: String(this.wallboxFilter.limit || 60)
+        });
+        const res = await fetch(`/api/ev-climate/wallbox/history/sync?${params.toString()}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ year: this.wallboxFilter.year, force })
+          body: JSON.stringify({ force })
         });
         const json = await res.json();
         if (!res.ok || !json?.success) {
-          this.setFeedback('err', json?.error || 'Errore sincronizzazione Wallbox da Drive.');
+          const errMsg = json?.error || 'Errore sincronizzazione Wallbox da Drive.';
+          this.setFeedback('err', errMsg);
+          window.showToast?.(errMsg, 'error');
           return;
         }
-        await this.loadWallboxHistory();
-        this.setFeedback('ok', 'Storico Wallbox ABB sincronizzato da Google Drive.');
+        if (json.data) {
+          this.wallboxHistoryData = json.data;
+        } else {
+          await this.loadWallboxHistory();
+        }
+        const total = json.data?.status?.totalSessions ?? this.wallboxHistoryData?.sessionsCount ?? 0;
+        const msg = `Wallbox sincronizzata: ${total} sessioni`;
+        this.setFeedback('ok', msg);
+        window.showToast?.(msg, 'success');
       } catch (err) {
-        this.setFeedback('err', err?.message || 'Errore di rete sync Wallbox.');
+        const errMsg = err?.message || 'Errore di rete sync Wallbox.';
+        this.setFeedback('err', errMsg);
+        window.showToast?.(errMsg, 'error');
       } finally {
         this.busyAction = null;
       }
     },
 
-    updateWallboxFilter(key, value) {
-      this.wallboxFilter[key] = value;
-      this.wallboxFilter.limit = 60;
+    updateWallboxFilter(keyOrPatch, value) {
+      const patch = (keyOrPatch && typeof keyOrPatch === 'object')
+        ? { ...keyOrPatch }
+        : { [keyOrPatch]: value };
+      const hasLimit = Object.prototype.hasOwnProperty.call(patch, 'limit');
+      this.wallboxFilter = {
+        ...this.wallboxFilter,
+        ...patch,
+        limit: hasLimit ? patch.limit : 60
+      };
       this.loadWallboxHistory();
     },
 
@@ -717,11 +880,16 @@ export const useMobilityStore = defineStore('mobility', {
 
     openDriveAdminSettings() {
       if (typeof window === 'undefined') return;
-      if (typeof window.openAdminModal === 'function') {
-        window.openAdminModal('devices-ev');
-      } else {
-        document.getElementById('nav-btn-admin')?.click();
-        window.switchArea?.('admin');
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('admin_active_tab', 'ev');
+      }
+      if (window.adminManager) {
+        window.adminManager.activeTab = 'ev';
+      }
+      if (typeof window.switchArea === 'function') {
+        window.switchArea('admin');
+      } else if (window.adminManager && typeof window.adminManager.selectTab === 'function') {
+        window.adminManager.selectTab('ev');
       }
       setTimeout(() => {
         document.getElementById('admin-ev-drive-trips-folder')?.focus();
