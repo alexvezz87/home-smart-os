@@ -134,14 +134,14 @@ Riorganizzata con un'architettura **modulare responsive**: su desktop/tablet ori
 
 ---
 
-## 🚗 5. Centro Diagnostico Volvo EX30 & Wallbox ABB (`area-mobility`)
-- **Accesso dal Menu Hamburger**: voce dedicata *"Volvo EX30 & Wallbox"* nella sidebar sinistra (`#left-sidebar`) con vista dedicata `#area-mobility`.
-- **Telemetria Completa Volvo API v2 (`src/ev-climate-hub.js`)**:
-  - **Energy v2**: batteria (`%`), target di ricarica, autonomia residua (`km`), stato cavo/ricarica, potenza e tempo stimato al target.
-  - **Connected Vehicle v2**: odometro, statistiche viaggio (`averageEnergyConsumption`, `averageSpeed`, `tripMeter1/2`), stato dettagliato di tutte le portiere, cofano, portellone, sportello ricarica, finestrini e tetto panoramico, pressioni pneumatici (`bar` / `kPa` / `psi`), diagnostica tagliando (`distanceToService`, `timeToService`, `serviceWarning`), avvisi liquidi e lampadine (`brakeFluidLevelWarning`, `washerFluidLevelWarning`, `coolantLevelWarning`, `bulbFailure`), e dettagli veicolo.
-  - **Comandi Remoti & Location v1**: blocco/sblocco porte, climatizzazione ON/OFF, lampeggio luci, clacson & luci (`honk-flash`), posizione GPS con indirizzo e link Google Maps.
-- **Wallbox ABB Terra AC**: potenza istantanea, corrente/tensione, energia sessione, avvio/stop ricarica, regolazione limite corrente (`6A–32A`) e Auto Load Balance Casa + EV.
-- **Storico Viaggi & Consumi (`src/volvo-trips-sync.js`)**: tab dedicata in `#area-mobility` con sincronizzazione automatica giornaliera (24h) e pulsante manuale da Google Drive OAuth2 (`drive.readonly`), parser per i Google Sheets annuali (`Consumi YYYY`) e per gli export mensili Volvo (`.xlsx`), filtri anno/mese/ricerca, riepilogo costi/risparmio vs termico, ripartizione Alex/Cinzia e registro viaggi deduplicato su TiDB Cloud.
+## 🚗 5. Centro Diagnostico Volvo EX30 & Wallbox ABB (`area-mobility`) — Vue 3 + Pinia + `vue-chartjs` (`#132`)
+- **Vista Reattiva Zero-Flicker (`frontend/src/views/MobilityView.vue`, `frontend/src/stores/mobilityStore.js`, fallback `public/js/mobility.js`)**: layout responsive accordion su mobile / sticky sidebar su desktop con 3 tab (`live`, `trips`, `wallbox`), 5 grafici `vue-chartjs` (`Bar` misti Bar+Line e `Doughnut`) aggiornati senza distruggere il DOM al polling 30s, preservazione input ricerca e slider Wallbox (`!wbSliderDirty`) e fetch diretto `/api/ev-climate/status`.
+- **Telemetria Completa Volvo API v2 & Wireframe SVG Reattivo (`src/ev-climate-hub.js`)**:
+  - **Energy v2**: batteria (`%`), target di ricarica, autonomia residua (`km`), stato cavo/ricarica, potenza e **stima tempo al Target SoC (`estimatedChargeToTarget`)**.
+  - **Connected Vehicle v2 & SVG Top-Down**: odometro, statistiche viaggio, stato dettagliato di portiere/cofano/portellone/finestrini/tetto panoramico, pressioni pneumatici (`bar` / `kPa` / `psi`), diagnostica tagliando/liquidi/lampadine e wireframe SVG top-down reattivo a serrature, fari, clacson e clima.
+  - **Comandi Remoti & Location v1**: blocco/sblocco porte, climatizzazione ON/OFF, lampeggio luci, clacson & luci (`honk_flash`), posizione GPS con indirizzo e link Google Maps sicuro.
+- **Wallbox ABB Terra AC**: potenza istantanea, corrente/tensione, energia sessione, avvio/stop ricarica, **preset rapidi `6A · 10A · 13A · 16A`** + slider continuo, e Auto Load Balance Casa + EV.
+- **Storico Viaggi & Consumi (`src/volvo-trips-sync.js`) & Storico Wallbox PDF (`src/wallbox-sync.js`)**: filtri anno/mese, **ricerca live istantanea** su viaggi (`Cerca via o note...` con debounce 300ms) e sessioni PDF Wallbox (`Cerca data o file PDF...`), riepilogo costi/risparmio vs termico e ripartizione Alex/Cinzia.
 
 ---
 
