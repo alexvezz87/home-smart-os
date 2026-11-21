@@ -344,4 +344,6 @@ class AdminManager {
 }
 
 window.AdminManager = AdminManager;
-window.adminManager = new AdminManager();
+if (!window.adminManager) {
+  window.adminManager = new AdminManager();
+}

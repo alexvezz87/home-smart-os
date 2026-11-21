@@ -3872,6 +3872,72 @@ test('Fase 4 Frontend Vue 3 + Pinia + vue-chartjs: Mobilità Elettrica & Wallbox
   }
 });
 
+test('Fase 5 Frontend Vue 3 + Pinia: Amministrazione & Hub (#134)', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const rootDir = path.join(__dirname, '..');
+
+  // 1. File sorgente Vue 3 + Pinia per Admin
+  const storePath = path.join(rootDir, 'frontend/src/stores/adminStore.js');
+  const viewPath = path.join(rootDir, 'frontend/src/views/AdminView.vue');
+  const mainPath = path.join(rootDir, 'frontend/src/main.js');
+  for (const p of [storePath, viewPath, mainPath]) {
+    assert.ok(fs.existsSync(p), `${path.basename(p)} deve esistere`);
+  }
+
+  const storeSrc = fs.readFileSync(storePath, 'utf8');
+  for (const sym of [
+    "defineStore('admin'",
+    'ADMIN_SEARCH_INDEX',
+    'autoRefreshPaused',
+    'isUserEditingAdminPane',
+    'runPostRenderHooks',
+    'jumpToAdminOption'
+  ]) {
+    assert.ok(storeSrc.includes(sym), `adminStore.js deve contenere ${sym}`);
+  }
+
+  const viewSrc = fs.readFileSync(viewPath, 'utf8');
+  for (const sym of [
+    'id="admin-global-search"',
+    'id="admin-global-search-results"',
+    'id="admin-service-pane"',
+    'autoRefreshPaused'
+  ]) {
+    assert.ok(viewSrc.includes(sym), `AdminView.vue deve contenere ${sym}`);
+  }
+
+  const mainSrc = fs.readFileSync(mainPath, 'utf8');
+  assert.ok(mainSrc.includes("getElementById('area-admin')"), 'main.js deve montare AdminView su #area-admin');
+  assert.ok(mainSrc.includes('useAdminStore'), 'main.js deve esporre useAdminStore');
+  assert.ok(mainSrc.includes('bindLegacyManager'), 'main.js deve collegare bindLegacyManager');
+  assert.ok(mainSrc.includes("version: '0.6.0'"), 'homeVueBridge deve essere alla versione 0.6.0');
+
+  // 2. Ordine script in public/index.html
+  const indexHtml = fs.readFileSync(path.join(rootDir, 'public/index.html'), 'utf8');
+  const idxAdmin = indexHtml.indexOf('/js/admin.js');
+  const idxBackbone = indexHtml.indexOf('/js/admin/admin-system-backbone.js');
+  const idxVue = indexHtml.indexOf('/vue/home-vue.js');
+  const idxEnergy = indexHtml.indexOf('/js/energy.js');
+  const idxMobility = indexHtml.indexOf('/js/mobility.js');
+  assert.ok(
+    idxAdmin > 0 && idxBackbone > idxAdmin && idxVue > idxBackbone && idxEnergy > idxVue && idxMobility > idxEnergy,
+    'Ordine script public/index.html non conforme: admin.js < admin-system-backbone.js < home-vue.js < energy.js < mobility.js'
+  );
+
+  // 3. Guardia fallback legacy in public/js/admin.js
+  const legacyAdmin = fs.readFileSync(path.join(rootDir, 'public/js/admin.js'), 'utf8');
+  assert.ok(legacyAdmin.includes('window.AdminManager = AdminManager;'), 'public/js/admin.js deve preservare window.AdminManager');
+  assert.ok(legacyAdmin.includes('if (!window.adminManager)'), 'public/js/admin.js deve avere guardia fallback');
+
+  // 4. Verifica bundle compilato se presente su disco
+  const bundleJsPath = path.join(rootDir, 'public/vue/home-vue.js');
+  if (fs.existsSync(bundleJsPath)) {
+    const bundleJs = fs.readFileSync(bundleJsPath, 'utf8');
+    assert.ok(bundleJs.includes('useAdminStore'), 'Bundle home-vue.js deve includere useAdminStore');
+  }
+});
+
 
 
 
