@@ -3892,7 +3892,8 @@ test('Fase 5 Frontend Vue 3 + Pinia: Amministrazione & Hub (#134)', () => {
     'autoRefreshPaused',
     'isUserEditingAdminPane',
     'runPostRenderHooks',
-    'jumpToAdminOption'
+    'jumpToAdminOption',
+    'lastRenderedTab'
   ]) {
     assert.ok(storeSrc.includes(sym), `adminStore.js deve contenere ${sym}`);
   }
@@ -3902,7 +3903,8 @@ test('Fase 5 Frontend Vue 3 + Pinia: Amministrazione & Hub (#134)', () => {
     'id="admin-global-search"',
     'id="admin-global-search-results"',
     'id="admin-service-pane"',
-    'autoRefreshPaused'
+    'autoRefreshPaused',
+    'space-y-6'
   ]) {
     assert.ok(viewSrc.includes(sym), `AdminView.vue deve contenere ${sym}`);
   }

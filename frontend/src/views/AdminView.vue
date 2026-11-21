@@ -1,7 +1,12 @@
 <script setup>
+import { onMounted } from 'vue';
 import { useAdminStore } from '../stores/adminStore';
 
 const store = useAdminStore();
+
+onMounted(() => {
+  store.syncFromHomeData();
+});
 
 function getBadgeClass(s, isActive) {
   if (isActive) return 'bg-cyan-500/25 text-cyan-200 border border-cyan-400/40';
@@ -13,12 +18,11 @@ function getBadgeClass(s, isActive) {
   return 'bg-slate-800 text-slate-400 border border-slate-700/60';
 }
 
-function refreshDashboardNow() {
+async function refreshDashboardNow() {
   if (typeof window.loadDashboard === 'function') {
-    window.loadDashboard();
-  } else {
-    store.renderView(true);
+    await window.loadDashboard();
   }
+  store.renderView(true);
 }
 </script>
 
@@ -168,7 +172,7 @@ function refreshDashboardNow() {
 
       <!-- Desktop Pane -->
       <div v-if="!store.isMobileView" class="flex-1 min-w-0">
-        <div id="admin-service-pane" v-html="store.paneHtml"></div>
+        <div id="admin-service-pane" class="space-y-6 overflow-x-hidden" v-html="store.paneHtml"></div>
       </div>
 
       <!-- Mobile Accordion -->
@@ -191,7 +195,12 @@ function refreshDashboardNow() {
             </span>
           </button>
 
-          <div v-if="store.activeTab === s.id" id="admin-service-pane" v-html="store.paneHtml"></div>
+          <div
+            v-if="store.activeTab === s.id"
+            id="admin-service-pane"
+            class="border-t border-slate-800/80 p-3 space-y-5 min-w-0 overflow-x-hidden"
+            v-html="store.paneHtml"
+          ></div>
         </div>
       </div>
     </div>

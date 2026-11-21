@@ -54,7 +54,9 @@ export const useAdminStore = defineStore('admin', {
     lastRefreshAt: null,
     homeSnapshot: {},
     paneHtml: '',
-    paneVersion: 0
+    paneVersion: 0,
+    lastRenderedTab: null,
+    lastDriveSig: ''
   }),
 
   getters: {
@@ -198,11 +200,17 @@ export const useAdminStore = defineStore('admin', {
 
     renderActivePane({ force = false } = {}) {
       this.syncFromHomeData();
-      if (!force && this.paneHtml && (this.autoRefreshPaused || this.isUserEditingAdminPane())) {
-        return;
-      }
       if (!this.activeTab) {
         this.paneHtml = '';
+        this.lastRenderedTab = null;
+        return;
+      }
+      const driveSig = `${Boolean(legacyManagerRef?.driveLoading)}:${Boolean(legacyManagerRef?.driveStatus)}:${legacyManagerRef?.driveStatus?.lastSyncAt || ''}:${Boolean(legacyManagerRef?.wallboxDriveStatus)}:${legacyManagerRef?.wallboxDriveStatus?.lastSyncAt || ''}`;
+      const mustRender = force
+        || !this.paneHtml
+        || this.lastRenderedTab !== this.activeTab
+        || (this.activeTab === 'ev' && this.lastDriveSig !== driveSig);
+      if (!mustRender && (this.autoRefreshPaused || this.isUserEditingAdminPane())) {
         return;
       }
       if (legacyManagerRef && typeof legacyManagerRef._renderActiveServiceContent === 'function') {
@@ -213,6 +221,8 @@ export const useAdminStore = defineStore('admin', {
           this.tidbConnected
         );
         this.paneVersion += 1;
+        this.lastRenderedTab = this.activeTab;
+        this.lastDriveSig = driveSig;
       }
       const currentTab = this.activeTab;
       setTimeout(() => {
@@ -250,6 +260,7 @@ export const useAdminStore = defineStore('admin', {
       if (this.isMobileView && this.activeTab === tabId) {
         this.activeTab = null;
         this.paneHtml = '';
+        this.lastRenderedTab = null;
         return;
       }
       this.activeTab = tabId;
