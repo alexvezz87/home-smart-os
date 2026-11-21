@@ -1295,5 +1295,8 @@ class EnergyManager {
   }
 }
 
-window.energyManager = new EnergyManager();
+window.EnergyManager = EnergyManager;
+if (!window.energyManager) {
+  window.energyManager = new EnergyManager();
+}
 
