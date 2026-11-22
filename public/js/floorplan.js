@@ -458,7 +458,6 @@ class FloorplanEngine {
           const el = document.getElementById(`spatial-pin-group-${targetPin}`);
           if (el) {
             el.classList.add('fp-pin-hovered');
-            layer.appendChild(el);
           }
         }
       }
