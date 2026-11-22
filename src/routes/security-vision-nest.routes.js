@@ -463,6 +463,6 @@ module.exports = function registerSecurityVisionNestRoutes(app, services) {
     }
   };
 
-  app.get('/go2rtc/*', go2rtcHttpProxy);
-  app.post('/go2rtc/*', go2rtcHttpProxy);
+  app.get(/^\/go2rtc(\/.*)?$/, go2rtcHttpProxy);
+  app.post(/^\/go2rtc(\/.*)?$/, go2rtcHttpProxy);
 };
