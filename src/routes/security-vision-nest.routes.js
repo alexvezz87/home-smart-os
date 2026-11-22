@@ -1,3 +1,7 @@
+const http = require('http');
+const WebSocket = require('ws');
+const go2rtcManager = require('../go2rtc-manager');
+
 /**
  * Route protette per Sicurezza, Telecamere Tapo/ONVIF, Gemini Vision,
  * Streaming WebSocket RTSP-Relay e Google Nest Cast / TTS.
@@ -373,4 +377,92 @@ module.exports = function registerSecurityVisionNestRoutes(app, services) {
       try { ws.close(1011, err.message); } catch (_) {}
     }
   });
+
+  // 1i. Proxy HTTP + WebSocket autenticato per go2rtc (/go2rtc/* -> 127.0.0.1:1984) per evitare Mixed Content su HTTPS (#144)
+  app.ws('/go2rtc/api/ws', (ws, req) => {
+    if (auth.isAuthEnabled()) {
+      const token = auth.extractToken(req);
+      const user = auth.verifyToken(token);
+      if (!user) {
+        try { ws.close(1008, 'Non autorizzato: autenticazione richiesta'); } catch (_) {}
+        return;
+      }
+    }
+
+    const go2rtcPort = Number(go2rtcManager?.apiPort || 1984);
+    const qIdx = String(req.originalUrl || req.url || '').indexOf('?');
+    const query = qIdx >= 0 ? String(req.originalUrl || req.url).slice(qIdx) : '';
+    const upstream = new WebSocket(`ws://127.0.0.1:${go2rtcPort}/api/ws${query}`);
+    const pendingClientMsgs = [];
+
+    ws.on('message', (data, isBinary) => {
+      if (upstream.readyState === WebSocket.OPEN) {
+        upstream.send(data, { binary: isBinary });
+      } else if (upstream.readyState === WebSocket.CONNECTING) {
+        pendingClientMsgs.push({ data, isBinary });
+      }
+    });
+
+    upstream.on('open', () => {
+      while (pendingClientMsgs.length > 0 && upstream.readyState === WebSocket.OPEN) {
+        const msg = pendingClientMsgs.shift();
+        upstream.send(msg.data, { binary: msg.isBinary });
+      }
+    });
+
+    upstream.on('message', (data, isBinary) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(data, { binary: isBinary });
+      }
+    });
+
+    const closeBoth = () => {
+      try { if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.close(); } catch (_) {}
+      try { if (upstream.readyState === WebSocket.OPEN || upstream.readyState === WebSocket.CONNECTING) upstream.close(); } catch (_) {}
+    };
+
+    ws.on('close', closeBoth);
+    ws.on('error', closeBoth);
+    upstream.on('close', closeBoth);
+    upstream.on('error', closeBoth);
+  });
+
+  const go2rtcHttpProxy = (req, res) => {
+    const go2rtcPort = Number(go2rtcManager?.apiPort || 1984);
+    const stripped = String(req.url || '').replace(/^\/go2rtc/, '');
+    const targetPath = stripped && stripped.startsWith('/') ? stripped : `/${stripped || ''}`;
+    const headers = { ...req.headers, host: `127.0.0.1:${go2rtcPort}` };
+    delete headers.connection;
+
+    const proxyReq = http.request({
+      hostname: '127.0.0.1',
+      port: go2rtcPort,
+      path: targetPath,
+      method: req.method,
+      headers
+    }, (proxyRes) => {
+      res.status(proxyRes.statusCode || 502);
+      for (const [k, v] of Object.entries(proxyRes.headers || {})) {
+        if (v !== undefined && k.toLowerCase() !== 'transfer-encoding') {
+          res.setHeader(k, v);
+        }
+      }
+      proxyRes.pipe(res);
+    });
+
+    proxyReq.on('error', (err) => {
+      if (!res.headersSent) {
+        res.status(502).json({ success: false, error: `go2rtc non raggiungibile: ${err.message}` });
+      }
+    });
+
+    if (req.method !== 'GET' && req.method !== 'HEAD' && req.readable) {
+      req.pipe(proxyReq);
+    } else {
+      proxyReq.end();
+    }
+  };
+
+  app.get('/go2rtc/*', go2rtcHttpProxy);
+  app.post('/go2rtc/*', go2rtcHttpProxy);
 };
