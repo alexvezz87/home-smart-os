@@ -179,6 +179,21 @@ export const useFloorplanStore = defineStore('floorplan', {
       const q = String(state.hueSceneSearch || '').trim().toLowerCase();
       if (!q) return list;
       return list.filter((s) => String(s?.name || '').toLowerCase().includes(q));
+    },
+
+    focusedRoomMeta(state) {
+      if (!state.selectedRoom) return null;
+      const roomObj = INTERACTIVE_ROOMS.find((r) => r.id === state.selectedRoom) || {
+        id: state.selectedRoom,
+        shortLabel: state.selectedRoom,
+        icon: 'fa-door-open'
+      };
+      const pinsCount = state.pins.filter((p) => p.room === state.selectedRoom).length;
+      return {
+        ...roomObj,
+        pinsCount,
+        telemetry: this.roomTelemetry
+      };
     }
   },
 
@@ -235,22 +250,32 @@ export const useFloorplanStore = defineStore('floorplan', {
     },
 
     selectRoom(roomName, openDrawer = false) {
-      if (openDrawer && legacyFloorplanRef?.hasDragged) {
+      if (legacyFloorplanRef?.hasDragged) {
         legacyFloorplanRef.hasDragged = false;
         return;
       }
-      if (!roomName || this.selectedRoom === roomName) {
-        this.selectedRoom = null;
-      } else {
-        this.selectedRoom = roomName;
+      if (typeof window !== 'undefined' && window.dragEditor?.editMode) {
+        return;
       }
-      if (openDrawer && this.selectedRoom) {
+      const nextRoom = roomName || null;
+      this.selectedRoom = nextRoom;
+      if (legacyFloorplanRef) {
+        legacyFloorplanRef.panX = 0;
+        legacyFloorplanRef.panY = 0;
+        legacyFloorplanRef.scale = 1;
+      }
+      // Step 1: entrando in focus stanza dalla piantina la sidebar destra rimane nascosta
+      if (nextRoom && !openDrawer && this.rightDrawerOpen) {
+        this.toggleRightDrawer(false);
+      } else if (openDrawer && nextRoom) {
         this.rightDrawerTab = 'devices';
+        this.toggleRightDrawer(true);
       }
       this.triggerFloorplanRender();
-      if (openDrawer) {
-        this.toggleRightDrawer(Boolean(this.selectedRoom));
-      }
+    },
+
+    exitRoomFocus() {
+      this.selectRoom(null, false);
     },
 
     resetFilters() {
