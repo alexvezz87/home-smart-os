@@ -238,21 +238,39 @@ class DeviceSheetManager {
    */
   renderLightControls(p) {
     const isChandelier = p.category === 'chandelier';
+    const isColorCapable = isHueColorCapable(p);
     const brightness = p.brightness || (p.isOn ? 80 : 0);
+    const rawHex = String(p.colorHex || p.lightColor || '').trim();
+    const currentHex = /^#[0-9a-f]{6}$/i.test(rawHex) ? rawHex.toLowerCase() : '#8b5cf6';
+
+    const swatchesHtml = isColorCapable ? HUE_RGB_PRESETS.map((s) => {
+      const isActive = currentHex === s.hex.toLowerCase();
+      return `
+        <button
+          type="button"
+          data-hex="${s.hex}"
+          onclick="setLightHexColor(${p.pin}, '${s.hex}', '${s.name}')"
+          title="${s.name}"
+          aria-label="${s.name}"
+          style="background-color: ${s.hex};"
+          class="h-7 w-full rounded-lg border-2 transition-all active:scale-90 shadow-sm ${isActive ? 'border-white ring-2 ring-cyan-400 scale-105' : 'border-white/25 hover:border-white/80 hover:scale-105'}"
+        ></button>
+      `;
+    }).join('') : '';
 
     return `
       <!-- Interruttore Master -->
       <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800">
         <div class="flex items-center gap-3">
-          <div class="w-9 h-9 rounded-xl ${p.isOn ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-500'} flex items-center justify-center text-base transition-all">
+          <div id="light-power-icon-${p.pin}" class="w-9 h-9 rounded-xl ${p.isOn ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-500'} flex items-center justify-center text-base transition-all">
             <i class="fa-solid fa-power-off"></i>
           </div>
           <div>
             <div class="font-bold text-xs text-white">Stato Alimentazione</div>
-            <div class="text-[11px] ${p.isOn ? 'text-amber-400' : 'text-slate-500'} font-medium">${p.isOn ? 'Accesa' : 'Spenta'}</div>
+            <div id="light-power-status-${p.pin}" class="text-[11px] ${p.isOn ? 'text-amber-400' : 'text-slate-500'} font-medium">${p.isOn ? 'Accesa' : 'Spenta'}</div>
           </div>
         </div>
-        <button type="button" onclick="toggleLightPin(${p.pin}, ${!p.isOn})" class="px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 ${p.isOn ? 'bg-rose-600 hover:bg-rose-500 text-white' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}">
+        <button id="light-power-btn-${p.pin}" type="button" onclick="toggleLightPin(${p.pin}, ${!p.isOn})" class="px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 ${p.isOn ? 'bg-rose-600 hover:bg-rose-500 text-white' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}">
           ${p.isOn ? 'Spegni' : 'Accendi'}
         </button>
       </div>
@@ -288,6 +306,44 @@ class DeviceSheetManager {
             <button onclick="setChandelierModeUi('${p.chandelierId}', 'eco2', 80)" class="py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/35 text-amber-200 border border-amber-500/40 transition-colors">Eco</button>
             <button onclick="setChandelierModeUi('${p.chandelierId}', 'full', 100)" class="py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black transition-colors">Max</button>
           </div>
+        </div>
+      ` : ''}
+
+      ${isColorCapable ? `
+        <!-- Selettore Colore & Palette RGB (Philips Hue Multicolor) -->
+        <div class="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2.5">
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-bold text-slate-300 flex items-center gap-1.5">
+              <i class="fa-solid fa-droplet text-fuchsia-400"></i> Colore &amp; Palette RGB
+            </span>
+            <div class="flex items-center gap-1.5">
+              <span id="hue-color-preview-${p.pin}" style="background-color: ${currentHex};" class="w-3.5 h-3.5 rounded-full border border-white/50 shadow-sm inline-block"></span>
+              <span id="hue-color-hex-${p.pin}" class="font-mono text-[10px] text-slate-300 uppercase">${currentHex.toUpperCase()}</span>
+            </div>
+          </div>
+
+          <!-- Swatch Colori Preimpostati -->
+          <div id="hue-rgb-swatches-${p.pin}" class="grid grid-cols-8 gap-1.5">
+            ${swatchesHtml}
+          </div>
+
+          <!-- Color Picker Continuo Spettro Completo -->
+          <label for="hue-color-picker-${p.pin}" class="flex items-center justify-between gap-2.5 p-2 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-slate-600 cursor-pointer transition-colors">
+            <span class="text-[11px] font-semibold text-slate-300 flex items-center gap-2 shrink-0">
+              <i class="fa-solid fa-swatchbook text-cyan-400"></i>
+              Spettro continuo
+            </span>
+            <span class="flex-1 h-3 rounded-full border border-white/15" style="background: linear-gradient(90deg, #ef4444, #f97316, #eab308, #22c55e, #06b6d4, #2563eb, #8b5cf6, #d946ef, #ef4444);"></span>
+            <input
+              type="color"
+              id="hue-color-picker-${p.pin}"
+              value="${currentHex}"
+              oninput="previewHueColorUi(${p.pin}, this.value)"
+              onchange="flushHueColorUi(${p.pin}, this.value)"
+              class="w-8 h-7 rounded-lg bg-transparent border-0 cursor-pointer shrink-0 p-0"
+              aria-label="Selettore colore continuo RGB"
+            />
+          </label>
         </div>
       ` : ''}
 
@@ -1267,6 +1323,199 @@ async function setLightColorTemperature(pinNum, tempK) {
   }
 }
 
+const HUE_RGB_PRESETS = [
+  { name: 'Rosso', hex: '#ef4444' },
+  { name: 'Arancione', hex: '#f97316' },
+  { name: 'Giallo', hex: '#eab308' },
+  { name: 'Verde', hex: '#22c55e' },
+  { name: 'Ciano', hex: '#06b6d4' },
+  { name: 'Blu', hex: '#2563eb' },
+  { name: 'Viola', hex: '#8b5cf6' },
+  { name: 'Magenta', hex: '#d946ef' }
+];
+
+function isHueColorCapable(p) {
+  if (!p || typeof p !== 'object') return false;
+  if (typeof p.capabilities?.color === 'boolean') return p.capabilities.color;
+  if (typeof p.supportsColor === 'boolean') return p.supportsColor;
+  if (Array.isArray(p.bulbs) && p.bulbs.some((b) => b?.supportsColor)) return true;
+  const vendorLower = String(p.vendor || '').toLowerCase();
+  return vendorLower.includes('color') || vendorLower.includes('play');
+}
+
+const _hueColorThrottleMap = new Map();
+const HUE_COLOR_THROTTLE_MS = 180;
+
+function applyPinColorLocalState(pinNum, hex, { reopenSheet = false } = {}) {
+  const pins = window.homeData?.spatial?.pins || [];
+  const p = pins.find((item) => item.pin === Number(pinNum));
+  const cleanHex = String(hex || '').trim().toLowerCase();
+  if (!p || !/^#[0-9a-f]{6}$/i.test(cleanHex)) return null;
+
+  p.isOn = true;
+  p.colorHex = cleanHex;
+  p.lightColor = cleanHex;
+  if (!p.brightness) p.brightness = 80;
+
+  if (window.floorplan && typeof window.floorplan.render === 'function') {
+    window.floorplan.render();
+  }
+
+  if (reopenSheet) {
+    if (window.deviceSheet?.currentPin?.pin === Number(pinNum)) {
+      window.deviceSheet.open(p);
+    }
+    return p;
+  }
+
+  // Aggiornamento in-place durante il drag del color picker per preservare la finestra nativa
+  const previewEl = document.getElementById(`hue-color-preview-${pinNum}`);
+  if (previewEl) previewEl.style.backgroundColor = cleanHex;
+  const hexEl = document.getElementById(`hue-color-hex-${pinNum}`);
+  if (hexEl) hexEl.textContent = cleanHex.toUpperCase();
+  const powerIconEl = document.getElementById(`light-power-icon-${pinNum}`);
+  if (powerIconEl) {
+    powerIconEl.className = 'w-9 h-9 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center text-base transition-all';
+  }
+  const powerStatusEl = document.getElementById(`light-power-status-${pinNum}`);
+  if (powerStatusEl) {
+    powerStatusEl.className = 'text-[11px] text-amber-400 font-medium';
+    powerStatusEl.textContent = 'Accesa';
+  }
+  const powerBtnEl = document.getElementById(`light-power-btn-${pinNum}`);
+  if (powerBtnEl) {
+    powerBtnEl.setAttribute('onclick', `toggleLightPin(${pinNum}, false)`);
+    powerBtnEl.className = 'px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 bg-rose-600 hover:bg-rose-500 text-white';
+    powerBtnEl.textContent = 'Spegni';
+  }
+  const swatchesWrap = document.getElementById(`hue-rgb-swatches-${pinNum}`);
+  if (swatchesWrap && typeof swatchesWrap.querySelectorAll === 'function') {
+    for (const btn of swatchesWrap.querySelectorAll('button[data-hex]')) {
+      const btnHex = String(btn.getAttribute('data-hex') || '').toLowerCase();
+      btn.className = `h-7 w-full rounded-lg border-2 transition-all active:scale-90 shadow-sm ${btnHex === cleanHex ? 'border-white ring-2 ring-cyan-400 scale-105' : 'border-white/25 hover:border-white/80 hover:scale-105'}`;
+    }
+  }
+  return p;
+}
+
+async function sendHueHexColorRequest(pinNum, hex, { toastLabel = null, reopenSheet = false } = {}) {
+  const pins = window.homeData?.spatial?.pins || [];
+  const p = pins.find((item) => item.pin === Number(pinNum));
+  const lightName = resolveHueLightName(p);
+  if (!lightName && !p?.room) return null;
+
+  const cleanHex = String(hex || '').trim().toLowerCase();
+  try {
+    const res = await fetch('/api/hue/color', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lightName: lightName || undefined,
+        roomName: p?.room || undefined,
+        hex: cleanHex
+      })
+    });
+    const json = await res.json();
+    if (json.success) {
+      const curState = _hueColorThrottleMap.get(Number(pinNum));
+      const isLatestHex = !curState?.lastSentHex || curState.lastSentHex === cleanHex;
+      if (isLatestHex && !curState?.pendingHex) {
+        applyPinColorLocalState(pinNum, cleanHex, { reopenSheet });
+      }
+      if (toastLabel && typeof showToast === 'function') {
+        showToast(`Colore luce: ${toastLabel}`, 'info');
+      }
+    } else if (typeof showToast === 'function') {
+      showToast('Errore colore: ' + (json.error || 'Errore'), 'error');
+    }
+    return json;
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('Errore colore: ' + e.message, 'error');
+    return { success: false, error: e.message };
+  }
+}
+
+function previewHueColorUi(pinNum, hex) {
+  const cleanHex = String(hex || '').trim().toLowerCase();
+  applyPinColorLocalState(pinNum, cleanHex, { reopenSheet: false });
+
+  const key = Number(pinNum);
+  const now = Date.now();
+  const state = _hueColorThrottleMap.get(key) || { lastSentAt: 0, lastSentHex: null, timer: null, pendingHex: null };
+
+  const elapsed = now - state.lastSentAt;
+  if (elapsed >= HUE_COLOR_THROTTLE_MS && state.lastSentHex !== cleanHex) {
+    if (state.timer) {
+      clearTimeout(state.timer);
+      state.timer = null;
+    }
+    state.lastSentAt = now;
+    state.lastSentHex = cleanHex;
+    state.pendingHex = null;
+    _hueColorThrottleMap.set(key, state);
+    void sendHueHexColorRequest(pinNum, cleanHex, { reopenSheet: false });
+    return;
+  }
+
+  state.pendingHex = cleanHex;
+  if (!state.timer) {
+    const waitMs = Math.max(25, HUE_COLOR_THROTTLE_MS - elapsed);
+    state.timer = setTimeout(() => {
+      const cur = _hueColorThrottleMap.get(key);
+      if (!cur) return;
+      cur.timer = null;
+      const targetHex = cur.pendingHex;
+      cur.pendingHex = null;
+      if (targetHex && targetHex !== cur.lastSentHex) {
+        cur.lastSentAt = Date.now();
+        cur.lastSentHex = targetHex;
+        void sendHueHexColorRequest(pinNum, targetHex, { reopenSheet: false });
+      }
+    }, waitMs);
+  }
+  _hueColorThrottleMap.set(key, state);
+}
+
+async function flushHueColorUi(pinNum, hex) {
+  const cleanHex = String(hex || '').trim().toLowerCase();
+  const key = Number(pinNum);
+  const state = _hueColorThrottleMap.get(key);
+  if (state?.timer) {
+    clearTimeout(state.timer);
+    state.timer = null;
+  }
+  const alreadySent = state && state.lastSentHex === cleanHex;
+  if (state) {
+    state.pendingHex = null;
+    state.lastSentAt = Date.now();
+    state.lastSentHex = cleanHex;
+  } else {
+    _hueColorThrottleMap.set(key, { lastSentAt: Date.now(), lastSentHex: cleanHex, timer: null, pendingHex: null });
+  }
+
+  applyPinColorLocalState(pinNum, cleanHex, { reopenSheet: true });
+  if (!alreadySent) {
+    return sendHueHexColorRequest(pinNum, cleanHex, { toastLabel: cleanHex.toUpperCase(), reopenSheet: true });
+  }
+  if (typeof showToast === 'function') {
+    showToast(`Colore luce: ${cleanHex.toUpperCase()}`, 'info');
+  }
+  return { success: true, hex: cleanHex, deduped: true };
+}
+
+async function setLightHexColor(pinNum, hex, label = null) {
+  const cleanHex = String(hex || '').trim().toLowerCase();
+  const key = Number(pinNum);
+  const state = _hueColorThrottleMap.get(key);
+  if (state?.timer) {
+    clearTimeout(state.timer);
+    state.timer = null;
+  }
+  _hueColorThrottleMap.set(key, { lastSentAt: Date.now(), lastSentHex: cleanHex, timer: null, pendingHex: null });
+  applyPinColorLocalState(pinNum, cleanHex, { reopenSheet: true });
+  return sendHueHexColorRequest(pinNum, cleanHex, { toastLabel: label || cleanHex.toUpperCase(), reopenSheet: true });
+}
+
 async function setChandelierModeUi(chandelierId, mode, brightness = 85) {
   try {
     const res = await fetch('/api/spatial/chandelier', {
@@ -1796,6 +2045,10 @@ window.adjustValveSetpoint = adjustValveSetpoint;
 window.toggleLightPin = toggleLightPin;
 window.setLightBrightnessPin = setLightBrightnessPin;
 window.setLightColorTemperature = setLightColorTemperature;
+window.isHueColorCapable = isHueColorCapable;
+window.setLightHexColor = setLightHexColor;
+window.previewHueColorUi = previewHueColorUi;
+window.flushHueColorUi = flushHueColorUi;
 window.setChandelierModeUi = setChandelierModeUi;
 window.togglePlugPin = togglePlugPin;
 window.roomOff = roomOff;

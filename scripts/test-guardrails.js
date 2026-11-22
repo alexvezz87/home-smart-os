@@ -4391,8 +4391,8 @@ test('Hue controls, brightness power sync & no DOM reparenting on hover (#146)',
     document: { getElementById: () => null },
     fetchCalls: [],
     fetch: async (url, opts) => {
-      sandbox.fetchCalls.push({ url, body: JSON.parse(opts.body) });
-      return { json: async () => ({ success: true }) };
+      sandbox.fetchCalls.push({ url, body: opts?.body ? JSON.parse(opts.body) : null });
+      return { json: async () => ({ success: true, data: [] }) };
     },
     showToast: () => {},
     loadDashboard: async () => {}
@@ -4426,6 +4426,142 @@ test('Hue controls, brightness power sync & no DOM reparenting on hover (#146)',
   const hoverFnMatch = fpSrc.match(/setHoveredPin\(pinNum[\s\S]*?\n  \}/);
   assert.ok(hoverFnMatch, 'setHoveredPin deve esistere in floorplan.js');
   assert.ok(!hoverFnMatch[0].includes('appendChild('), 'setHoveredPin non deve usare layer.appendChild(el) per non riavviare fp-pin-enter');
+});
+
+test('Selettore Colore & Palette RGB Philips Hue Multicolor (#147)', async () => {
+  const fs = require('fs');
+  const path = require('path');
+  const vm = require('vm');
+  const rootDir = path.join(__dirname, '..');
+  const spatialEngine = require('../src/spatial-engine');
+
+  // 1. HueLocalManager.isColorCapableLight distingue Multicolor da White / White Ambiance
+  assert.equal(HueLocalManager.isColorCapableLight({ type: 'Extended color light', state: { xy: [0.3, 0.3] } }), true);
+  assert.equal(HueLocalManager.isColorCapableLight({ type: 'Color light' }), true);
+  assert.equal(HueLocalManager.isColorCapableLight({ color: { xy: { x: 0.4, y: 0.4 } } }), true);
+  assert.equal(HueLocalManager.isColorCapableLight({ type: 'Color temperature light', state: { ct: 370 } }), false);
+  assert.equal(HueLocalManager.isColorCapableLight({ type: 'Dimmable light', state: { bri: 200 } }), false);
+
+  // 2. setColorOrTemperature risolve alias Bridge ('Piantana Libreria' -> 'Piantana Vetrina') e aggiorna colorHex/isOn
+  const hueInst = new HueLocalManager();
+  hueInst.isPaired = true;
+  const putCalls = [];
+  hueInst.v2Client = { put: async (url, body) => { putCalls.push({ url, body }); return { data: {} }; } };
+  const libLight = { hueId: '12', v2Id: 'v2-lib-12', name: 'Piantana Vetrina', type: 'Extended color light', supportsColor: true, isOn: false, brightness: 0 };
+  hueInst.lightsById = { '12': libLight };
+  hueInst.lightsByName = { 'piantana vetrina': libLight };
+  hueInst.v2LightIdByHueId = { '12': 'v2-lib-12' };
+  hueInst.v2LightIdByName = { 'piantana vetrina': 'v2-lib-12' };
+
+  const hexRes = await hueInst.setColorOrTemperature({ lightName: 'Piantana Libreria', roomName: 'Salone', hex: '#ef4444' });
+  assert.equal(hexRes.success, true);
+  assert.equal(putCalls.length, 1);
+  assert.equal(putCalls[0].url, '/resource/light/v2-lib-12');
+  assert.ok(putCalls[0].body.color?.xy, 'deve inviare coordinate XY al Bridge Hue v2');
+  assert.equal(putCalls[0].body.on?.on, true);
+  assert.equal(libLight.isOn, true);
+  assert.equal(libLight.colorHex, '#ef4444');
+
+  // 3. spatialEngine.getEnrichedMapState espone capabilities.color sui pin Multicolor e false su White/Lampadari
+  const enriched = spatialEngine.getEnrichedMapState({});
+  const pinDivano = enriched.pins.find((p) => p.pin === 20);
+  const pinGiunone = enriched.pins.find((p) => p.pin === 21);
+  const pinComodino = enriched.pins.find((p) => p.pin === 1);
+  assert.equal(pinDivano.capabilities?.color, true, 'Piantana divano deve supportare color RGB');
+  assert.equal(pinGiunone.capabilities?.color, false, 'Giunone non deve avere capability color RGB');
+  assert.equal(pinComodino.capabilities?.color, false, 'Comodino White non deve avere capability color RGB');
+
+  // 4. VM frontend test su public/js/device-sheet.js: swatch + color picker solo su Multicolor, throttling + isOn
+  const sheetSrc = fs.readFileSync(path.join(rootDir, 'public/js/device-sheet.js'), 'utf8');
+  const elements = {};
+  const openedPins = [];
+  const sandbox = {
+    console,
+    Date,
+    Math,
+    JSON,
+    Map,
+    Set,
+    setTimeout,
+    clearTimeout,
+    encodeURIComponent,
+    window: {
+      _sheetDynamic: false,
+      homeData: {
+        spatial: {
+          pins: [
+            { pin: 20, name: 'Piantana divano', room: 'Salone', category: 'light', vendor: 'Philips Hue Color', capabilities: { color: true, colorTemp: true }, hueNames: ['Piantana divano'], isOn: false, brightness: 50 },
+            { pin: 21, name: 'Lampadario Giunone', room: 'Salone', category: 'chandelier', vendor: 'Philips Hue (x6)', totalBulbs: 6, capabilities: { color: false, colorTemp: true }, hueNames: ['Giunone 1'], isOn: false }
+          ]
+        },
+        hue: { paired: true, scenes: [] }
+      },
+      floorplan: { renderCount: 0, render() { this.renderCount += 1; } }
+    },
+    document: {
+      getElementById: (id) => {
+        if (!elements[id]) {
+          elements[id] = { style: {}, className: '', textContent: '', innerHTML: '', classList: { remove() {}, add() {} }, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, querySelectorAll: () => [] };
+        }
+        return elements[id];
+      }
+    },
+    fetchCalls: [],
+    fetch: async (url, opts) => {
+      sandbox.fetchCalls.push({ url, body: opts?.body ? JSON.parse(opts.body) : null });
+      return { json: async () => ({ success: true, data: [] }) };
+    },
+    showToast: () => {},
+    loadDashboard: async () => {}
+  };
+  sandbox.window.window = sandbox.window;
+  vm.createContext(sandbox);
+  const sheet = vm.runInContext(`${sheetSrc}\n;deviceSheet;`, sandbox);
+  const origOpen = sheet.open.bind(sheet);
+  sheet.open = (p) => {
+    openedPins.push({ ...p });
+    return origOpen(p);
+  };
+  sheet.currentPin = sandbox.window.homeData.spatial.pins[0];
+
+  const htmlColor = sheet.renderLightControls(sandbox.window.homeData.spatial.pins[0]);
+  const htmlWhite = sheet.renderLightControls(sandbox.window.homeData.spatial.pins[1]);
+  assert.ok(htmlColor.includes('hue-color-picker-20'), 'Lampada Multicolor deve mostrare <input type="color">');
+  assert.ok(htmlColor.includes('type="color"'), 'Lampada Multicolor deve avere spettro continuo');
+  assert.ok(htmlColor.includes('data-hex="#ef4444"'), 'Lampada Multicolor deve avere fila swatch preset');
+  assert.ok(!htmlWhite.includes('hue-color-picker-21') && !htmlWhite.includes('type="color"'), 'Lampadario/White non deve mostrare selettore RGB');
+
+  // Click swatch preset -> POST /api/hue/color & p.isOn = true su piantina e deviceSheet
+  await sandbox.window.setLightHexColor(20, '#ef4444', 'Rosso');
+  const pinAfterSwatch = sandbox.window.homeData.spatial.pins[0];
+  assert.equal(pinAfterSwatch.isOn, true, 'Cambio colore deve impostare p.isOn = true');
+  assert.equal(pinAfterSwatch.colorHex, '#ef4444');
+  const swatchCalls = sandbox.fetchCalls.filter((c) => c.url === '/api/hue/color');
+  assert.equal(swatchCalls.length, 1);
+  assert.deepEqual(swatchCalls[0].body, { lightName: 'Piantana divano', roomName: 'Salone', hex: '#ef4444' });
+  assert.ok(sandbox.window.floorplan.renderCount >= 1);
+  assert.equal(openedPins.at(-1)?.isOn, true);
+
+  // Preview live + throttling gentile: drag rapido invia max 1 chiamata immediata e accoda l'ultima
+  pinAfterSwatch.isOn = false;
+  sandbox.fetchCalls.length = 0;
+  sandbox.window.previewHueColorUi(20, '#06b6d4');
+  sandbox.window.previewHueColorUi(20, '#2563eb');
+  sandbox.window.previewHueColorUi(20, '#22c55e');
+  assert.equal(pinAfterSwatch.isOn, true, 'preview live deve accendere subito lo stato locale');
+  assert.equal(pinAfterSwatch.colorHex, '#22c55e', 'preview live deve mostrare subito ultimo colore');
+  const immediateCalls = sandbox.fetchCalls.filter((c) => c.url === '/api/hue/color');
+  assert.ok(immediateCalls.length <= 1, 'throttling gentile deve limitare le chiamate ravvicinate');
+
+  await new Promise((r) => setTimeout(r, 230));
+  const trailingCalls = sandbox.fetchCalls.filter((c) => c.url === '/api/hue/color');
+  assert.ok(trailingCalls.some((c) => c.body?.hex === '#22c55e'), 'trailing throttle deve inviare ultimo colore');
+
+  await sandbox.window.flushHueColorUi(20, '#d946ef');
+  const flushCalls = sandbox.fetchCalls.filter((c) => c.url === '/api/hue/color');
+  assert.equal(flushCalls.at(-1)?.body?.hex, '#d946ef');
+  assert.equal(pinAfterSwatch.colorHex, '#d946ef');
+  assert.equal(openedPins.at(-1)?.colorHex, '#d946ef');
 });
 
 

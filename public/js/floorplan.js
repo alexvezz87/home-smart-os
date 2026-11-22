@@ -1272,9 +1272,10 @@ class FloorplanEngine {
     } else if (p.category === 'light') {
       iconGlyph = '&#xf0eb;';
       if (p.isOn) {
-        iconColor = '#fde047';
+        const activeHueHex = /^#[0-9a-f]{6}$/i.test(String(p.colorHex || '')) ? p.colorHex : null;
+        iconColor = activeHueHex || '#fde047';
         fill = '#422006';
-        stroke = isSelected ? '#22d3ee' : '#facc15';
+        stroke = isSelected ? '#22d3ee' : (activeHueHex || '#facc15');
         subBadge = p.brightness ? `${p.brightness}%` : 'ON';
       } else {
         iconColor = '#64748b';
