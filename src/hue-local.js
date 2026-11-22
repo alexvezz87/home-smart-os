@@ -314,6 +314,18 @@ class HueLocalManager extends EventEmitter {
         const isOn = Boolean(l.state?.on && isReachable);
         const briRaw = typeof l.state?.bri === 'number' ? l.state.bri : 254;
         const brightness = Math.max(0, Math.min(100, Math.round((briRaw / 254) * 100)));
+        const supportsColor = HueLocalManager.isColorCapableLight(l);
+        const supportsColorTemp = Boolean(
+          l.state?.ct !== undefined
+          || l.capabilities?.control?.ct
+          || /color|ambiance/i.test(l.type || '')
+        );
+        const xy = Array.isArray(l.state?.xy) && l.state.xy.length >= 2 ? l.state.xy : null;
+        const ct = l.state?.ct || null;
+        const colormode = l.state?.colormode || null;
+        const colorHex = (supportsColor && xy && colormode !== 'ct')
+          ? xyToRgb(xy[0], xy[1], 254)
+          : (ct ? miredToRgb(ct) : null);
 
         const entry = {
           hueId,
@@ -323,11 +335,18 @@ class HueLocalManager extends EventEmitter {
           isOn,
           brightness: isOn ? brightness : 0,
           reachable: isReachable,
-          ct: l.state?.ct || null,
-          xy: l.state?.xy || null,
+          supportsColor,
+          supportsColorTemp,
+          capabilities: {
+            color: supportsColor,
+            colorTemp: supportsColorTemp
+          },
+          colorHex,
+          ct,
+          xy,
           hue: l.state?.hue || null,
           sat: l.state?.sat || null,
-          colormode: l.state?.colormode || null,
+          colormode,
           effect: l.state?.effect || 'none'
         };
         byId[hueId] = entry;
@@ -408,17 +427,38 @@ class HueLocalManager extends EventEmitter {
 
       this.v2RoomByName = v2RoomByName;
 
-      // Mappatura luci v1 -> v2
+      // Mappatura luci v1 -> v2 e arricchimento capability reali da CLIP v2
       const lightsV2 = lightsV2Res.data?.data || [];
       const v2LightByHueId = {};
       const v2LightByName = {};
       for (const lv2 of lightsV2) {
+        let matchedHueId = null;
         if (lv2.id_v1) {
-          const hueId = lv2.id_v1.replace('/lights/', '');
-          v2LightByHueId[hueId] = lv2.id;
+          matchedHueId = lv2.id_v1.replace('/lights/', '');
+          v2LightByHueId[matchedHueId] = lv2.id;
         }
         if (lv2.metadata?.name) {
           v2LightByName[this.normalizeName(lv2.metadata.name)] = lv2.id;
+        }
+        const localEntry = (matchedHueId && this.lightsById[matchedHueId])
+          || (lv2.metadata?.name && this.lightsByName[this.normalizeName(lv2.metadata.name)])
+          || null;
+        if (localEntry) {
+          const hasV2Color = HueLocalManager.isColorCapableLight(lv2);
+          localEntry.v2Id = lv2.id;
+          if (lv2.color !== undefined) {
+            localEntry.supportsColor = hasV2Color;
+          }
+          if (lv2.color_temperature !== undefined) {
+            localEntry.supportsColorTemp = Boolean(lv2.color_temperature);
+          }
+          localEntry.capabilities = {
+            color: Boolean(localEntry.supportsColor),
+            colorTemp: Boolean(localEntry.supportsColorTemp)
+          };
+          if (!localEntry.colorHex && localEntry.supportsColor && lv2.color?.xy && typeof lv2.color.xy.x === 'number') {
+            localEntry.colorHex = xyToRgb(lv2.color.xy.x, lv2.color.xy.y, 254);
+          }
         }
       }
       this.v2LightIdByHueId = v2LightByHueId;
@@ -895,6 +935,52 @@ class HueLocalManager extends EventEmitter {
 
   // --- 🌈 GESTIONE COLORE & TEMPERATURA KELVIN ---
 
+  static isColorCapableLight(lightObj) {
+    if (!lightObj || typeof lightObj !== 'object') return false;
+    if (typeof lightObj.supportsColor === 'boolean') return lightObj.supportsColor;
+    if (lightObj.capabilities && typeof lightObj.capabilities.color === 'boolean') {
+      return lightObj.capabilities.color;
+    }
+    if (lightObj.color && (lightObj.color.xy || lightObj.color.gamut || lightObj.color.gamut_type)) {
+      return true;
+    }
+    if (lightObj.capabilities?.control?.colorgamut) return true;
+    if (Array.isArray(lightObj.state?.xy) && lightObj.state.xy.length >= 2) return true;
+    if (Array.isArray(lightObj.xy) && lightObj.xy.length >= 2) return true;
+    const t = String(lightObj.type || '').toLowerCase();
+    return (t.includes('extended color') || t.includes('color light')) && !t.includes('temperature');
+  }
+
+  _updateLocalLightColorState(targetV2LightIds, { hex = null, xy = null, kelvin = null, brightness = null } = {}) {
+    if (!Array.isArray(targetV2LightIds) || targetV2LightIds.length === 0) return;
+    const targetSet = new Set(targetV2LightIds.map(String));
+    for (const light of Object.values(this.lightsById || {})) {
+      const mappedV2 = light.v2Id || this.v2LightIdByHueId[String(light.hueId)] || String(light.hueId);
+      if (!targetSet.has(String(mappedV2)) && !targetSet.has(String(light.hueId))) continue;
+      light.isOn = true;
+      if (typeof brightness === 'number' && Number.isFinite(brightness)) {
+        light.brightness = brightness;
+      } else if (!light.brightness) {
+        light.brightness = 80;
+      }
+      if (typeof kelvin === 'number' && Number.isFinite(kelvin)) {
+        const mirek = Math.max(153, Math.min(500, Math.round(1000000 / kelvin)));
+        light.ct = mirek;
+        light.colormode = 'ct';
+        light.colorHex = miredToRgb(mirek);
+      } else if (hex) {
+        const coords = hexToXy(hex);
+        light.xy = [coords.x, coords.y];
+        light.colormode = 'xy';
+        light.colorHex = hex;
+      } else if (xy && typeof xy.x === 'number' && typeof xy.y === 'number') {
+        light.xy = [xy.x, xy.y];
+        light.colormode = 'xy';
+        light.colorHex = xyToRgb(xy.x, xy.y, 254);
+      }
+    }
+  }
+
   async setColorOrTemperature({ lightId = null, lightName = null, roomName = null, kelvin = null, hex = null, xy = null }) {
     if (!this.isPaired || !this.v2Client) {
       throw new Error('Hue Bridge non disponibile');
@@ -927,18 +1013,36 @@ class HueLocalManager extends EventEmitter {
       targetV2LightIds.push(v2Id);
       targetDesc = `Luce #${lightId}`;
     } else if (lightName) {
-      const v2Id = this.v2LightIdByName[this.normalizeName(lightName)];
+      const normL = this.normalizeName(lightName);
+      let v2Id = this.v2LightIdByName[normL];
+      let matchedDesc = lightName;
+      if (!v2Id) {
+        const lightObj = this.getLightStateByName(lightName);
+        if (lightObj) {
+          v2Id = lightObj.v2Id || this.v2LightIdByHueId[String(lightObj.hueId)] || String(lightObj.hueId);
+          matchedDesc = lightObj.name || lightName;
+        }
+      }
+      if (!v2Id) {
+        const entry = Object.entries(this.v2LightIdByName || {}).find(([k]) => k.includes(normL) || normL.includes(k));
+        if (entry) {
+          v2Id = entry[1];
+          matchedDesc = entry[0];
+        }
+      }
       if (v2Id) {
         targetV2LightIds.push(v2Id);
-        targetDesc = lightName;
+        targetDesc = matchedDesc;
       }
-    } else if (roomName) {
+    }
+
+    if (targetV2LightIds.length === 0 && roomName) {
       const norm = this.normalizeName(roomName);
       targetDesc = `Stanza ${roomName}`;
       const g = this.groupsByName[norm];
       if (g && Array.isArray(g.lights)) {
         for (const hueId of g.lights) {
-          const v2Id = this.v2LightIdByHueId[String(hueId)];
+          const v2Id = this.v2LightIdByHueId[String(hueId)] || String(hueId);
           if (v2Id) targetV2LightIds.push(v2Id);
         }
       }
@@ -959,6 +1063,8 @@ class HueLocalManager extends EventEmitter {
       }
     }
 
+    this._updateLocalLightColorState(targetV2LightIds, { hex, xy, kelvin });
+
     eventLogger.log(
       'hue_color',
       `Colore/Temperatura aggiornato su ${targetDesc} via Hue Bridge LAN`,
@@ -968,7 +1074,10 @@ class HueLocalManager extends EventEmitter {
     return {
       success: true,
       target: targetDesc,
-      lightsCount: targetV2LightIds.length
+      lightsCount: targetV2LightIds.length,
+      isOn: true,
+      hex: hex || null,
+      kelvin: kelvin || null
     };
   }
 
@@ -977,7 +1086,14 @@ class HueLocalManager extends EventEmitter {
       paired: this.isPaired,
       rooms: Object.keys(this.scenesByGroup || {}),
       scenes: (this.scenes || []).map(s => ({ id: s.id, name: s.name, room: s.groupName })),
-      lights: Object.values(this.lightsById || {}).map(l => ({ id: l.id, name: l.name, type: l.type })),
+      lights: Object.values(this.lightsById || {}).map(l => ({
+        id: l.hueId || l.id,
+        name: l.name,
+        type: l.type,
+        supportsColor: Boolean(l.supportsColor),
+        capabilities: l.capabilities || { color: Boolean(l.supportsColor), colorTemp: Boolean(l.supportsColorTemp) },
+        colorHex: l.colorHex || null
+      })),
       effects: ['candle', 'fire', 'prism', 'sparkle', 'opal', 'glisten', 'underwater', 'cosmos', 'sunbeam', 'enchant', 'no_effect']
     };
   }
@@ -1114,6 +1230,12 @@ class HueLocalManager extends EventEmitter {
         await new Promise(r => setTimeout(r, 60));
       }
     }
+
+    this._updateLocalLightColorState(targetV2LightIds, {
+      hex: resolvedHex,
+      kelvin: resolvedKelvin,
+      brightness: finalBrightness
+    });
 
     eventLogger.log(
       'hue_color',

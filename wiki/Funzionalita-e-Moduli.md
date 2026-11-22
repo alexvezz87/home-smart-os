@@ -127,7 +127,7 @@ Migrata nella shell reattiva **Vue 3 + Pinia** (`frontend/src/views/AdminView.vu
 | `public/js/app.js` | Router delle 3 macro-aree, gestione sessione/PIN Kiosk, polling dashboard e toast notifications. |
 | `public/js/floorplan.js` | Geometria stanze `ARCHITECTURAL_ROOMS`, pan & zoom engine, rendering SVG e layer heatmap. |
 | `public/js/camera-theater.js` | Modal Teatro / Maxi-Player a schermo intero per telecamere Tapo (WebRTC go2rtc, D-Pad PTZ, preset, snapshot e privacy). |
-| `public/js/device-sheet.js` | Rendering drawer/bottom sheet per tutti i dispositivi supportati e player streaming JSMpeg. |
+| `public/js/device-sheet.js` | Rendering drawer/bottom sheet per tutti i dispositivi supportati (incluso selettore RGB/spettro continuo per Philips Hue Multicolor `#147`) e player streaming JSMpeg. |
 | `public/js/drag-editor.js` | Logica drag & drop mouse/touch, rilevamento coordinate SVG, cassetto non collocati e persistenza. |
 | `public/js/energy.js` | Cruscotto energetico, grafici Chart.js per Bosch e simulatori di risparmio ARERA/EV. |
 | `public/js/mobility.js` | Centro Diagnostico Volvo EX30 & Wallbox ABB Terra AC (wireframe pneumatici, manutenzione, liquidi, porte/finestrini, comandi remoti e ricarica). |

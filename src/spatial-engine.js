@@ -70,6 +70,7 @@ class SpatialEngine {
         microZone: 'camera_centro',
         category: 'light',
         vendor: 'Philips Hue Color',
+        supportsColor: true,
         hueNames: ['Nuvoletta'],
         x: 40.5,
         y: 13.8,
@@ -167,6 +168,7 @@ class SpatialEngine {
         microZone: 'studio_focus',
         category: 'light',
         vendor: 'Philips Hue Color',
+        supportsColor: true,
         hueNames: ['Piantana studio'],
         x: 54.6,
         y: 21.4,
@@ -277,6 +279,7 @@ class SpatialEngine {
         microZone: 'ingresso',
         category: 'light',
         vendor: 'Philips Hue Color',
+        supportsColor: true,
         hueNames: ['Piantana ingresso'],
         x: 51.4,
         y: 51.5,
@@ -305,6 +308,7 @@ class SpatialEngine {
         microZone: 'isola_divano',
         category: 'light',
         vendor: 'Philips Hue Color',
+        supportsColor: true,
         hueNames: ['Piantana divano'],
         x: 31.8,
         y: 63.4,
@@ -348,6 +352,7 @@ class SpatialEngine {
         microZone: 'cinema_tv',
         category: 'light',
         vendor: 'Philips Hue Play/TV',
+        supportsColor: true,
         hueNames: ['TV 1'],
         x: 50.4,
         y: 67.2,
@@ -374,6 +379,7 @@ class SpatialEngine {
         microZone: 'cinema_tv',
         category: 'light',
         vendor: 'Philips Hue Play/TV',
+        supportsColor: true,
         hueNames: ['TV 2'],
         x: 50.4,
         y: 74.8,
@@ -390,6 +396,7 @@ class SpatialEngine {
         microZone: 'isola_divano',
         category: 'light',
         vendor: 'Philips Hue Color',
+        supportsColor: true,
         hueNames: ['Lampada Tiffany'],
         x: 27.6,
         y: 87.8,
@@ -404,6 +411,7 @@ class SpatialEngine {
         microZone: 'angolo_lettura',
         category: 'light',
         vendor: 'Philips Hue Color',
+        supportsColor: true,
         hueNames: ['Piantana Libreria', 'Piantana Vetrina'],
         x: 61.2,
         y: 79.8,
@@ -1085,6 +1093,16 @@ class SpatialEngine {
         clone.isOn = hueSt ? hueSt.isOn : Boolean(devMatch?.isOn);
         clone.brightness = hueSt ? hueSt.brightness : (devMatch?.brightness || (clone.isOn ? 80 : 0));
         clone.deviceId = devMatch?.id || null;
+        const supportsColor = hueSt
+          ? Boolean(hueSt.supportsColor ?? hueSt.capabilities?.color)
+          : Boolean(p.supportsColor ?? p.capabilities?.color ?? /\bcolor\b|\bplay\b/i.test(p.vendor || ''));
+        const supportsColorTemp = hueSt
+          ? Boolean(hueSt.supportsColorTemp ?? hueSt.capabilities?.colorTemp ?? true)
+          : Boolean(p.supportsColorTemp ?? true);
+        clone.supportsColor = supportsColor;
+        clone.capabilities = { color: supportsColor, colorTemp: supportsColorTemp };
+        if (hueSt?.colorHex) clone.colorHex = hueSt.colorHex;
+        if (hueSt?.colormode) clone.colormode = hueSt.colormode;
       } else if (p.category === 'chandelier') {
         const bulbs = p.hueNames.map(bName => {
           const hSt = hueLocal.getLightStateByName(bName);
@@ -1095,7 +1113,9 @@ class SpatialEngine {
             name: bName,
             id: dMatch?.id || bName,
             isOn,
-            brightness
+            brightness,
+            supportsColor: Boolean(hSt?.supportsColor ?? hSt?.capabilities?.color),
+            colorHex: hSt?.colorHex || null
           };
         });
         const onBulbs = bulbs.filter(b => b.isOn);
@@ -1106,6 +1126,11 @@ class SpatialEngine {
         clone.brightness = onBulbs.length > 0
           ? Math.round(onBulbs.reduce((s, b) => s + b.brightness, 0) / onBulbs.length)
           : 0;
+        const anyBulbColor = bulbs.some(b => b.supportsColor) || Boolean(p.supportsColor ?? p.capabilities?.color);
+        clone.supportsColor = anyBulbColor;
+        clone.capabilities = { color: anyBulbColor, colorTemp: true };
+        const activeColorHex = bulbs.find(b => b.isOn && b.colorHex)?.colorHex || bulbs.find(b => b.colorHex)?.colorHex || null;
+        if (activeColorHex) clone.colorHex = activeColorHex;
       } else if (p.category === 'plug') {
         const mPlug = plugs.find(pl => pl.name.toLowerCase() === (p.merossName || p.name).toLowerCase());
         const dMatch = devices.find(d =>
