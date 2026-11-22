@@ -4234,6 +4234,79 @@ test('Notifications: hide Persona Fidata button on resident presence events (#14
   }
 });
 
+test('Camera Theater same-origin /go2rtc proxy & no Mixed Content (#144)', async () => {
+  const fs = require('fs');
+  const http = require('http');
+  const path = require('path');
+  const { EventEmitter } = require('events');
+
+  const rootDir = path.join(__dirname, '..');
+  const theaterSrc = fs.readFileSync(path.join(rootDir, 'public/js/camera-theater.js'), 'utf8');
+  assert.ok(theaterSrc.includes('/go2rtc/stream.html?src='), 'camera-theater.js deve usare URL same-origin /go2rtc/stream.html');
+  assert.ok(!theaterSrc.includes('http://${host}:${apiPort}'), 'camera-theater.js non deve costruire URL http://...:1984');
+
+  const indexHtml = fs.readFileSync(path.join(rootDir, 'public/index.html'), 'utf8');
+  assert.ok(indexHtml.includes('name="mobile-web-app-capable"'), 'index.html deve includere mobile-web-app-capable');
+
+  const registerSecurityRoutes = require('../src/routes/security-vision-nest.routes');
+  const go2rtcManager = require('../src/go2rtc-manager');
+  const prevPort = go2rtcManager.apiPort;
+
+  const mockUpstream = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(`OK:${req.url}`);
+  });
+  await new Promise((resolve) => mockUpstream.listen(0, '127.0.0.1', resolve));
+
+  try {
+    go2rtcManager.apiPort = mockUpstream.address().port;
+    const wsRoutes = new Map();
+    const getRoutes = new Map();
+    registerSecurityRoutes(
+      {
+        get: (p, h) => getRoutes.set(p, h),
+        post: () => {},
+        delete: () => {},
+        ws: (p, h) => wsRoutes.set(p, h)
+      },
+      { auth: { isAuthEnabled: () => false }, proxy: () => () => {} }
+    );
+
+    assert.ok(wsRoutes.has('/go2rtc/api/ws'), 'deve registrare WS /go2rtc/api/ws');
+    const go2rtcHandler = getRoutes.get('/go2rtc/*');
+    assert.ok(typeof go2rtcHandler === 'function', 'deve registrare GET /go2rtc/*');
+
+    const fakeReq = Object.assign(new EventEmitter(), {
+      method: 'GET',
+      url: '/go2rtc/stream.html?src=camera_letto',
+      headers: { host: 'home.alexsoluzioniweb.it' },
+      readable: false
+    });
+    const fakeRes = {
+      statusCode: 0,
+      headers: {},
+      body: '',
+      headersSent: false,
+      status(c) { this.statusCode = c; return this; },
+      setHeader(k, v) { this.headers[k.toLowerCase()] = v; },
+      write(chunk) { this.body += chunk.toString(); },
+      end(chunk) { if (chunk) this.body += chunk.toString(); this._done(); },
+      on() {},
+      once() {},
+      emit() {}
+    };
+    await new Promise((resolve) => {
+      fakeRes._done = resolve;
+      go2rtcHandler(fakeReq, fakeRes);
+    });
+    assert.equal(fakeRes.statusCode, 200);
+    assert.equal(fakeRes.body, 'OK:/stream.html?src=camera_letto');
+  } finally {
+    go2rtcManager.apiPort = prevPort;
+    await new Promise((resolve) => mockUpstream.close(resolve));
+  }
+});
+
 test('Room Focus Vettoriale Planimetria: viewBox animato, contesto sfocato, pin scalati e drawer nascosto (#142)', () => {
   const fs = require('fs');
   const path = require('path');
