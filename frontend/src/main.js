@@ -321,6 +321,7 @@ function mountHomeVue() {
     legacyFp.setLayer = (layer) => floorplanStore.setLayer(layer);
     legacyFp.setStatusFilter = (status) => floorplanStore.setStatusFilter(status);
     legacyFp.selectRoom = (roomName, openDrawer = false) => floorplanStore.selectRoom(roomName, openDrawer);
+    legacyFp.exitRoomFocus = () => floorplanStore.exitRoomFocus();
     legacyFp.setRightDrawerTab = (tab) => floorplanStore.setRightDrawerTab(tab);
     legacyFp.setSearchQuery = (q) => floorplanStore.setSearchQuery(q);
     legacyFp.toggleRightDrawer = (forceState) => floorplanStore.toggleRightDrawer(forceState);

@@ -4234,6 +4234,30 @@ test('Notifications: hide Persona Fidata button on resident presence events (#14
   }
 });
 
+test('Room Focus Vettoriale Planimetria: viewBox animato, contesto sfocato, pin scalati e drawer nascosto (#142)', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const rootDir = path.join(__dirname, '..');
+
+  const fpSrc = fs.readFileSync(path.join(rootDir, 'public', 'js', 'floorplan.js'), 'utf8');
+  assert.ok(fpSrc.includes('id="room-context-blur"'), 'floorplan.js deve definire il filtro blur per il contesto esterno');
+  assert.ok(fpSrc.includes('id="focused-room-clip"'), 'floorplan.js deve definire clipPath della stanza in focus');
+  assert.ok(fpSrc.includes('id="focused-room-walls-mask"'), 'floorplan.js deve definire mask delle mura nitide');
+  assert.ok(fpSrc.includes('animateViewBox('), 'floorplan.js deve interpolare il viewBox SVG con requestAnimationFrame');
+  assert.ok(fpSrc.includes('fp-pin-enter'), 'floorplan.js deve applicare l animazione di ingresso sui pin della stanza');
+  assert.ok(fpSrc.includes('formatFocusDeviceName('), 'floorplan.js deve formattare il nome leggibile sui dispositivi in focus');
+  assert.ok(fpSrc.includes("selectRoom('${r.id}', false)"), 'click su stanza non deve aprire automaticamente la sidebar destra');
+  assert.ok(!fpSrc.includes("selectRoom('${r.id}', true)"), 'nessun click su stanza deve forzare apertura drawer destro');
+
+  const storeSrc = fs.readFileSync(path.join(rootDir, 'frontend', 'src', 'stores', 'floorplanStore.js'), 'utf8');
+  assert.ok(storeSrc.includes('focusedRoomMeta'), 'floorplanStore deve esporre focusedRoomMeta');
+  assert.ok(storeSrc.includes('exitRoomFocus()'), 'floorplanStore deve esporre exitRoomFocus()');
+  assert.ok(storeSrc.includes('if (nextRoom && !openDrawer && this.rightDrawerOpen)'), 'selectRoom deve mantenere nascosta la sidebar destra all ingresso in focus');
+
+  const mainSrc = fs.readFileSync(path.join(rootDir, 'frontend', 'src', 'main.js'), 'utf8');
+  assert.ok(mainSrc.includes('legacyFp.exitRoomFocus'), 'main.js deve esporre il bridge exitRoomFocus');
+});
+
 
 
 

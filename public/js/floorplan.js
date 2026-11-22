@@ -101,7 +101,7 @@ const ARCHITECTURAL_ROOMS = [
     path: 'M 240 55 L 530 55 L 530 320 L 240 320 Z',
     labelX: 392,
     labelY: 112,
-    viewBoxZoom: '190 20 400 350',
+    viewBoxZoom: '175 0 420 375',
     interactive: true
   },
   {
@@ -126,7 +126,7 @@ const ARCHITECTURAL_ROOMS = [
     path: 'M 240 320 L 390 320 L 390 492 L 240 492 Z',
     labelX: 315,
     labelY: 395,
-    viewBoxZoom: '190 280 260 260',
+    viewBoxZoom: '185 268 260 276',
     interactive: true
   },
   {
@@ -139,7 +139,7 @@ const ARCHITECTURAL_ROOMS = [
     path: 'M 492 252 L 735 252 L 735 455 L 492 455 Z',
     labelX: 615,
     labelY: 432,
-    viewBoxZoom: '440 210 350 300',
+    viewBoxZoom: '428 195 370 318',
     interactive: true
   },
   {
@@ -152,7 +152,7 @@ const ARCHITECTURAL_ROOMS = [
     path: 'M 600 455 L 815 455 L 815 592 L 600 592 Z',
     labelX: 702,
     labelY: 525,
-    viewBoxZoom: '540 410 320 240',
+    viewBoxZoom: '540 398 335 252',
     interactive: true
   },
   {
@@ -177,7 +177,7 @@ const ARCHITECTURAL_ROOMS = [
     path: 'M 538 592 L 815 592 L 815 758 L 538 758 Z',
     labelX: 676,
     labelY: 675,
-    viewBoxZoom: '490 540 360 260',
+    viewBoxZoom: '475 535 402 280',
     interactive: true
   },
   {
@@ -190,7 +190,7 @@ const ARCHITECTURAL_ROOMS = [
     path: 'M 390 320 L 492 320 L 492 455 L 600 455 L 600 592 L 538 592 L 538 518 L 452 518 L 452 665 L 390 665 Z',
     labelX: 442,
     labelY: 390,
-    viewBoxZoom: '330 280 320 410',
+    viewBoxZoom: '320 265 350 455',
     interactive: true
   },
   {
@@ -203,7 +203,7 @@ const ARCHITECTURAL_ROOMS = [
     path: 'M 390 665 L 538 665 L 538 768 L 390 768 Z',
     labelX: 464,
     labelY: 742,
-    viewBoxZoom: '330 620 270 210',
+    viewBoxZoom: '335 615 258 205',
     interactive: true
   },
   {
@@ -216,7 +216,7 @@ const ARCHITECTURAL_ROOMS = [
     path: 'M 235 768 L 538 768 L 538 1010 L 640 1010 L 640 1112 L 538 1112 L 538 1222 L 235 1222 Z',
     labelX: 386,
     labelY: 1085,
-    viewBoxZoom: '190 660 490 600',
+    viewBoxZoom: '175 710 525 570',
     interactive: true
   },
   {
@@ -229,7 +229,7 @@ const ARCHITECTURAL_ROOMS = [
     path: 'M 538 758 L 748 758 L 748 1010 L 538 1010 Z',
     labelX: 642,
     labelY: 830,
-    viewBoxZoom: '490 710 310 350',
+    viewBoxZoom: '475 700 336 368',
     interactive: true
   },
   {
@@ -325,7 +325,99 @@ class FloorplanEngine {
     this.dayPhaseOverride = ['auto', 'morning', 'afternoon', 'evening', 'night'].includes(savedOverride) ? savedOverride : 'auto';
     this._lastAutoDayPhase = this.getAutoDayPhase();
     this._clockTimer = null;
+    this._currentViewBox = [150, 30, 680, 1215];
+    this._viewBoxAnimId = null;
+    this._lastFocusedRoom = null;
+    this._escBound = false;
+    this.ensureRoomFocusStyles();
+    this.ensureEscListener();
     this.startClockLoop();
+  }
+
+  ensureRoomFocusStyles() {
+    if (typeof document === 'undefined' || document.getElementById('fp-room-focus-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'fp-room-focus-styles';
+    style.textContent = `
+      @keyframes fpPinPop {
+        0% { opacity: 0; transform: scale(0.72); }
+        100% { opacity: 1; transform: scale(1); }
+      }
+      @keyframes fpHudSlideDown {
+        0% { opacity: 0; transform: translateY(-8px) scale(0.98); }
+        100% { opacity: 1; transform: translateY(0) scale(1); }
+      }
+      @keyframes fpContextFade {
+        0% { opacity: 0.85; }
+        100% { opacity: 0.22; }
+      }
+      .fp-pin-enter {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: fpPinPop 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      .fp-hud-enter {
+        animation: fpHudSlideDown 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      .fp-context-fade {
+        animation: fpContextFade 0.38s ease-out both;
+      }
+      .spatial-pin-item.fp-focused-pin:hover .fp-pin-card {
+        filter: brightness(1.18) drop-shadow(0 0 6px rgba(34, 211, 238, 0.55));
+      }
+    `;
+    document.head?.appendChild(style);
+  }
+
+  ensureEscListener() {
+    if (typeof window === 'undefined' || this._escBound) return;
+    this._escBound = true;
+    window.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Escape' || !this.selectedRoom) return;
+      const devDrawer = document.getElementById('device-drawer');
+      if (devDrawer && !devDrawer.classList.contains('hidden')) return;
+      this.selectRoom(null, false);
+    });
+  }
+
+  parseViewBox(vbStr) {
+    const parts = String(vbStr || '').trim().split(/\s+/).map(Number);
+    return (parts.length === 4 && parts.every(Number.isFinite)) ? parts : [150, 30, 680, 1215];
+  }
+
+  animateViewBox(svgEl, fromVb, toVb, duration = 420) {
+    if (!svgEl) return;
+    if (this._viewBoxAnimId && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(this._viewBoxAnimId);
+      this._viewBoxAnimId = null;
+    }
+    const start = Array.isArray(fromVb) && fromVb.length === 4 ? [...fromVb] : [...toVb];
+    const target = Array.isArray(toVb) && toVb.length === 4 ? [...toVb] : [150, 30, 680, 1215];
+    const unchanged = start.every((val, i) => Math.abs(val - target[i]) < 0.2);
+
+    if (unchanged || duration <= 0 || typeof requestAnimationFrame !== 'function') {
+      this._currentViewBox = [...target];
+      svgEl.setAttribute('viewBox', target.join(' '));
+      return;
+    }
+
+    const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const tick = (now) => {
+      const elapsed = (now || Date.now()) - startTime;
+      const progress = Math.min(1, Math.max(0, elapsed / duration));
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const interpolated = start.map((s, idx) => +(s + (target[idx] - s) * eased).toFixed(2));
+      this._currentViewBox = interpolated;
+      svgEl.setAttribute('viewBox', interpolated.join(' '));
+      if (progress < 1) {
+        this._viewBoxAnimId = requestAnimationFrame(tick);
+      } else {
+        this._viewBoxAnimId = null;
+        this._currentViewBox = [...target];
+        svgEl.setAttribute('viewBox', target.join(' '));
+      }
+    };
+    this._viewBoxAnimId = requestAnimationFrame(tick);
   }
 
   getAutoDayPhase(date = new Date()) {
@@ -598,6 +690,7 @@ class FloorplanEngine {
 
   setZoomPreset(preset) {
     this.zoomPreset = preset || 'all';
+    this.selectedRoom = null;
     this.panX = 0;
     this.panY = 0;
     this.scale = 1;
@@ -715,31 +808,81 @@ class FloorplanEngine {
   }
 
   /**
-   * Evidenzia/Spotlight una stanza sulla piantina fissa (senza zoom o spostamento viewBox)
-   * Se la stanza è già selezionata, torna alla vista globale di tutta la casa.
+   * Entra in modalità focus vettoriale per la stanza selezionata o torna alla vista casa.
+   * Mantiene la sidebar destra nascosta di default per dare pieno spazio alla stanza.
    */
   selectRoom(roomName, openDrawer = false) {
     if (openDrawer && this.hasDragged) {
       this.hasDragged = false;
       return;
     }
-    if (this.selectedRoom === roomName || !roomName) {
-      this.selectedRoom = null;
-    } else {
-      this.selectedRoom = roomName;
-    }
-    if (openDrawer && this.selectedRoom) {
+    if (window.dragEditor?.editMode) return;
+    const nextRoom = roomName || null;
+    this.selectedRoom = nextRoom;
+    this.panX = 0;
+    this.panY = 0;
+    this.scale = 1;
+    if (nextRoom && !openDrawer && this.rightDrawerOpen) {
+      this.toggleRightDrawer(false);
+    } else if (openDrawer && nextRoom) {
       this.rightDrawerTab = 'devices';
+      this.toggleRightDrawer(true);
     }
     this.render();
-    if (openDrawer) {
-      this.toggleRightDrawer(Boolean(this.selectedRoom));
-    }
+  }
+
+  exitRoomFocus() {
+    this.selectRoom(null, false);
   }
 
   // Alias per retrocompatibilità
   zoomToRoom(roomName) {
     this.selectRoom(roomName);
+  }
+
+  escapeSvgText(str) {
+    return String(str ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  formatFocusDeviceName(p) {
+    const clean = String(p?.name || `Pin #${p?.pin || ''}`)
+      .replace(/\s*\([^)]*\)/g, '')
+      .replace(/^Termovalvola\s+/i, 'Valvola ')
+      .replace(/^Purificatore\s+/i, '')
+      .replace(/^Stampante\s+/i, '')
+      .trim();
+    return clean.length > 16 ? `${clean.slice(0, 15)}…` : clean;
+  }
+
+  computeRoomTelemetrySummary(roomId, pins = []) {
+    const roomPins = pins.filter(p => p.room === roomId);
+    const activeLights = roomPins.filter(p => (p.category === 'light' || p.category === 'chandelier') && p.isOn).length;
+    const totalLights = roomPins.filter(p => p.category === 'light' || p.category === 'chandelier').length;
+    const roomWatts = roomPins.reduce((acc, p) => acc + (Number(p.powerW) || 0), 0);
+    const valveTemps = roomPins
+      .filter(p => p.category === 'valve' && typeof p.temperature === 'number' && !Number.isNaN(p.temperature))
+      .map(p => p.temperature);
+    const fallbackTemps = roomPins
+      .filter(p => typeof (p.temperature ?? p.temperatureC) === 'number' && !Number.isNaN(p.temperature ?? p.temperatureC))
+      .map(p => p.temperature ?? p.temperatureC);
+    const tempList = valveTemps.length > 0 ? valveTemps : fallbackTemps;
+    const roomTemp = tempList.length > 0
+      ? +(tempList.reduce((a, b) => a + b, 0) / tempList.length).toFixed(1)
+      : null;
+    return { roomPins, activeLights, totalLights, roomWatts, roomTemp };
+  }
+
+  buildRoomFloorFill(r, isCad, isLight, isSelected = false) {
+    if (isCad) return isSelected ? 'rgba(14, 165, 233, 0.28)' : 'rgba(15, 23, 42, 0.85)';
+    if (isLight) {
+      return r.floorType === 'parquet' ? 'url(#floorParquetLight)' : (r.floorType === 'tile' ? 'url(#floorTileLight)' : 'url(#floorDeck)');
+    }
+    return r.floorType === 'parquet' ? 'url(#floorParquet)' : (r.floorType === 'tile' ? 'url(#floorTile)' : 'url(#floorDeck)');
   }
 
   updateCursorState() {
@@ -1010,9 +1153,183 @@ class FloorplanEngine {
     `;
   }
 
+  buildPinVisualMeta(p, isSelected) {
+    let fill = '#0f172a';
+    let stroke = '#334155';
+    let iconColor = '#94a3b8';
+    let iconGlyph = '&#xf108;';
+    let subBadge = '';
+
+    if (p.category === 'chandelier') {
+      iconGlyph = '&#xe2ca;';
+      if (p.isOn) {
+        iconColor = '#f59e0b';
+        fill = '#451a03';
+        stroke = isSelected ? '#22d3ee' : '#f59e0b';
+        subBadge = `${p.activeBulbs || 0}/${p.totalBulbs || 0}💡`;
+      } else {
+        iconColor = '#64748b';
+        stroke = isSelected ? '#22d3ee' : '#334155';
+      }
+    } else if (p.category === 'light') {
+      iconGlyph = '&#xf0eb;';
+      if (p.isOn) {
+        iconColor = '#fde047';
+        fill = '#422006';
+        stroke = isSelected ? '#22d3ee' : '#facc15';
+        subBadge = p.brightness ? `${p.brightness}%` : 'ON';
+      } else {
+        iconColor = '#64748b';
+        stroke = isSelected ? '#22d3ee' : '#334155';
+      }
+    } else if (p.category === 'plug') {
+      iconGlyph = '&#xf1e6;';
+      const power = Number(p.powerW) || 0;
+      if (power > 15) {
+        iconColor = '#38bdf8';
+        fill = '#082f49';
+        stroke = isSelected ? '#22d3ee' : '#38bdf8';
+        subBadge = `${Math.round(power)}W`;
+      } else if (p.isOn) {
+        iconColor = '#38bdf8';
+        stroke = isSelected ? '#22d3ee' : '#0284c7';
+        subBadge = power > 0 ? `${Math.round(power)}W` : 'ON';
+      } else {
+        iconColor = '#475569';
+        stroke = isSelected ? '#22d3ee' : '#334155';
+      }
+    } else if (p.category === 'valve') {
+      iconGlyph = '&#xf769;';
+      const isHeating = Boolean(p.isHeating || (Number(p.valvePercent) > 15));
+      if (isHeating) {
+        iconColor = '#ea580c';
+        fill = '#431407';
+        stroke = isSelected ? '#22d3ee' : '#f97316';
+      } else {
+        stroke = isSelected ? '#22d3ee' : '#334155';
+      }
+      const optIcon = p.optBadge === 'solar_trim' ? '☀️'
+        : (p.optBadge === 'eco_away' ? '🍃'
+          : (p.optBadge === 'night_shift' ? '🌙'
+            : (p.optBadge === 'window_pause' ? '🪟' : '')));
+      if (p.optBadge === 'window_pause') stroke = isSelected ? '#22d3ee' : '#06b6d4';
+      const baseBadge = (p.temperature && p.setpoint) ? `${p.temperature}°/${p.setpoint}°` : `${p.setpoint || p.temperature || 20.5}°`;
+      subBadge = optIcon ? `${optIcon}${baseBadge}` : baseBadge;
+    } else if (p.category === 'camera') {
+      if (p.privacyMode) {
+        iconGlyph = '&#xf070;';
+        iconColor = '#64748b';
+        fill = '#1e293b';
+        stroke = isSelected ? '#22d3ee' : '#475569';
+        subBadge = 'PRIV';
+      } else {
+        iconGlyph = '&#xf03d;';
+        iconColor = '#d946ef';
+        fill = '#3b0764';
+        stroke = isSelected ? '#22d3ee' : '#e879f9';
+        subBadge = 'LIVE';
+      }
+    } else if (p.category === 'speaker') {
+      iconGlyph = '&#xf028;';
+      iconColor = '#eab308';
+      fill = '#1e293b';
+      stroke = isSelected ? '#22d3ee' : '#ca8a04';
+      subBadge = 'Nest';
+    } else if (p.category === 'tv') {
+      iconGlyph = '&#xf26c;';
+      iconColor = '#a855f7';
+      fill = '#2e1065';
+      stroke = isSelected ? '#22d3ee' : '#c084fc';
+      subBadge = 'TV';
+    } else if (p.category === 'sensor') {
+      iconGlyph = '&#xf09e;';
+      if (p.motion) {
+        iconColor = '#34d399';
+        fill = '#065f46';
+        stroke = isSelected ? '#22d3ee' : '#10b981';
+        subBadge = 'MOV';
+      } else {
+        iconColor = '#10b981';
+        fill = '#064e3b';
+        stroke = isSelected ? '#22d3ee' : '#34d399';
+        if (p.temperature) subBadge = `${p.temperature}°`;
+      }
+    } else if (p.category === 'climate') {
+      if (p.isDyson) {
+        iconGlyph = '&#xf863;';
+        if (p.isOn) {
+          iconColor = '#34d399';
+          fill = '#064e3b';
+          stroke = isSelected ? '#22d3ee' : '#10b981';
+          subBadge = p.temperatureC !== null && p.temperatureC !== undefined ? `${p.temperatureC}°` : 'ON';
+        } else {
+          iconColor = '#64748b';
+          stroke = isSelected ? '#22d3ee' : '#334155';
+          subBadge = p.temperatureC !== null && p.temperatureC !== undefined ? `${p.temperatureC}°` : 'OFF';
+        }
+      } else {
+        iconGlyph = '&#xf769;';
+        iconColor = '#06b6d4';
+        fill = '#083344';
+        stroke = isSelected ? '#22d3ee' : '#0891b2';
+        subBadge = p.isOn ? 'ON' : '';
+      }
+    } else if (p.category === 'appliance') {
+      iconGlyph = p.thinqRole === 'dryer' ? '&#xf72e;' : '&#xf2e7;';
+      if (p.isRunning) {
+        iconColor = '#34d399';
+        fill = '#064e3b';
+        stroke = isSelected ? '#22d3ee' : '#10b981';
+        subBadge = p.remainFormatted || 'ON';
+      } else if (p.online) {
+        iconColor = '#38bdf8';
+        fill = '#082f49';
+        stroke = isSelected ? '#22d3ee' : '#0284c7';
+        subBadge = p.statusCode === 'END' ? 'FINE' : 'ON';
+      } else {
+        iconColor = '#64748b';
+        stroke = isSelected ? '#22d3ee' : '#334155';
+        subBadge = 'OFF';
+      }
+    } else if (p.category === 'printer') {
+      iconGlyph = '&#xf02f;';
+      if (p.online) {
+        iconColor = p.statusCode === 'error' ? '#f43f5e' : '#34d399';
+        fill = p.statusCode === 'error' ? '#4c0519' : '#064e3b';
+        stroke = isSelected ? '#22d3ee' : (p.statusCode === 'error' ? '#fb7185' : '#10b981');
+        subBadge = typeof p.tonerPercent === 'number' ? `${p.tonerPercent}%` : 'ON';
+      } else {
+        iconColor = '#64748b';
+        stroke = isSelected ? '#22d3ee' : '#334155';
+        subBadge = 'OFF';
+      }
+    }
+
+    return { fill, stroke, iconColor, iconGlyph, subBadge };
+  }
+
+  buildDaylightOverlaySvg(dayPhase) {
+    return `
+      <g id="svg-layer-daylight" pointer-events="none">
+        <path d="M 240 55 L 735 55 L 735 455 L 815 455 L 815 758 L 748 758 L 748 1222 L 235 1222 L 235 768 L 390 768 L 390 492 L 240 492 Z"
+              fill="${dayPhase.ambientWash}" />
+        <ellipse cx="395" cy="115" rx="125" ry="95" fill="url(#daylightBeam)" />
+        <ellipse cx="470" cy="135" rx="75" ry="65" fill="url(#daylightBeam)" />
+        <ellipse cx="645" cy="315" rx="110" ry="85" fill="url(#daylightBeam)" />
+        <ellipse cx="775" cy="510" rx="68" ry="65" fill="url(#daylightBeam)" />
+        <ellipse cx="665" cy="895" rx="125" ry="105" fill="url(#daylightBeam)" />
+        <ellipse cx="678" cy="1075" rx="85" ry="70" fill="url(#daylightBeam)" />
+        <ellipse cx="410" cy="1135" rx="135" ry="105" fill="url(#daylightBeam)" />
+      </g>
+    `;
+  }
+
   render() {
     const container = document.getElementById('floorplan-container');
     if (!container) return;
+
+    this.ensureRoomFocusStyles();
+    this.ensureEscListener();
 
     const spatial = window.homeData?.spatial || { pins: [], microZones: [], autoCinemaEnabled: true };
     const pins = spatial.pins || [];
@@ -1022,11 +1339,25 @@ class FloorplanEngine {
     const dayPhase = this.getActiveDayPhase();
     const useDayPhase = !isCad && !isLight;
 
-    // Piantina con proporzioni fedeli 1:1 e preset vista zoom (Tutta la casa / Zona Notte / Zona Giorno)
-    const viewBox = this.zoomPreset === 'night'
+    const focusedRoomObj = this.selectedRoom
+      ? ARCHITECTURAL_ROOMS.find(r => r.id === this.selectedRoom) || null
+      : null;
+    const isRoomFocused = Boolean(focusedRoomObj);
+    const nextFocusedId = focusedRoomObj ? focusedRoomObj.id : null;
+    const isNewFocusTransition = this._lastFocusedRoom !== nextFocusedId;
+    this._lastFocusedRoom = nextFocusedId;
+
+    // Target viewBox (stanza singola ingrandita oppure casa/preset)
+    const baseViewBoxStr = this.zoomPreset === 'night'
       ? '150 30 680 620'
       : (this.zoomPreset === 'day' ? '150 640 680 610' : '150 30 680 1215');
-    const hasRoomSelection = !!this.selectedRoom;
+    const targetViewBoxStr = focusedRoomObj ? focusedRoomObj.viewBoxZoom : baseViewBoxStr;
+    const targetVb = this.parseViewBox(targetViewBoxStr);
+    const [, , , targetVh] = targetVb;
+    const focusPinScale = +Math.max(0.62, Math.min(1.08, targetVh / 360)).toFixed(2);
+    const initialViewBoxStr = (Array.isArray(this._currentViewBox) && this._currentViewBox.length === 4)
+      ? this._currentViewBox.join(' ')
+      : targetViewBoxStr;
 
     // Radar cone per le telecamere Tapo
     const buildRadarCone = (cx, cy, baseAngleDeg, panDeg, radius = 215, spreadDeg = 62) => {
@@ -1040,100 +1371,30 @@ class FloorplanEngine {
       return `M ${cx} ${cy} L ${x1} ${y1} A ${radius} ${radius} 0 0 1 ${x2} ${y2} Z`;
     };
 
-    const cam6 = pins.find(p => p.pin === 6) || { x: 39.2, y: 20.6, pan: 0, privacyMode: false };
-    const cam17 = pins.find(p => p.pin === 17) || { x: 47.4, y: 54.4, pan: 0, privacyMode: false };
-    const cam42 = pins.find(p => p.pin === 42) || { x: 31.0, y: 19.5, pan: 0, privacyMode: false };
-    const cam6X = +(cam6.x * 10).toFixed(1);
-    const cam6Y = +(cam6.y * 13.37).toFixed(1);
-    const cam17X = +(cam17.x * 10).toFixed(1);
-    const cam17Y = +(cam17.y * 13.37).toFixed(1);
-    const cam42X = +(cam42.x * 10).toFixed(1);
-    const cam42Y = +(cam42.y * 13.37).toFixed(1);
-    const cone6Path = buildRadarCone(cam6X, cam6Y, -65, -(cam6.pan || 0), 205, 62);
-    const cone17Path = buildRadarCone(cam17X, cam17Y, 135, cam17.pan || 0, 245, 64);
-    const cone42Path = buildRadarCone(cam42X, cam42Y, 75, cam42.pan || 0, 140, 60);
+    const cam6 = pins.find(p => p.pin === 6) || { x: 39.2, y: 20.6, pan: 0, privacyMode: false, room: 'Camera da letto' };
+    const cam17 = pins.find(p => p.pin === 17) || { x: 47.4, y: 54.4, pan: 0, privacyMode: false, room: 'Ingresso' };
+    const cam42 = pins.find(p => p.pin === 42) || { x: 31.0, y: 19.5, pan: 0, privacyMode: false, room: 'Camera da letto' };
+    const camCones = [
+      { cam: cam6, path: buildRadarCone(+(cam6.x * 10).toFixed(1), +(cam6.y * 13.37).toFixed(1), -65, -(cam6.pan || 0), 205, 62) },
+      { cam: cam17, path: buildRadarCone(+(cam17.x * 10).toFixed(1), +(cam17.y * 13.37).toFixed(1), 135, cam17.pan || 0, 245, 64) },
+      { cam: cam42, path: buildRadarCone(+(cam42.x * 10).toFixed(1), +(cam42.y * 13.37).toFixed(1), 75, cam42.pan || 0, 140, 60) }
+    ];
+    const radarConesSvg = camCones
+      .filter(({ cam }) => !cam.privacyMode && (!isRoomFocused || cam.room === focusedRoomObj.id))
+      .map(({ path }) => `<path d="${path}" fill="url(#radarConeGrad)" pointer-events="none"/>`)
+      .join('');
 
-    // Stanze SVG con Evidenziazione Architettonica (Spotlight)
-    const roomsSvg = ARCHITECTURAL_ROOMS.map(r => {
-      const roomPins = pins.filter(p => p.room === r.id);
-      const activeLights = roomPins.filter(p => (p.category === 'light' || p.category === 'chandelier') && p.isOn).length;
-      const totalLights = roomPins.filter(p => p.category === 'light' || p.category === 'chandelier').length;
-      const roomWatts = roomPins.reduce((acc, p) => acc + (Number(p.powerW) || 0), 0);
-      const valveTemps = roomPins
-        .filter(p => p.category === 'valve' && typeof p.temperature === 'number' && !Number.isNaN(p.temperature))
-        .map(p => p.temperature);
-      const fallbackTemps = roomPins
-        .filter(p => typeof (p.temperature ?? p.temperatureC) === 'number' && !Number.isNaN(p.temperature ?? p.temperatureC))
-        .map(p => p.temperature ?? p.temperatureC);
-      const tempList = valveTemps.length > 0 ? valveTemps : fallbackTemps;
-      const roomTemp = tempList.length > 0
-        ? +(tempList.reduce((a, b) => a + b, 0) / tempList.length).toFixed(1)
-        : null;
-      const isSelected = this.selectedRoom === r.id;
-      
-      // Se una stanza è selezionata, le altre vengono attenuate per far risaltare quella attiva
-      const roomOpacity = hasRoomSelection ? (isSelected ? '1' : '0.24') : '1';
-
-      let fillPattern = isCad
-        ? (isSelected ? 'rgba(14, 165, 233, 0.28)' : 'rgba(15, 23, 42, 0.85)')
-        : isLight
-        ? (r.floorType === 'parquet' ? 'url(#floorParquetLight)' : r.floorType === 'tile' ? 'url(#floorTileLight)' : 'url(#floorDeck)')
-        : (r.floorType === 'parquet' ? 'url(#floorParquet)' : r.floorType === 'tile' ? 'url(#floorTile)' : 'url(#floorDeck)');
-
-      const labelColor = isLight ? '#0f172a' : '#f8fafc';
-      const subColor = isSelected ? '#22d3ee' : (isLight ? '#475569' : '#94a3b8');
-
-      return `
-        <g class="${r.interactive ? 'cursor-pointer group' : ''} transition-opacity duration-300"
-           opacity="${roomOpacity}"
-           onclick="${r.interactive ? `window.floorplan.selectRoom('${r.id}', true)` : ''}">
-          <path d="${r.path}"
-                fill="${fillPattern}"
-                stroke="${isSelected ? '#22d3ee' : 'rgba(148, 163, 184, 0.22)'}"
-                stroke-width="${isSelected ? '3.5' : '1.5'}"
-                class="transition-all duration-300 ${r.interactive ? 'hover:brightness-125' : ''}" />
-          ${isSelected ? `
-            <!-- Effetto Spotlight / Bagliore morbido stanza selezionata -->
-            <path d="${r.path}" fill="rgba(34, 211, 238, 0.12)" stroke="#22d3ee" stroke-width="2.5" stroke-dasharray="8 4" pointer-events="none" />
-          ` : ''}
-
-          <!-- Badge Etichetta Stanza -->
-          <g transform="translate(${r.labelX}, ${r.labelY})" pointer-events="none">
-            ${(() => {
-              const infoParts = [];
-              if (roomTemp !== null) infoParts.push(`🌡️ ${roomTemp.toFixed(1)}°C`);
-              if (totalLights > 0) infoParts.push(`💡 ${activeLights}/${totalLights}`);
-              if (roomWatts > 0) infoParts.push(`⚡ ${roomWatts.toFixed(0)}W`);
-              if (infoParts.length === 0 && roomPins.length > 0) infoParts.push(`${roomPins.length} disp.`);
-              const hasSubLine = r.interactive && infoParts.length > 0;
-              const boxW = Math.max(118, r.label.length * 8.4 + 24, infoParts.join(' · ').length * 6.8 + 20);
-              return `
-                <rect x="${-Math.round(boxW / 2)}" y="-22" width="${Math.round(boxW)}" height="${hasSubLine ? '44' : '28'}" rx="8"
-                      fill="${isSelected ? 'rgba(8, 47, 73, 0.95)' : (isLight ? 'rgba(255, 255, 255, 0.88)' : 'rgba(2, 6, 23, 0.82)')}"
-                      stroke="${isSelected ? '#22d3ee' : 'rgba(148, 163, 184, 0.3)'}"
-                      stroke-width="${isSelected ? '2.5' : '1'}" />
-                <text x="0" y="-4" text-anchor="middle" fill="${isSelected ? '#38bdf8' : labelColor}" font-size="11.5" font-weight="900" font-family="Inter, sans-serif" letter-spacing="0.5">
-                  ${r.label}
-                </text>
-                ${hasSubLine ? `
-                  <text x="0" y="13" text-anchor="middle" fill="${roomTemp !== null && !isSelected ? (isLight ? '#0284c7' : '#fbbf24') : subColor}" font-size="9.5" font-weight="700" font-family="monospace">
-                    ${infoParts.join(' · ')}
-                  </text>
-                ` : ''}
-              `;
-            })()}
-          </g>
-        </g>
-      `;
-    }).join('');
+    const visiblePinsScope = isRoomFocused
+      ? pins.filter(p => p.room === focusedRoomObj.id)
+      : pins;
 
     // Proximity Lines
     let proximitySvg = '';
-    if (this.showProximity && activePin && Array.isArray(activePin.nearbyPins)) {
+    if (this.showProximity && activePin && Array.isArray(activePin.nearbyPins) && (!isRoomFocused || activePin.room === focusedRoomObj.id)) {
       const ax = +(activePin.x * 10).toFixed(1);
       const ay = +(activePin.y * 13.37).toFixed(1);
       proximitySvg = activePin.nearbyPins.map(nbNum => {
-        const nb = pins.find(p => p.pin === nbNum);
+        const nb = visiblePinsScope.find(p => p.pin === nbNum);
         if (!nb) return '';
         const nx = +(nb.x * 10).toFixed(1);
         const ny = +(nb.y * 13.37).toFixed(1);
@@ -1148,7 +1409,7 @@ class FloorplanEngine {
     // Glow luci accese (visibili solo nel layer 'all' o 'lights'), modulati dalla fascia oraria
     const showGlows = this.activeLayer === 'all' || this.activeLayer === 'lights';
     const glowMult = useDayPhase ? dayPhase.glowMultiplier : 1;
-    const lightGlowsSvg = showGlows ? pins
+    const lightGlowsSvg = showGlows ? visiblePinsScope
       .filter(p => (p.category === 'light' || p.category === 'chandelier') && p.isOn)
       .map(p => {
         const cx = +(p.x * 10).toFixed(1);
@@ -1161,13 +1422,10 @@ class FloorplanEngine {
         return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#${gradId})" opacity="${glowOpacity}" pointer-events="none"/>`;
       }).join('') : '';
 
-    // Radar telecamere (visibili solo nel layer 'all' o 'cameras')
-    const showCameras = this.activeLayer === 'all' || this.activeLayer === 'cameras';
-
     // Heatmap Energetica
     let heatmapSvg = '';
     if (this.heatMapActive) {
-      heatmapSvg = pins.filter(p => (Number(p.powerW) || 0) > 0).map(p => {
+      heatmapSvg = visiblePinsScope.filter(p => (Number(p.powerW) || 0) > 0).map(p => {
         const cx = +(p.x * 10).toFixed(1);
         const cy = +(p.y * 13.37).toFixed(1);
         const w = Number(p.powerW) || 0;
@@ -1178,241 +1436,236 @@ class FloorplanEngine {
       }).join('');
     }
 
-    // Rendering Pin Dispositivi
-    const pinsSvg = pins.map(p => {
+    const furnitureSvg = this.showFurniture ? this.buildVectorFurniture(isCad, isLight) : '';
+    const wallsSvg = this.buildWallsAndOpenings(isCad, isLight);
+    const daylightSvg = useDayPhase ? this.buildDaylightOverlaySvg(dayPhase) : '';
+
+    // Layer Architettonico: Contesto Sfocato + Stanza Focus oppure Casa Intera
+    let blueprintBodySvg = '';
+    if (isRoomFocused) {
+      const contextRoomsPaths = ARCHITECTURAL_ROOMS
+        .filter(r => r.id !== focusedRoomObj.id)
+        .map(r => `
+          <path d="${r.path}"
+                fill="${this.buildRoomFloorFill(r, isCad, isLight, false)}"
+                stroke="rgba(148, 163, 184, 0.2)"
+                stroke-width="1.5" />
+        `).join('');
+
+      blueprintBodySvg = `
+        <!-- Sfondo cliccabile fuori stanza per tornare a Tutta la Casa -->
+        <rect x="-200" y="-200" width="1400" height="1700" fill="transparent" class="cursor-pointer"
+              onclick="window.floorplan.selectRoom(null, false)">
+          <title>Clicca fuori dalla stanza per tornare alla planimetria completa</title>
+        </rect>
+
+        <!-- Stanze limitrofe sfocate per continuità spaziale -->
+        <g id="svg-layer-context-blur"
+           filter="url(#room-context-blur)"
+           opacity="0.22"
+           pointer-events="none"
+           class="${isNewFocusTransition ? 'fp-context-fade' : ''}">
+          ${contextRoomsPaths}
+          ${furnitureSvg}
+          ${wallsSvg}
+        </g>
+
+        <!-- Stanza in Focus (nitida e ridisegnata in scala vettoriale) -->
+        <g id="svg-layer-focused-room">
+          <path d="${focusedRoomObj.path}"
+                fill="none"
+                stroke="rgba(34, 211, 238, 0.35)"
+                stroke-width="10"
+                stroke-linejoin="round"
+                style="filter: drop-shadow(0 0 18px rgba(34, 211, 238, 0.24));"
+                pointer-events="none" />
+          <path d="${focusedRoomObj.path}"
+                fill="${this.buildRoomFloorFill(focusedRoomObj, isCad, isLight, true)}"
+                stroke="#22d3ee"
+                stroke-width="2" />
+
+          <g clip-path="url(#focused-room-clip)" pointer-events="none">
+            ${radarConesSvg}
+            ${furnitureSvg}
+            ${daylightSvg}
+            <g id="svg-layer-proximity">${proximitySvg}</g>
+            <g id="svg-layer-glows">${lightGlowsSvg}</g>
+            <g id="svg-layer-heatmap">${heatmapSvg}</g>
+          </g>
+
+          <g mask="url(#focused-room-walls-mask)" pointer-events="none">
+            ${wallsSvg}
+          </g>
+        </g>
+      `;
+    } else {
+      const roomsSvg = ARCHITECTURAL_ROOMS.map(r => {
+        const { roomPins, activeLights, totalLights, roomWatts, roomTemp } = this.computeRoomTelemetrySummary(r.id, pins);
+        const fillPattern = this.buildRoomFloorFill(r, isCad, isLight, false);
+        const labelColor = isLight ? '#0f172a' : '#f8fafc';
+        const subColor = isLight ? '#475569' : '#94a3b8';
+
+        return `
+          <g class="${r.interactive ? 'cursor-pointer group' : ''} transition-opacity duration-300"
+             onclick="${r.interactive ? `window.floorplan.selectRoom('${r.id}', false)` : ''}">
+            <path d="${r.path}"
+                  fill="${fillPattern}"
+                  stroke="rgba(148, 163, 184, 0.22)"
+                  stroke-width="1.5"
+                  class="transition-all duration-300 ${r.interactive ? 'hover:brightness-125' : ''}" />
+
+            <!-- Badge Etichetta Stanza -->
+            <g transform="translate(${r.labelX}, ${r.labelY})" pointer-events="none">
+              ${(() => {
+                const infoParts = [];
+                if (roomTemp !== null) infoParts.push(`🌡️ ${roomTemp.toFixed(1)}°C`);
+                if (totalLights > 0) infoParts.push(`💡 ${activeLights}/${totalLights}`);
+                if (roomWatts > 0) infoParts.push(`⚡ ${roomWatts.toFixed(0)}W`);
+                if (infoParts.length === 0 && roomPins.length > 0) infoParts.push(`${roomPins.length} disp.`);
+                const hasSubLine = r.interactive && infoParts.length > 0;
+                const boxW = Math.max(118, r.label.length * 8.4 + 24, infoParts.join(' · ').length * 6.8 + 20);
+                return `
+                  <rect x="${-Math.round(boxW / 2)}" y="-22" width="${Math.round(boxW)}" height="${hasSubLine ? '44' : '28'}" rx="8"
+                        fill="${isLight ? 'rgba(255, 255, 255, 0.88)' : 'rgba(2, 6, 23, 0.82)'}"
+                        stroke="rgba(148, 163, 184, 0.3)"
+                        stroke-width="1" />
+                  <text x="0" y="-4" text-anchor="middle" fill="${labelColor}" font-size="11.5" font-weight="900" font-family="Inter, sans-serif" letter-spacing="0.5">
+                    ${r.label}
+                  </text>
+                  ${hasSubLine ? `
+                    <text x="0" y="13" text-anchor="middle" fill="${roomTemp !== null ? (isLight ? '#0284c7' : '#fbbf24') : subColor}" font-size="9.5" font-weight="700" font-family="monospace">
+                      ${infoParts.join(' · ')}
+                    </text>
+                  ` : ''}
+                `;
+              })()}
+            </g>
+          </g>
+        `;
+      }).join('');
+
+      blueprintBodySvg = `
+        <g id="svg-layer-rooms">${roomsSvg}</g>
+        ${radarConesSvg}
+        ${furnitureSvg}
+        ${daylightSvg}
+        ${wallsSvg}
+        <g id="svg-layer-proximity">${proximitySvg}</g>
+        <g id="svg-layer-glows">${lightGlowsSvg}</g>
+        <g id="svg-layer-heatmap">${heatmapSvg}</g>
+      `;
+    }
+
+    // Rendering Pin Dispositivi (ordinati mettendo quello selezionato sopra gli altri)
+    const isEditMode = window.dragEditor?.editMode;
+    const renderPinsList = [...visiblePinsScope].sort((a, b) => {
+      if (activePin && a.pin === activePin.pin) return 1;
+      if (activePin && b.pin === activePin.pin) return -1;
+      return a.pin - b.pin;
+    });
+
+    const pinsSvg = renderPinsList.map((p, idx) => {
       const cx = +(p.x * 10).toFixed(1);
       const cy = +(p.y * 13.37).toFixed(1);
-      const isSelected = activePin && activePin.pin === p.pin;
-      const isEditMode = window.dragEditor?.editMode;
+      const isSelected = Boolean(activePin && activePin.pin === p.pin);
+      const { fill, stroke, iconColor, iconGlyph, subBadge } = this.buildPinVisualMeta(p, isSelected);
 
-      let fill = '#0f172a';
-      let stroke = '#334155';
-      let iconColor = '#94a3b8';
-      let iconGlyph = '&#xf108;';
-      let subBadge = '';
-
-      if (p.category === 'chandelier') {
-        iconGlyph = '&#xe2ca;';
-        if (p.isOn) {
-          iconColor = '#f59e0b';
-          fill = '#451a03';
-          stroke = isSelected ? '#22d3ee' : '#f59e0b';
-          subBadge = `${p.activeBulbs || 0}/${p.totalBulbs || 0}💡`;
-        } else {
-          iconColor = '#64748b';
-          fill = '#0f172a';
-          stroke = isSelected ? '#22d3ee' : '#334155';
-        }
-      } else if (p.category === 'light') {
-        iconGlyph = '&#xf0eb;';
-        if (p.isOn) {
-          iconColor = '#fde047';
-          fill = '#422006';
-          stroke = isSelected ? '#22d3ee' : '#facc15';
-          subBadge = p.brightness ? `${p.brightness}%` : 'ON';
-        } else {
-          iconColor = '#64748b';
-          fill = '#0f172a';
-          stroke = isSelected ? '#22d3ee' : '#334155';
-        }
-      } else if (p.category === 'plug') {
-        iconGlyph = '&#xf1e6;';
-        const power = Number(p.powerW) || 0;
-        if (power > 15) {
-          iconColor = '#38bdf8';
-          fill = '#082f49';
-          stroke = isSelected ? '#22d3ee' : '#38bdf8';
-          subBadge = `${Math.round(power)}W`;
-        } else if (p.isOn) {
-          iconColor = '#38bdf8';
-          fill = '#0f172a';
-          stroke = isSelected ? '#22d3ee' : '#0284c7';
-          subBadge = power > 0 ? `${Math.round(power)}W` : 'ON';
-        } else {
-          iconColor = '#475569';
-          fill = '#0f172a';
-          stroke = isSelected ? '#22d3ee' : '#334155';
-        }
-      } else if (p.category === 'valve') {
-        iconGlyph = '&#xf769;'; // fa-temperature-half
-        const isHeating = Boolean(p.isHeating || (Number(p.valvePercent) > 15));
-        if (isHeating) {
-          iconColor = '#ea580c';
-          fill = '#431407';
-          stroke = isSelected ? '#22d3ee' : '#f97316';
-        } else {
-          iconColor = '#94a3b8';
-          fill = '#0f172a';
-          stroke = isSelected ? '#22d3ee' : '#334155';
-        }
-        const optIcon = p.optBadge === 'solar_trim' ? '☀️'
-          : (p.optBadge === 'eco_away' ? '🍃'
-            : (p.optBadge === 'night_shift' ? '🌙'
-              : (p.optBadge === 'window_pause' ? '🪟' : '')));
-        if (p.optBadge === 'window_pause') stroke = isSelected ? '#22d3ee' : '#06b6d4';
-        const baseBadge = (p.temperature && p.setpoint) ? `${p.temperature}°/${p.setpoint}°` : `${p.setpoint || p.temperature || 20.5}°`;
-        subBadge = optIcon ? `${optIcon}${baseBadge}` : baseBadge;
-      } else if (p.category === 'camera') {
-        if (p.privacyMode) {
-          iconGlyph = '&#xf070;'; // fa-eye-slash
-          iconColor = '#64748b';
-          fill = '#1e293b';
-          stroke = isSelected ? '#22d3ee' : '#475569';
-          subBadge = 'PRIV';
-        } else {
-          iconGlyph = '&#xf03d;'; // fa-video
-          iconColor = '#d946ef';
-          fill = '#3b0764';
-          stroke = isSelected ? '#22d3ee' : '#e879f9';
-          subBadge = 'LIVE';
-        }
-      } else if (p.category === 'speaker') {
-        iconGlyph = '&#xf028;'; // fa-volume-high
-        iconColor = '#eab308';
-        fill = '#1e293b';
-        stroke = isSelected ? '#22d3ee' : '#ca8a04';
-        subBadge = 'Nest';
-      } else if (p.category === 'tv') {
-        iconGlyph = '&#xf26c;'; // fa-tv
-        iconColor = '#a855f7';
-        fill = '#2e1065';
-        stroke = isSelected ? '#22d3ee' : '#c084fc';
-        subBadge = 'TV';
-      } else if (p.category === 'sensor') {
-        iconGlyph = '&#xf09e;'; // fa-rss
-        if (p.motion) {
-          iconColor = '#34d399';
-          fill = '#065f46';
-          stroke = isSelected ? '#22d3ee' : '#10b981';
-          glowHtml = `<circle cx="${p.x}" cy="${p.y}" r="22" fill="none" stroke="#10b981" stroke-width="2" class="animate-ping" opacity="0.65" />`;
-          subBadge = 'MOV';
-        } else {
-          iconColor = '#10b981';
-          fill = '#064e3b';
-          stroke = isSelected ? '#22d3ee' : '#34d399';
-          if (p.temperature) subBadge = `${p.temperature}°`;
-        }
-      } else if (p.category === 'climate') {
-        if (p.isDyson) {
-          iconGlyph = '&#xf863;'; // fa-fan
-          if (p.isOn) {
-            iconColor = '#34d399';
-            fill = '#064e3b';
-            stroke = isSelected ? '#22d3ee' : '#10b981';
-            subBadge = p.temperatureC !== null && p.temperatureC !== undefined ? `${p.temperatureC}°` : 'ON';
-          } else {
-            iconColor = '#64748b';
-            fill = '#0f172a';
-            stroke = isSelected ? '#22d3ee' : '#334155';
-            subBadge = p.temperatureC !== null && p.temperatureC !== undefined ? `${p.temperatureC}°` : 'OFF';
-          }
-        } else {
-          iconGlyph = '&#xf769;';
-          iconColor = '#06b6d4';
-          fill = '#083344';
-          stroke = isSelected ? '#22d3ee' : '#0891b2';
-          subBadge = p.isOn ? 'ON' : '';
-        }
-      } else if (p.category === 'appliance') {
-        iconGlyph = p.thinqRole === 'dryer' ? '&#xf72e;' : '&#xf2e7;'; // fa-wind / fa-utensils
-        if (p.isRunning) {
-          iconColor = '#34d399';
-          fill = '#064e3b';
-          stroke = isSelected ? '#22d3ee' : '#10b981';
-          subBadge = p.remainFormatted || 'ON';
-        } else if (p.online) {
-          iconColor = '#38bdf8';
-          fill = '#082f49';
-          stroke = isSelected ? '#22d3ee' : '#0284c7';
-          subBadge = p.statusCode === 'END' ? 'FINE' : 'ON';
-        } else {
-          iconColor = '#64748b';
-          fill = '#0f172a';
-          stroke = isSelected ? '#22d3ee' : '#334155';
-          subBadge = 'OFF';
-        }
-      } else if (p.category === 'printer') {
-        iconGlyph = '&#xf02f;'; // fa-print
-        if (p.online) {
-          iconColor = p.statusCode === 'error' ? '#f43f5e' : '#34d399';
-          fill = p.statusCode === 'error' ? '#4c0519' : '#064e3b';
-          stroke = isSelected ? '#22d3ee' : (p.statusCode === 'error' ? '#fb7185' : '#10b981');
-          subBadge = typeof p.tonerPercent === 'number' ? `${p.tonerPercent}%` : 'ON';
-        } else {
-          iconColor = '#64748b';
-          fill = '#0f172a';
-          stroke = isSelected ? '#22d3ee' : '#334155';
-          subBadge = 'OFF';
-        }
-      }
-
-      const isPinInSelectedRoom = !hasRoomSelection || p.room === this.selectedRoom;
       const isPinInActiveLayer = this.isPinInLayer(p, this.activeLayer);
       const isPinInStatus = this.statusFilter === 'all'
         || (this.statusFilter === 'active' && this.isPinActive(p))
         || (this.statusFilter === 'offline' && this.isPinOffline(p));
       const isPinMatched = isPinInActiveLayer && isPinInStatus;
-      const pinOpacity = (isPinInSelectedRoom && isPinMatched)
-        ? '1'
-        : (!isPinMatched ? '0.10' : '0.22');
+      const pinOpacity = isPinMatched ? '1' : (isRoomFocused ? '0.22' : '0.10');
       const pointerEvents = isPinMatched ? 'auto' : 'none';
 
+      const pinScaleAttr = isRoomFocused ? ` scale(${focusPinScale})` : '';
+      const enterClass = (isRoomFocused && isNewFocusTransition) ? 'fp-pin-enter' : '';
+      const enterStyle = (isRoomFocused && isNewFocusTransition) ? `animation-delay: ${Math.min(idx * 35, 280)}ms;` : '';
+
+      const boxHalf = isRoomFocused ? 15 : 13;
+      const boxSize = boxHalf * 2;
+      const boxRx = isRoomFocused ? 8 : 7;
+      const ringHalf = boxHalf + 3;
       const badgeWidth = subBadge ? Math.max(28, subBadge.length * 5.8 + 8) : 0;
       const halfW = +(badgeWidth / 2).toFixed(1);
+
+      const focusName = isRoomFocused ? this.escapeSvgText(this.formatFocusDeviceName(p)) : '';
+      const nameBadgeW = focusName ? Math.max(44, +(focusName.length * 4.9 + 12).toFixed(1)) : 0;
+      const nameHalfW = +(nameBadgeW / 2).toFixed(1);
 
       return `
         <g id="spatial-pin-group-${p.pin}"
            data-pin="${p.pin}"
-           transform="translate(${cx}, ${cy})"
+           transform="translate(${cx}, ${cy})${pinScaleAttr}"
            opacity="${pinOpacity}"
            pointer-events="${pointerEvents}"
-           class="spatial-pin-item transition-all duration-300 ${isEditMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}"
+           class="spatial-pin-item ${isRoomFocused ? 'fp-focused-pin' : ''} transition-opacity duration-300 ${isEditMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}"
            onmousedown="${isEditMode ? `window.dragEditor.startDrag(${p.pin}, event)` : ''}"
            ontouchstart="${isEditMode ? `window.dragEditor.startDrag(${p.pin}, event)` : ''}"
            onclick="window.floorplan.handlePinClick(${p.pin}, event)"
            ondblclick="window.floorplan.quickTogglePin(${p.pin}, event)">
-          <title>#${p.pin} ${p.name} (${p.room}) — Click: Controlli · Doppio Click: ON/OFF</title>
-          
-          <!-- Anello Selezione Cyan -->
-          ${isSelected ? `<rect x="-16" y="-16" width="32" height="32" rx="9" ry="9" fill="none" stroke="#22d3ee" stroke-width="2.5" opacity="0.95"/>` : ''}
-          
-          <!-- Anello Tratteggiato Edit Mode Ambra -->
-          ${isEditMode ? `<rect x="-16" y="-16" width="32" height="32" rx="9" ry="9" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-dasharray="3 3" opacity="0.9"/>` : ''}
-          
-          <!-- Squircle Base Compatto 26x26 px -->
-          <rect x="-13" y="-13" width="26" height="26" rx="7" ry="7" fill="${fill}" stroke="${stroke}" stroke-width="${isSelected ? 2.5 : 1.5}"/>
-          
-          <!-- Icona Vettoriale Specifica -->
-          ${p.category === 'chandelier' ? `
-            <g fill="none" stroke="${iconColor}" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="0" y1="-7.5" x2="0" y2="-3.5" />
-              <path d="M -6.5 1.5 Q -6.5 -3.5 0 -3.5 Q 6.5 -3.5 6.5 1.5" />
-              <line x1="0" y1="-3.5" x2="0" y2="2" />
-              <circle cx="-6.5" cy="3.5" r="2" fill="${p.isOn ? iconColor : 'none'}" />
-              <circle cx="0" cy="4.2" r="2" fill="${p.isOn ? iconColor : 'none'}" />
-              <circle cx="6.5" cy="3.5" r="2" fill="${p.isOn ? iconColor : 'none'}" />
-            </g>
-          ` : `
-            <text x="0" y="1" text-anchor="middle" dominant-baseline="central"
-                  fill="${iconColor}"
-                  font-family="'Font Awesome 6 Free', 'FontAwesome', sans-serif"
-                  font-weight="900"
-                  font-size="12.5">${iconGlyph}</text>
-          `}
+          <title>#${p.pin} ${this.escapeSvgText(p.name)} (${this.escapeSvgText(p.room)}) — Click: Controlli · Doppio Click: ON/OFF</title>
 
-          <!-- Micro-Badge Numero Pin in alto a destra -->
-          <g transform="translate(9.5, -9.5)">
-            <circle cx="0" cy="0" r="5" fill="#020617" stroke="${stroke}" stroke-width="0.8" opacity="0.95"/>
-            <text x="0" y="2" text-anchor="middle" fill="#94a3b8" font-size="6.5" font-weight="900" font-family="monospace">${p.pin}</text>
+          <g class="${enterClass}" style="${enterStyle}">
+            ${isRoomFocused ? `<rect x="-24" y="-20" width="48" height="${subBadge ? 58 : 48}" rx="10" fill="transparent" />` : ''}
+
+            <!-- Anello Selezione Cyan -->
+            ${isSelected ? `<rect x="-${ringHalf}" y="-${ringHalf}" width="${ringHalf * 2}" height="${ringHalf * 2}" rx="10" ry="10" fill="none" stroke="#22d3ee" stroke-width="2.5" opacity="0.95"/>` : ''}
+
+            <!-- Anello Tratteggiato Edit Mode Ambra -->
+            ${isEditMode ? `<rect x="-${ringHalf}" y="-${ringHalf}" width="${ringHalf * 2}" height="${ringHalf * 2}" rx="10" ry="10" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-dasharray="3 3" opacity="0.9"/>` : ''}
+
+            <!-- Squircle Dispositivo -->
+            <rect x="-${boxHalf}" y="-${boxHalf}" width="${boxSize}" height="${boxSize}" rx="${boxRx}" ry="${boxRx}"
+                  fill="${fill}" stroke="${stroke}" stroke-width="${isSelected ? 2.5 : (isRoomFocused ? 1.8 : 1.5)}"
+                  class="fp-pin-card transition-all duration-200" />
+
+            <!-- Icona Vettoriale Specifica -->
+            ${p.category === 'chandelier' ? `
+              <g ${isRoomFocused ? 'transform="scale(1.15)"' : ''} fill="none" stroke="${iconColor}" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="0" y1="-7.5" x2="0" y2="-3.5" />
+                <path d="M -6.5 1.5 Q -6.5 -3.5 0 -3.5 Q 6.5 -3.5 6.5 1.5" />
+                <line x1="0" y1="-3.5" x2="0" y2="2" />
+                <circle cx="-6.5" cy="3.5" r="2" fill="${p.isOn ? iconColor : 'none'}" />
+                <circle cx="0" cy="4.2" r="2" fill="${p.isOn ? iconColor : 'none'}" />
+                <circle cx="6.5" cy="3.5" r="2" fill="${p.isOn ? iconColor : 'none'}" />
+              </g>
+            ` : `
+              <text x="0" y="1" text-anchor="middle" dominant-baseline="central"
+                    fill="${iconColor}"
+                    font-family="'Font Awesome 6 Free', 'FontAwesome', sans-serif"
+                    font-weight="900"
+                    font-size="${isRoomFocused ? '14' : '12.5'}">${iconGlyph}</text>
+            `}
+
+            <!-- Micro-Badge Numero Pin in alto a destra -->
+            <g transform="translate(${isRoomFocused ? '12' : '9.5'}, -${isRoomFocused ? '12' : '9.5'})">
+              <circle cx="0" cy="0" r="${isRoomFocused ? '5.5' : '5'}" fill="#020617" stroke="${stroke}" stroke-width="0.8" opacity="0.95"/>
+              <text x="0" y="2" text-anchor="middle" fill="#94a3b8" font-size="${isRoomFocused ? '7' : '6.5'}" font-weight="900" font-family="monospace">${p.pin}</text>
+            </g>
+
+            ${isRoomFocused ? `
+              <!-- Pill Nome Dispositivo Leggibile in Focus Stanza -->
+              <g transform="translate(0, 22)">
+                <rect x="-${nameHalfW}" y="-6.5" width="${nameBadgeW}" height="13" rx="4" fill="rgba(2, 6, 23, 0.94)" stroke="${isSelected ? '#22d3ee' : 'rgba(148, 163, 184, 0.45)'}" stroke-width="0.8"/>
+                <text x="0" y="2.6" text-anchor="middle" fill="#f8fafc" font-size="7.6" font-weight="700" font-family="Inter, sans-serif">${focusName}</text>
+              </g>
+              ${subBadge ? `
+                <g transform="translate(0, 34.5)">
+                  <rect x="-${halfW}" y="-5.5" width="${badgeWidth.toFixed(1)}" height="11" rx="3.5" fill="rgba(15, 23, 42, 0.96)" stroke="${stroke}" stroke-width="0.8"/>
+                  <text x="0" y="2.3" text-anchor="middle" fill="#e2e8f0" font-size="7" font-weight="bold" font-family="monospace">${subBadge}</text>
+                </g>
+              ` : ''}
+            ` : `
+              <!-- Micro-Badge Dati Inferiore -->
+              ${subBadge ? `
+                <g transform="translate(0, 18.5)">
+                  <rect x="-${halfW}" y="-6" width="${badgeWidth.toFixed(1)}" height="12" rx="3.5" fill="rgba(2, 6, 23, 0.94)" stroke="${stroke}" stroke-width="0.8"/>
+                  <text x="0" y="2.5" text-anchor="middle" fill="#f8fafc" font-size="7.5" font-weight="bold" font-family="monospace">${subBadge}</text>
+                </g>
+              ` : ''}
+            `}
           </g>
-
-          <!-- Micro-Badge Dati Inferiore Snello e Discreto -->
-          ${subBadge ? `
-            <g transform="translate(0, 18.5)">
-              <rect x="-${halfW}" y="-6" width="${badgeWidth.toFixed(1)}" height="12" rx="3.5" fill="rgba(2, 6, 23, 0.94)" stroke="${stroke}" stroke-width="0.8"/>
-              <text x="0" y="2.5" text-anchor="middle" fill="#f8fafc" font-size="7.5" font-weight="bold" font-family="monospace">${subBadge}</text>
-            </g>
-          ` : ''}
         </g>
       `;
     }).join('');
@@ -1427,63 +1680,75 @@ class FloorplanEngine {
       { id: 'speakers', label: 'Nest & AV', icon: 'fa-volume-high' }
     ];
 
-    const activeLayerObj = LAYERS.find(l => l.id === this.activeLayer) || LAYERS[0];
-    const activeLayerLabel = activeLayerObj.label;
+    const focusTelemetry = focusedRoomObj ? this.computeRoomTelemetrySummary(focusedRoomObj.id, pins) : null;
 
-    // Dispositivi filtrati per stanza attiva, layer attivo e stato
-    const filteredPins = pins.filter(p => {
-      const matchRoom = !this.selectedRoom || p.room === this.selectedRoom;
-      const matchLayer = this.isPinInLayer(p, this.activeLayer);
-      const matchStatus = this.statusFilter === 'all'
-        || (this.statusFilter === 'active' && this.isPinActive(p))
-        || (this.statusFilter === 'offline' && this.isPinOffline(p));
-      return matchRoom && matchLayer && matchStatus;
-    });
-
-    const roomLabelDisplay = this.selectedRoom || 'Tutta la Casa';
-
-    // Canvas-First Minimal HUD (Planimetria Full-Width con Chip Flottanti e Zoom Preset)
+    // Canvas-First Minimal HUD (Planimetria Full-Width + Room Focus HUD)
     container.innerHTML = `
       <div class="relative w-full flex flex-col gap-2">
-        <!-- Su mobile (< sm): barra esterna sopra la piantina (zero sovrapposizioni!). Su sm+: HUD flottante in alto -->
+        <!-- Su mobile (< sm): barra esterna sopra la piantina. Su sm+: HUD flottante in alto -->
         <div class="sm:absolute sm:top-2.5 sm:left-2.5 sm:right-2.5 sm:z-20 flex flex-wrap items-start justify-between gap-1.5 sm:gap-2 sm:pointer-events-none">
-          
-          <!-- Chip Layer Rapidi (Wrap pulito, zero scroll orizzontale) -->
-          <div class="pointer-events-auto flex flex-wrap items-center gap-1.5">
-            ${LAYERS.map(l => {
-              const isActive = this.activeLayer === l.id;
-              const count = l.id === 'all'
-                ? pins.length
-                : pins.filter(p => this.isPinInLayer(p, l.id)).length;
-              return `
-                <button onclick="window.floorplan.setLayer('${l.id}')"
-                        class="px-2.5 py-1.5 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 backdrop-blur-md transition-all active:scale-95 border ${isActive ? 'bg-indigo-600/95 text-white border-cyan-400/60 shadow-lg shadow-indigo-600/25' : 'bg-slate-900/75 border-slate-700/60 text-slate-300 hover:text-white hover:bg-slate-800/85'}">
-                  <i class="fa-solid ${l.icon} text-[11px]"></i>
-                  <span class="hidden sm:inline">${l.label}</span>
-                  <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono ${isActive ? 'bg-indigo-950/70 text-cyan-200' : 'bg-slate-800/90 text-slate-400'}">${count}</span>
+
+          <!-- Sinistra HUD: Room Focus Bar (se stanza in focus) + Chip Layer Rapidi -->
+          <div class="pointer-events-auto flex flex-col gap-1.5 items-start">
+            ${focusedRoomObj ? `
+              <div class="${isNewFocusTransition ? 'fp-hud-enter ' : ''}flex flex-wrap items-center gap-1.5 px-2 py-1.5 rounded-2xl bg-slate-950/88 backdrop-blur-md border border-cyan-500/40 shadow-xl">
+                <button type="button"
+                        onclick="window.floorplan.selectRoom(null, false)"
+                        class="px-2.5 py-1 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-100 text-[11px] font-bold flex items-center gap-1.5 transition-all active:scale-95 border border-slate-700/70"
+                        title="Torna alla planimetria completa (ESC)">
+                  <i class="fa-solid fa-arrow-left text-cyan-300"></i>
+                  <span>Tutta la Casa</span>
                 </button>
-              `;
-            }).join('')}
-
-            ${this.selectedRoom ? `
-              <button onclick="window.floorplan.selectRoom(null)"
-                      class="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 border border-cyan-400/40 backdrop-blur-md flex items-center gap-1.5 transition-all active:scale-95"
-                      title="Mostra tutta la casa">
-                <i class="fa-solid fa-location-dot text-cyan-300"></i>
-                <span>${roomLabelDisplay}</span>
-                <i class="fa-solid fa-xmark text-[10px] ml-0.5"></i>
-              </button>
+                <div class="flex items-center gap-1.5 px-2 text-xs font-extrabold text-white">
+                  <i class="fa-solid ${focusedRoomObj.icon} text-cyan-400 text-[11px]"></i>
+                  <span>${this.escapeSvgText(focusedRoomObj.id)}</span>
+                </div>
+                ${focusTelemetry?.roomTemp !== null ? `
+                  <span class="px-2 py-0.5 rounded-lg bg-amber-500/15 border border-amber-400/30 text-amber-200 font-mono text-[11px] font-bold">
+                    🌡️ ${focusTelemetry.roomTemp.toFixed(1)}°C
+                  </span>
+                ` : ''}
+                ${focusTelemetry?.totalLights > 0 ? `
+                  <span class="px-2 py-0.5 rounded-lg bg-slate-800/80 border border-slate-700/60 text-slate-200 font-mono text-[11px]">
+                    💡 ${focusTelemetry.activeLights}/${focusTelemetry.totalLights}
+                  </span>
+                ` : ''}
+                <button type="button"
+                        onclick="window.roomOff('${focusedRoomObj.id}')"
+                        class="px-2 py-1 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[11px] font-semibold flex items-center gap-1 transition-all active:scale-95"
+                        title="Spegni tutti i dispositivi in ${this.escapeSvgText(focusedRoomObj.id)}">
+                  <i class="fa-solid fa-power-off text-[10px]"></i>
+                  <span class="hidden sm:inline">Spegni</span>
+                </button>
+              </div>
             ` : ''}
 
-            ${this.statusFilter !== 'all' ? `
-              <button onclick="window.floorplan.setStatusFilter('all')"
-                      class="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/40 backdrop-blur-md flex items-center gap-1.5 transition-all active:scale-95"
-                      title="Rimuovi filtro stato">
-                <i class="fa-solid fa-filter text-amber-300"></i>
-                <span>${this.statusFilter === 'active' ? 'Solo Attivi' : 'Offline'}</span>
-                <i class="fa-solid fa-xmark text-[10px] ml-0.5"></i>
-              </button>
-            ` : ''}
+            <div class="flex flex-wrap items-center gap-1.5">
+              ${LAYERS.map(l => {
+                const isActive = this.activeLayer === l.id;
+                const count = l.id === 'all'
+                  ? visiblePinsScope.length
+                  : visiblePinsScope.filter(p => this.isPinInLayer(p, l.id)).length;
+                return `
+                  <button onclick="window.floorplan.setLayer('${l.id}')"
+                          class="px-2.5 py-1.5 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 backdrop-blur-md transition-all active:scale-95 border ${isActive ? 'bg-indigo-600/95 text-white border-cyan-400/60 shadow-lg shadow-indigo-600/25' : 'bg-slate-900/75 border-slate-700/60 text-slate-300 hover:text-white hover:bg-slate-800/85'}">
+                    <i class="fa-solid ${l.icon} text-[11px]"></i>
+                    <span class="hidden sm:inline">${l.label}</span>
+                    <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono ${isActive ? 'bg-indigo-950/70 text-cyan-200' : 'bg-slate-800/90 text-slate-400'}">${count}</span>
+                  </button>
+                `;
+              }).join('')}
+
+              ${this.statusFilter !== 'all' ? `
+                <button onclick="window.floorplan.setStatusFilter('all')"
+                        class="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/40 backdrop-blur-md flex items-center gap-1.5 transition-all active:scale-95"
+                        title="Rimuovi filtro stato">
+                  <i class="fa-solid fa-filter text-amber-300"></i>
+                  <span>${this.statusFilter === 'active' ? 'Solo Attivi' : 'Offline'}</span>
+                  <i class="fa-solid fa-xmark text-[10px] ml-0.5"></i>
+                </button>
+              ` : ''}
+            </div>
           </div>
 
           <!-- Destra HUD: Avatar + Zoom + Quadrante Orologio / Fase Giornata -->
@@ -1519,9 +1784,9 @@ class FloorplanEngine {
 
               <!-- Selettore Vista Zoom (Proporzioni SVG fedeli) -->
               <div class="inline-flex items-center rounded-xl bg-slate-900/80 backdrop-blur-md p-0.5 border border-slate-700/60 shadow-lg">
-                <button onclick="window.floorplan.setZoomPreset('all')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${this.zoomPreset === 'all' ? 'bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Casa</button>
-                <button onclick="window.floorplan.setZoomPreset('night')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${this.zoomPreset === 'night' ? 'bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Notte</button>
-                <button onclick="window.floorplan.setZoomPreset('day')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${this.zoomPreset === 'day' ? 'bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Giorno</button>
+                <button onclick="window.floorplan.setZoomPreset('all')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${!isRoomFocused && this.zoomPreset === 'all' ? 'bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Casa</button>
+                <button onclick="window.floorplan.setZoomPreset('night')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${!isRoomFocused && this.zoomPreset === 'night' ? 'bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Notte</button>
+                <button onclick="window.floorplan.setZoomPreset('day')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${!isRoomFocused && this.zoomPreset === 'day' ? 'bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Giorno</button>
               </div>
             </div>
 
@@ -1552,11 +1817,26 @@ class FloorplanEngine {
 
         <div id="floorplan-panzoom-layer" class="w-full h-full flex items-center justify-center p-2 sm:p-4">
           <svg id="casetta-blueprint-svg"
-               viewBox="${viewBox}"
-               class="w-full h-full max-h-full transition-all duration-300"
+               viewBox="${initialViewBoxStr}"
+               class="w-full h-full max-h-full"
                style="filter: drop-shadow(0 20px 30px rgba(0,0,0,0.7));">
-            
+
             <defs>
+              <!-- Filtro sfocatura stanze limitrofe in Room Focus Mode -->
+              <filter id="room-context-blur" x="-15%" y="-15%" width="130%" height="130%">
+                <feGaussianBlur stdDeviation="4.5" />
+              </filter>
+
+              ${focusedRoomObj ? `
+                <clipPath id="focused-room-clip">
+                  <path d="${focusedRoomObj.path}" />
+                </clipPath>
+                <mask id="focused-room-walls-mask">
+                  <rect x="-100" y="-100" width="1200" height="1500" fill="black" />
+                  <path d="${focusedRoomObj.path}" fill="white" stroke="white" stroke-width="22" stroke-linejoin="round" />
+                </mask>
+              ` : ''}
+
               <!-- Texture Pavimento Luxury Parquet (modulato per fascia oraria) -->
               <pattern id="floorParquet" width="30" height="30" patternUnits="userSpaceOnUse">
                 <rect width="30" height="30" fill="${useDayPhase ? dayPhase.parquetFill : '#0b1120'}"/>
@@ -1634,43 +1914,7 @@ class FloorplanEngine {
               </radialGradient>
             </defs>
 
-            <!-- Layer 0: Stanze Architettoniche Interattive -->
-            <g id="svg-layer-rooms">${roomsSvg}</g>
-
-            <!-- Layer 1: Coni Radar Telecamere -->
-            ${!cam6.privacyMode ? `<path d="${cone6Path}" fill="url(#radarConeGrad)" pointer-events="none"/>` : ''}
-            ${!cam17.privacyMode ? `<path d="${cone17Path}" fill="url(#radarConeGrad)" pointer-events="none"/>` : ''}
-            ${!cam42.privacyMode ? `<path d="${cone42Path}" fill="url(#radarConeGrad)" pointer-events="none"/>` : ''}
-
-            <!-- Layer 2: Mobili & Arredi Vettoriali -->
-            ${this.showFurniture ? this.buildVectorFurniture(isCad, isLight) : ''}
-
-            ${useDayPhase ? `
-            <!-- Layer 2b: Illuminazione Naturale da Finestre & Atmosfera Fascia Oraria -->
-            <g id="svg-layer-daylight" pointer-events="none">
-              <path d="M 240 55 L 735 55 L 735 455 L 815 455 L 815 758 L 748 758 L 748 1222 L 235 1222 L 235 768 L 390 768 L 390 492 L 240 492 Z"
-                    fill="${dayPhase.ambientWash}" />
-              <ellipse cx="395" cy="115" rx="125" ry="95" fill="url(#daylightBeam)" />
-              <ellipse cx="470" cy="135" rx="75" ry="65" fill="url(#daylightBeam)" />
-              <ellipse cx="645" cy="315" rx="110" ry="85" fill="url(#daylightBeam)" />
-              <ellipse cx="775" cy="510" rx="68" ry="65" fill="url(#daylightBeam)" />
-              <ellipse cx="665" cy="895" rx="125" ry="105" fill="url(#daylightBeam)" />
-              <ellipse cx="678" cy="1075" rx="85" ry="70" fill="url(#daylightBeam)" />
-              <ellipse cx="410" cy="1135" rx="135" ry="105" fill="url(#daylightBeam)" />
-            </g>
-            ` : ''}
-
-            <!-- Layer 3: Muri, Finestre e Porte CAD -->
-            ${this.buildWallsAndOpenings(isCad, isLight)}
-
-            <!-- Layer 4: Collegamenti di prossimità -->
-            <g id="svg-layer-proximity">${proximitySvg}</g>
-
-            <!-- Layer 5: Glow Luci Accese -->
-            <g id="svg-layer-glows">${lightGlowsSvg}</g>
-
-            <!-- Layer 6: Heatmap Energetica -->
-            <g id="svg-layer-heatmap">${heatmapSvg}</g>
+            ${blueprintBodySvg}
 
             <!-- Layer 7: Pin dei Dispositivi Interattivi -->
             <g id="svg-layer-pins">${pinsSvg}</g>
@@ -1681,6 +1925,8 @@ class FloorplanEngine {
       </div>
     `;
 
+    const svgEl = document.getElementById('casetta-blueprint-svg');
+    this.animateViewBox(svgEl, this._currentViewBox, targetVb, isNewFocusTransition ? 420 : 0);
     this.initPanZoomListeners();
     this.applyTransform();
     this.syncLeftSidebarControls();
@@ -2012,7 +2258,6 @@ class FloorplanEngine {
     const pins = window.homeData?.spatial?.pins || [];
     const p = pins.find(item => item.pin === Number(pinNum));
     if (p) {
-      if (p.room) this.selectedRoom = p.room;
       // Se telecamera, apri direttamente il Maxi-Player Modal Teatro
       if (p.category === 'camera' && window.cameraTheater) {
         window.cameraTheater.open(p);
