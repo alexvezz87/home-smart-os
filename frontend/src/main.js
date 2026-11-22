@@ -15,6 +15,7 @@ import EnergyView from './views/EnergyView.vue';
 import MobilityView from './views/MobilityView.vue';
 import AdminView from './views/AdminView.vue';
 import FloorplanDrawerView from './views/FloorplanDrawerView.vue';
+import RoomFocusOverlay from './views/RoomFocusOverlay.vue';
 
 function mountHomeVue() {
   const pinia = createPinia();
@@ -74,6 +75,13 @@ function mountHomeVue() {
     drawerApp.use(pinia);
     drawerApp.mount(rightDrawerEl);
     window.__vueFloorplanDrawerMounted = true;
+  }
+
+  const roomFocusEl = document.getElementById('room-focus-overlay-root');
+  if (roomFocusEl) {
+    const roomFocusApp = createApp(RoomFocusOverlay);
+    roomFocusApp.use(pinia);
+    roomFocusApp.mount(roomFocusEl);
   }
 
   const store = useHomeStore(pinia);
@@ -341,6 +349,7 @@ if (document.readyState !== 'loading') {
   || document.getElementById('area-mobility')
   || document.getElementById('area-admin')
   || document.getElementById('right-sidebar-content')
+  || document.getElementById('room-focus-overlay-root')
 ) {
   mountHomeVue();
 } else {

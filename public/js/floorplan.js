@@ -362,11 +362,110 @@ class FloorplanEngine {
       .fp-context-fade {
         animation: fpContextFade 0.38s ease-out both;
       }
-      .spatial-pin-item.fp-focused-pin:hover .fp-pin-card {
-        filter: brightness(1.18) drop-shadow(0 0 6px rgba(34, 211, 238, 0.55));
+      .spatial-pin-item.fp-focused-pin:hover .fp-pin-card,
+      .spatial-pin-item.fp-focused-pin.fp-pin-hovered .fp-pin-card {
+        filter: brightness(1.2) drop-shadow(0 0 7px rgba(34, 211, 238, 0.7));
+        stroke: #22d3ee;
+      }
+      .fp-hover-ring {
+        opacity: 0;
+        transition: opacity 0.16s ease;
+        pointer-events: none;
+      }
+      .spatial-pin-item:hover .fp-hover-ring,
+      .spatial-pin-item.fp-pin-hovered .fp-hover-ring {
+        opacity: 1;
+      }
+      .fp-hover-tooltip {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.16s ease, transform 0.16s ease;
+        transform: translateY(3px);
+      }
+      .spatial-pin-item:hover .fp-hover-tooltip,
+      .spatial-pin-item.fp-pin-hovered .fp-hover-tooltip {
+        opacity: 1;
+        transform: translateY(0px);
       }
     `;
     document.head?.appendChild(style);
+  }
+
+  /**
+   * Applica un micro-distanziamento puramente visivo sui pin della stanza in focus
+   * quando sono troppo vicini tra loro, senza modificare p.x / p.y salvati.
+   */
+  computeFocusPinPositions(roomPins = [], minDist = 26, maxShift = 14) {
+    const posMap = new Map();
+    const nodes = roomPins.map(p => {
+      const ox = +(p.x * 10).toFixed(1);
+      const oy = +(p.y * 13.37).toFixed(1);
+      return { pin: p.pin, ox, oy, x: ox, y: oy };
+    });
+
+    for (let iter = 0; iter < 6; iter++) {
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const a = nodes[i];
+          const b = nodes[j];
+          let dx = b.x - a.x;
+          let dy = b.y - a.y;
+          let dist = Math.hypot(dx, dy);
+          if (dist < 0.01) {
+            dx = 1;
+            dy = 0.5;
+            dist = Math.hypot(dx, dy);
+          }
+          if (dist < minDist) {
+            const push = (minDist - dist) * 0.35;
+            const ux = (dx / dist) * push;
+            const uy = (dy / dist) * push;
+            a.x -= ux;
+            a.y -= uy;
+            b.x += ux;
+            b.y += uy;
+          }
+        }
+      }
+      for (const n of nodes) {
+        const sdx = n.x - n.ox;
+        const sdy = n.y - n.oy;
+        const shift = Math.hypot(sdx, sdy);
+        if (shift > maxShift) {
+          const scale = maxShift / shift;
+          n.x = n.ox + sdx * scale;
+          n.y = n.oy + sdy * scale;
+        }
+      }
+    }
+
+    for (const n of nodes) {
+      posMap.set(n.pin, { x: +n.x.toFixed(1), y: +n.y.toFixed(1) });
+    }
+    return posMap;
+  }
+
+  /**
+   * Cross-highlighting bidirezionale tra lista Vue e icone SVG senza ri-renderizzare il DOM.
+   */
+  setHoveredPin(pinNum, fromStore = false) {
+    const targetPin = (pinNum !== null && pinNum !== undefined) ? Number(pinNum) : null;
+    if (typeof document !== 'undefined') {
+      const layer = document.getElementById('svg-layer-pins');
+      if (layer) {
+        layer.querySelectorAll('.fp-pin-hovered').forEach(el => el.classList.remove('fp-pin-hovered'));
+        if (targetPin !== null) {
+          const el = document.getElementById(`spatial-pin-group-${targetPin}`);
+          if (el) {
+            el.classList.add('fp-pin-hovered');
+            layer.appendChild(el);
+          }
+        }
+      }
+    }
+    if (!fromStore && typeof window !== 'undefined') {
+      window.homeVueBridge?.floorplanStore?.setHoveredPin?.(targetPin, true);
+    }
   }
 
   ensureEscListener() {
@@ -856,7 +955,7 @@ class FloorplanEngine {
       .replace(/^Purificatore\s+/i, '')
       .replace(/^Stampante\s+/i, '')
       .trim();
-    return clean.length > 16 ? `${clean.slice(0, 15)}…` : clean;
+    return clean.length > 22 ? `${clean.slice(0, 21)}…` : clean;
   }
 
   computeRoomTelemetrySummary(roomId, pins = []) {
@@ -1354,7 +1453,7 @@ class FloorplanEngine {
     const targetViewBoxStr = focusedRoomObj ? focusedRoomObj.viewBoxZoom : baseViewBoxStr;
     const targetVb = this.parseViewBox(targetViewBoxStr);
     const [, , , targetVh] = targetVb;
-    const focusPinScale = +Math.max(0.62, Math.min(1.08, targetVh / 360)).toFixed(2);
+    const focusPinScale = +Math.max(0.48, Math.min(0.86, targetVh / 470)).toFixed(2);
     const initialViewBoxStr = (Array.isArray(this._currentViewBox) && this._currentViewBox.length === 4)
       ? this._currentViewBox.join(' ')
       : targetViewBoxStr;
@@ -1558,16 +1657,24 @@ class FloorplanEngine {
 
     // Rendering Pin Dispositivi (ordinati mettendo quello selezionato sopra gli altri)
     const isEditMode = window.dragEditor?.editMode;
+    const focusPositions = isRoomFocused
+      ? this.computeFocusPinPositions(visiblePinsScope, Math.max(18, Math.round(28 * focusPinScale)), 14)
+      : null;
+    const hoveredStorePin = isRoomFocused ? window.homeVueBridge?.floorplanStore?.hoveredPin : null;
     const renderPinsList = [...visiblePinsScope].sort((a, b) => {
+      if (hoveredStorePin && a.pin === hoveredStorePin) return 1;
+      if (hoveredStorePin && b.pin === hoveredStorePin) return -1;
       if (activePin && a.pin === activePin.pin) return 1;
       if (activePin && b.pin === activePin.pin) return -1;
       return a.pin - b.pin;
     });
 
     const pinsSvg = renderPinsList.map((p, idx) => {
-      const cx = +(p.x * 10).toFixed(1);
-      const cy = +(p.y * 13.37).toFixed(1);
+      const focusPt = focusPositions ? focusPositions.get(p.pin) : null;
+      const cx = focusPt ? focusPt.x : +(p.x * 10).toFixed(1);
+      const cy = focusPt ? focusPt.y : +(p.y * 13.37).toFixed(1);
       const isSelected = Boolean(activePin && activePin.pin === p.pin);
+      const isHovered = Boolean(isRoomFocused && hoveredStorePin === p.pin);
       const { fill, stroke, iconColor, iconGlyph, subBadge } = this.buildPinVisualMeta(p, isSelected);
 
       const isPinInActiveLayer = this.isPinInLayer(p, this.activeLayer);
@@ -1582,16 +1689,16 @@ class FloorplanEngine {
       const enterClass = (isRoomFocused && isNewFocusTransition) ? 'fp-pin-enter' : '';
       const enterStyle = (isRoomFocused && isNewFocusTransition) ? `animation-delay: ${Math.min(idx * 35, 280)}ms;` : '';
 
-      const boxHalf = isRoomFocused ? 15 : 13;
+      const boxHalf = isRoomFocused ? 12 : 13;
       const boxSize = boxHalf * 2;
-      const boxRx = isRoomFocused ? 8 : 7;
+      const boxRx = isRoomFocused ? 6.5 : 7;
       const ringHalf = boxHalf + 3;
-      const badgeWidth = subBadge ? Math.max(28, subBadge.length * 5.8 + 8) : 0;
+      const badgeWidth = subBadge ? Math.max(26, subBadge.length * (isRoomFocused ? 5.2 : 5.8) + 7) : 0;
       const halfW = +(badgeWidth / 2).toFixed(1);
 
       const focusName = isRoomFocused ? this.escapeSvgText(this.formatFocusDeviceName(p)) : '';
-      const nameBadgeW = focusName ? Math.max(44, +(focusName.length * 4.9 + 12).toFixed(1)) : 0;
-      const nameHalfW = +(nameBadgeW / 2).toFixed(1);
+      const tipW = focusName ? Math.max(46, +(focusName.length * 4.8 + 12).toFixed(1)) : 0;
+      const tipHalfW = +(tipW / 2).toFixed(1);
 
       return `
         <g id="spatial-pin-group-${p.pin}"
@@ -1599,30 +1706,35 @@ class FloorplanEngine {
            transform="translate(${cx}, ${cy})${pinScaleAttr}"
            opacity="${pinOpacity}"
            pointer-events="${pointerEvents}"
-           class="spatial-pin-item ${isRoomFocused ? 'fp-focused-pin' : ''} transition-opacity duration-300 ${isEditMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}"
+           class="spatial-pin-item ${isRoomFocused ? 'fp-focused-pin' : ''} ${isHovered ? 'fp-pin-hovered' : ''} transition-opacity duration-300 ${isEditMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}"
+           onmouseenter="${isRoomFocused ? `window.floorplan.setHoveredPin(${p.pin})` : ''}"
+           onmouseleave="${isRoomFocused ? `window.floorplan.setHoveredPin(null)` : ''}"
            onmousedown="${isEditMode ? `window.dragEditor.startDrag(${p.pin}, event)` : ''}"
            ontouchstart="${isEditMode ? `window.dragEditor.startDrag(${p.pin}, event)` : ''}"
            onclick="window.floorplan.handlePinClick(${p.pin}, event)"
            ondblclick="window.floorplan.quickTogglePin(${p.pin}, event)">
-          <title>#${p.pin} ${this.escapeSvgText(p.name)} (${this.escapeSvgText(p.room)}) — Click: Controlli · Doppio Click: ON/OFF</title>
+          ${!isRoomFocused ? `<title>#${p.pin} ${this.escapeSvgText(p.name)} (${this.escapeSvgText(p.room)}) — Click: Controlli · Doppio Click: ON/OFF</title>` : ''}
 
           <g class="${enterClass}" style="${enterStyle}">
-            ${isRoomFocused ? `<rect x="-24" y="-20" width="48" height="${subBadge ? 58 : 48}" rx="10" fill="transparent" />` : ''}
+            ${isRoomFocused ? `<rect x="-18" y="-18" width="36" height="${subBadge ? 44 : 36}" rx="9" fill="transparent" />` : ''}
 
             <!-- Anello Selezione Cyan -->
-            ${isSelected ? `<rect x="-${ringHalf}" y="-${ringHalf}" width="${ringHalf * 2}" height="${ringHalf * 2}" rx="10" ry="10" fill="none" stroke="#22d3ee" stroke-width="2.5" opacity="0.95"/>` : ''}
+            ${isSelected ? `<rect x="-${ringHalf}" y="-${ringHalf}" width="${ringHalf * 2}" height="${ringHalf * 2}" rx="9" ry="9" fill="none" stroke="#22d3ee" stroke-width="2.2" opacity="0.95"/>` : ''}
+
+            <!-- Anello Cross-Highlight Hover (Lista <-> Mappa) -->
+            ${isRoomFocused ? `<rect x="-${ringHalf}" y="-${ringHalf}" width="${ringHalf * 2}" height="${ringHalf * 2}" rx="9" ry="9" fill="none" stroke="#38bdf8" stroke-width="2" class="fp-hover-ring" />` : ''}
 
             <!-- Anello Tratteggiato Edit Mode Ambra -->
-            ${isEditMode ? `<rect x="-${ringHalf}" y="-${ringHalf}" width="${ringHalf * 2}" height="${ringHalf * 2}" rx="10" ry="10" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-dasharray="3 3" opacity="0.9"/>` : ''}
+            ${isEditMode ? `<rect x="-${ringHalf}" y="-${ringHalf}" width="${ringHalf * 2}" height="${ringHalf * 2}" rx="9" ry="9" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-dasharray="3 3" opacity="0.9"/>` : ''}
 
             <!-- Squircle Dispositivo -->
             <rect x="-${boxHalf}" y="-${boxHalf}" width="${boxSize}" height="${boxSize}" rx="${boxRx}" ry="${boxRx}"
-                  fill="${fill}" stroke="${stroke}" stroke-width="${isSelected ? 2.5 : (isRoomFocused ? 1.8 : 1.5)}"
+                  fill="${fill}" stroke="${stroke}" stroke-width="${isSelected ? 2.2 : 1.5}"
                   class="fp-pin-card transition-all duration-200" />
 
             <!-- Icona Vettoriale Specifica -->
             ${p.category === 'chandelier' ? `
-              <g ${isRoomFocused ? 'transform="scale(1.15)"' : ''} fill="none" stroke="${iconColor}" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
+              <g ${isRoomFocused ? 'transform="scale(0.92)"' : ''} fill="none" stroke="${iconColor}" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="0" y1="-7.5" x2="0" y2="-3.5" />
                 <path d="M -6.5 1.5 Q -6.5 -3.5 0 -3.5 Q 6.5 -3.5 6.5 1.5" />
                 <line x1="0" y1="-3.5" x2="0" y2="2" />
@@ -1635,25 +1747,25 @@ class FloorplanEngine {
                     fill="${iconColor}"
                     font-family="'Font Awesome 6 Free', 'FontAwesome', sans-serif"
                     font-weight="900"
-                    font-size="${isRoomFocused ? '14' : '12.5'}">${iconGlyph}</text>
+                    font-size="${isRoomFocused ? '12' : '12.5'}">${iconGlyph}</text>
             `}
 
             <!-- Micro-Badge Numero Pin in alto a destra -->
-            <g transform="translate(${isRoomFocused ? '12' : '9.5'}, -${isRoomFocused ? '12' : '9.5'})">
-              <circle cx="0" cy="0" r="${isRoomFocused ? '5.5' : '5'}" fill="#020617" stroke="${stroke}" stroke-width="0.8" opacity="0.95"/>
-              <text x="0" y="2" text-anchor="middle" fill="#94a3b8" font-size="${isRoomFocused ? '7' : '6.5'}" font-weight="900" font-family="monospace">${p.pin}</text>
+            <g transform="translate(9.5, -9.5)">
+              <circle cx="0" cy="0" r="${isRoomFocused ? '4.5' : '5'}" fill="#020617" stroke="${stroke}" stroke-width="0.8" opacity="0.95"/>
+              <text x="0" y="2" text-anchor="middle" fill="#94a3b8" font-size="${isRoomFocused ? '6.2' : '6.5'}" font-weight="900" font-family="monospace">${p.pin}</text>
             </g>
 
             ${isRoomFocused ? `
-              <!-- Pill Nome Dispositivo Leggibile in Focus Stanza -->
-              <g transform="translate(0, 22)">
-                <rect x="-${nameHalfW}" y="-6.5" width="${nameBadgeW}" height="13" rx="4" fill="rgba(2, 6, 23, 0.94)" stroke="${isSelected ? '#22d3ee' : 'rgba(148, 163, 184, 0.45)'}" stroke-width="0.8"/>
+              <!-- Tooltip Nome Dispositivo visibile SOLO su Hover / Cross-Highlight -->
+              <g transform="translate(0, -21)" class="fp-hover-tooltip">
+                <rect x="-${tipHalfW}" y="-7" width="${tipW}" height="14" rx="4.5" fill="rgba(2, 6, 23, 0.96)" stroke="#22d3ee" stroke-width="0.9"/>
                 <text x="0" y="2.6" text-anchor="middle" fill="#f8fafc" font-size="7.6" font-weight="700" font-family="Inter, sans-serif">${focusName}</text>
               </g>
               ${subBadge ? `
-                <g transform="translate(0, 34.5)">
-                  <rect x="-${halfW}" y="-5.5" width="${badgeWidth.toFixed(1)}" height="11" rx="3.5" fill="rgba(15, 23, 42, 0.96)" stroke="${stroke}" stroke-width="0.8"/>
-                  <text x="0" y="2.3" text-anchor="middle" fill="#e2e8f0" font-size="7" font-weight="bold" font-family="monospace">${subBadge}</text>
+                <g transform="translate(0, 17)">
+                  <rect x="-${halfW}" y="-5" width="${badgeWidth.toFixed(1)}" height="10" rx="3.2" fill="rgba(2, 6, 23, 0.94)" stroke="${stroke}" stroke-width="0.75"/>
+                  <text x="0" y="2.2" text-anchor="middle" fill="#e2e8f0" font-size="6.8" font-weight="bold" font-family="monospace">${subBadge}</text>
                 </g>
               ` : ''}
             ` : `
@@ -1680,79 +1792,52 @@ class FloorplanEngine {
       { id: 'speakers', label: 'Nest & AV', icon: 'fa-volume-high' }
     ];
 
-    const focusTelemetry = focusedRoomObj ? this.computeRoomTelemetrySummary(focusedRoomObj.id, pins) : null;
-
-    // Canvas-First Minimal HUD (Planimetria Full-Width + Room Focus HUD)
+    // Canvas-First Minimal HUD (Planimetria Full-Width + Room Focus HUD snello)
     container.innerHTML = `
       <div class="relative w-full flex flex-col gap-2">
         <!-- Su mobile (< sm): barra esterna sopra la piantina. Su sm+: HUD flottante in alto -->
         <div class="sm:absolute sm:top-2.5 sm:left-2.5 sm:right-2.5 sm:z-20 flex flex-wrap items-start justify-between gap-1.5 sm:gap-2 sm:pointer-events-none">
 
-          <!-- Sinistra HUD: Room Focus Bar (se stanza in focus) + Chip Layer Rapidi -->
-          <div class="pointer-events-auto flex flex-col gap-1.5 items-start">
+          <!-- Sinistra HUD: Tasto rapido Tutta la Casa (se focus) + Chip Layer Rapidi -->
+          <div class="pointer-events-auto flex flex-wrap items-center gap-1.5">
             ${focusedRoomObj ? `
-              <div class="${isNewFocusTransition ? 'fp-hud-enter ' : ''}flex flex-wrap items-center gap-1.5 px-2 py-1.5 rounded-2xl bg-slate-950/88 backdrop-blur-md border border-cyan-500/40 shadow-xl">
-                <button type="button"
-                        onclick="window.floorplan.selectRoom(null, false)"
-                        class="px-2.5 py-1 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-100 text-[11px] font-bold flex items-center gap-1.5 transition-all active:scale-95 border border-slate-700/70"
-                        title="Torna alla planimetria completa (ESC)">
-                  <i class="fa-solid fa-arrow-left text-cyan-300"></i>
-                  <span>Tutta la Casa</span>
-                </button>
-                <div class="flex items-center gap-1.5 px-2 text-xs font-extrabold text-white">
-                  <i class="fa-solid ${focusedRoomObj.icon} text-cyan-400 text-[11px]"></i>
-                  <span>${this.escapeSvgText(focusedRoomObj.id)}</span>
-                </div>
-                ${focusTelemetry?.roomTemp !== null ? `
-                  <span class="px-2 py-0.5 rounded-lg bg-amber-500/15 border border-amber-400/30 text-amber-200 font-mono text-[11px] font-bold">
-                    🌡️ ${focusTelemetry.roomTemp.toFixed(1)}°C
-                  </span>
-                ` : ''}
-                ${focusTelemetry?.totalLights > 0 ? `
-                  <span class="px-2 py-0.5 rounded-lg bg-slate-800/80 border border-slate-700/60 text-slate-200 font-mono text-[11px]">
-                    💡 ${focusTelemetry.activeLights}/${focusTelemetry.totalLights}
-                  </span>
-                ` : ''}
-                <button type="button"
-                        onclick="window.roomOff('${focusedRoomObj.id}')"
-                        class="px-2 py-1 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[11px] font-semibold flex items-center gap-1 transition-all active:scale-95"
-                        title="Spegni tutti i dispositivi in ${this.escapeSvgText(focusedRoomObj.id)}">
-                  <i class="fa-solid fa-power-off text-[10px]"></i>
-                  <span class="hidden sm:inline">Spegni</span>
-                </button>
-              </div>
+              <button type="button"
+                      onclick="window.floorplan.selectRoom(null, false)"
+                      class="${isNewFocusTransition ? 'fp-hud-enter ' : ''}px-2.5 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-100 text-[11px] font-bold flex items-center gap-1.5 backdrop-blur-md transition-all active:scale-95 border border-cyan-400/50 shadow-lg"
+                      title="Torna alla planimetria completa (ESC)">
+                <i class="fa-solid fa-arrow-left text-cyan-300"></i>
+                <span>Tutta la Casa</span>
+              </button>
             ` : ''}
 
-            <div class="flex flex-wrap items-center gap-1.5">
-              ${LAYERS.map(l => {
-                const isActive = this.activeLayer === l.id;
-                const count = l.id === 'all'
-                  ? visiblePinsScope.length
-                  : visiblePinsScope.filter(p => this.isPinInLayer(p, l.id)).length;
-                return `
-                  <button onclick="window.floorplan.setLayer('${l.id}')"
-                          class="px-2.5 py-1.5 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 backdrop-blur-md transition-all active:scale-95 border ${isActive ? 'bg-indigo-600/95 text-white border-cyan-400/60 shadow-lg shadow-indigo-600/25' : 'bg-slate-900/75 border-slate-700/60 text-slate-300 hover:text-white hover:bg-slate-800/85'}">
-                    <i class="fa-solid ${l.icon} text-[11px]"></i>
-                    <span class="hidden sm:inline">${l.label}</span>
-                    <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono ${isActive ? 'bg-indigo-950/70 text-cyan-200' : 'bg-slate-800/90 text-slate-400'}">${count}</span>
-                  </button>
-                `;
-              }).join('')}
-
-              ${this.statusFilter !== 'all' ? `
-                <button onclick="window.floorplan.setStatusFilter('all')"
-                        class="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/40 backdrop-blur-md flex items-center gap-1.5 transition-all active:scale-95"
-                        title="Rimuovi filtro stato">
-                  <i class="fa-solid fa-filter text-amber-300"></i>
-                  <span>${this.statusFilter === 'active' ? 'Solo Attivi' : 'Offline'}</span>
-                  <i class="fa-solid fa-xmark text-[10px] ml-0.5"></i>
+            ${LAYERS.map(l => {
+              const isActive = this.activeLayer === l.id;
+              const count = l.id === 'all'
+                ? visiblePinsScope.length
+                : visiblePinsScope.filter(p => this.isPinInLayer(p, l.id)).length;
+              return `
+                <button onclick="window.floorplan.setLayer('${l.id}')"
+                        class="px-2.5 py-1.5 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 backdrop-blur-md transition-all active:scale-95 border ${isActive ? 'bg-indigo-600/95 text-white border-cyan-400/60 shadow-lg shadow-indigo-600/25' : 'bg-slate-900/75 border-slate-700/60 text-slate-300 hover:text-white hover:bg-slate-800/85'}">
+                  <i class="fa-solid ${l.icon} text-[11px]"></i>
+                  <span class="hidden sm:inline">${l.label}</span>
+                  <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono ${isActive ? 'bg-indigo-950/70 text-cyan-200' : 'bg-slate-800/90 text-slate-400'}">${count}</span>
                 </button>
-              ` : ''}
-            </div>
+              `;
+            }).join('')}
+
+            ${this.statusFilter !== 'all' ? `
+              <button onclick="window.floorplan.setStatusFilter('all')"
+                      class="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/40 backdrop-blur-md flex items-center gap-1.5 transition-all active:scale-95"
+                      title="Rimuovi filtro stato">
+                <i class="fa-solid fa-filter text-amber-300"></i>
+                <span>${this.statusFilter === 'active' ? 'Solo Attivi' : 'Offline'}</span>
+                <i class="fa-solid fa-xmark text-[10px] ml-0.5"></i>
+              </button>
+            ` : ''}
           </div>
 
-          <!-- Destra HUD: Avatar + Zoom + Quadrante Orologio / Fase Giornata -->
-          <div class="pointer-events-auto flex flex-wrap sm:flex-col items-center sm:items-end gap-1.5 sm:gap-2">
+          <!-- Destra HUD: Avatar + Zoom + Quadrante Orologio (nascosto su mobile in Room Focus per dare spazio alla stanza) -->
+          <div class="${isRoomFocused ? 'hidden sm:flex' : 'flex'} pointer-events-auto flex-wrap sm:flex-col items-center sm:items-end gap-1.5 sm:gap-2">
             <div class="flex flex-wrap items-center gap-2">
               <!-- Avatar Circolari Presenza -->
               <div class="inline-flex items-center gap-1.5 rounded-xl bg-slate-900/80 backdrop-blur-md px-2 py-1 border border-cyan-500/25 shadow-lg">
@@ -1796,7 +1881,7 @@ class FloorplanEngine {
         </div>
 
         <div id="floorplan-touch-viewport"
-             class="relative w-full h-[calc(100vh-185px)] sm:h-[calc(100vh-76px)] min-h-[480px] sm:min-h-[540px] rounded-2xl sm:rounded-3xl overflow-hidden border border-slate-800/90 bg-slate-950 shadow-2xl flex items-center justify-center select-none cursor-default transition-all duration-700"
+             class="relative w-full ${isRoomFocused ? 'h-[44vh] min-h-[290px] sm:h-[calc(100vh-76px)] sm:min-h-[540px]' : 'h-[calc(100vh-185px)] sm:h-[calc(100vh-76px)] min-h-[480px] sm:min-h-[540px]'} rounded-2xl sm:rounded-3xl overflow-hidden border border-slate-800/90 bg-slate-950 shadow-2xl flex items-center justify-center select-none cursor-default transition-all duration-500"
              style="${useDayPhase ? `background: ${dayPhase.viewportBg};` : ''}">
 
         <!-- Live Drag HUD se in modalità modifica -->
