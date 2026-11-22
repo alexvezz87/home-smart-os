@@ -4258,6 +4258,34 @@ test('Room Focus Vettoriale Planimetria: viewBox animato, contesto sfocato, pin 
   assert.ok(mainSrc.includes('legacyFp.exitRoomFocus'), 'main.js deve esporre il bridge exitRoomFocus');
 });
 
+test('Room Focus UX Vue 3: pannello RoomFocusOverlay, icone snelle con hover tooltip, anti-collisione e cross-highlight (#143)', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const rootDir = path.join(__dirname, '..');
+
+  const html = fs.readFileSync(path.join(rootDir, 'public', 'index.html'), 'utf8');
+  assert.ok(html.includes('id="room-focus-overlay-root"'), 'index.html deve contenere #room-focus-overlay-root');
+
+  const overlaySrc = fs.readFileSync(path.join(rootDir, 'frontend', 'src', 'views', 'RoomFocusOverlay.vue'), 'utf8');
+  assert.ok(overlaySrc.includes('store.focusedRoomMeta'), 'RoomFocusOverlay deve leggere focusedRoomMeta');
+  assert.ok(overlaySrc.includes('store.focusedRoomPins'), 'RoomFocusOverlay deve leggere focusedRoomPins');
+  assert.ok(overlaySrc.includes('store.setHoveredPin'), 'RoomFocusOverlay deve propagare setHoveredPin per cross-highlight');
+  assert.ok(overlaySrc.includes('store.handlePinClick'), 'RoomFocusOverlay deve aprire il controllo dispositivo su click');
+
+  const storeSrc = fs.readFileSync(path.join(rootDir, 'frontend', 'src', 'stores', 'floorplanStore.js'), 'utf8');
+  assert.ok(storeSrc.includes('hoveredPin'), 'floorplanStore deve gestire hoveredPin');
+  assert.ok(storeSrc.includes('focusedRoomPins'), 'floorplanStore deve esporre focusedRoomPins');
+  assert.ok(storeSrc.includes('setHoveredPin('), 'floorplanStore deve esporre setHoveredPin()');
+
+  const mainSrc = fs.readFileSync(path.join(rootDir, 'frontend', 'src', 'main.js'), 'utf8');
+  assert.ok(mainSrc.includes('RoomFocusOverlay'), 'main.js deve montare RoomFocusOverlay');
+
+  const fpSrc = fs.readFileSync(path.join(rootDir, 'public', 'js', 'floorplan.js'), 'utf8');
+  assert.ok(fpSrc.includes('computeFocusPinPositions('), 'floorplan.js deve applicare micro-distanziamento visivo ai pin in focus');
+  assert.ok(fpSrc.includes('setHoveredPin('), 'floorplan.js deve gestire setHoveredPin per cross-highlight');
+  assert.ok(fpSrc.includes('fp-hover-tooltip'), 'floorplan.js deve mostrare il nome dispositivo su hover nella vista focus');
+});
+
 
 
 

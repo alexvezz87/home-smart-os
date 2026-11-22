@@ -10,15 +10,15 @@ export const FLOORPLAN_LAYERS = [
 ];
 
 export const INTERACTIVE_ROOMS = [
-  { id: 'Camera da letto', shortLabel: 'Camera', icon: 'fa-bed' },
-  { id: 'Bagno Alex', shortLabel: 'Bagno Alex', icon: 'fa-soap' },
-  { id: 'Cameretta', shortLabel: 'Cameretta', icon: 'fa-laptop-code' },
-  { id: 'Bagno Cinzia', shortLabel: 'Bagno Cinzia', icon: 'fa-bath' },
-  { id: 'Cabina armadio', shortLabel: 'Cabina', icon: 'fa-shirt' },
-  { id: 'Corridoio', shortLabel: 'Corridoio', icon: 'fa-route' },
-  { id: 'Ingresso', shortLabel: 'Ingresso', icon: 'fa-door-open' },
-  { id: 'Salone', shortLabel: 'Salone', icon: 'fa-couch' },
-  { id: 'Cucina', shortLabel: 'Cucina', icon: 'fa-utensils' }
+  { id: 'Camera da letto', shortLabel: 'Camera', subLabel: 'Zona Notte Padronale · 16.5 m²', icon: 'fa-bed' },
+  { id: 'Bagno Alex', shortLabel: 'Bagno Alex', subLabel: 'Lavanderia & Doccia · 5.4 m²', icon: 'fa-soap' },
+  { id: 'Cameretta', shortLabel: 'Cameretta', subLabel: 'Camera & Studio · 12.8 m²', icon: 'fa-laptop-code' },
+  { id: 'Bagno Cinzia', shortLabel: 'Bagno Cinzia', subLabel: 'Vasca & Doppio Lavabo · 6.0 m²', icon: 'fa-bath' },
+  { id: 'Cabina armadio', shortLabel: 'Cabina', subLabel: 'Walk-in Closet · 9.2 m²', icon: 'fa-shirt' },
+  { id: 'Corridoio', shortLabel: 'Corridoio', subLabel: 'Disimpegno Zona Notte · 7.0 m²', icon: 'fa-route' },
+  { id: 'Ingresso', shortLabel: 'Ingresso', subLabel: 'Porta Blindata & Accoglienza · 4.5 m²', icon: 'fa-door-open' },
+  { id: 'Salone', shortLabel: 'Salone', subLabel: 'Divano, Cinema TV & Libreria · 28.5 m²', icon: 'fa-couch' },
+  { id: 'Cucina', shortLabel: 'Cucina', subLabel: 'Isola Cottura & Pranzo · 13.4 m²', icon: 'fa-utensils' }
 ];
 
 export function isPinInLayer(p, layer) {
@@ -48,6 +48,7 @@ let legacyFloorplanRef = null;
 export const useFloorplanStore = defineStore('floorplan', {
   state: () => ({
     selectedPin: 21,
+    hoveredPin: null,
     selectedRoom: null,
     activeLayer: 'all',
     bgStyle: 'luxury',
@@ -194,6 +195,22 @@ export const useFloorplanStore = defineStore('floorplan', {
         pinsCount,
         telemetry: this.roomTelemetry
       };
+    },
+
+    focusedRoomPins(state) {
+      if (!state.selectedRoom) return [];
+      return state.pins
+        .filter((p) => {
+          if (p.room !== state.selectedRoom) return false;
+          if (!isPinInLayer(p, state.activeLayer)) return false;
+          if (state.statusFilter === 'active' && !isPinActive(p)) return false;
+          if (state.statusFilter === 'offline' && !isPinOffline(p)) return false;
+          return true;
+        })
+        .sort((a, b) => {
+          const activeDiff = Number(isPinActive(b)) - Number(isPinActive(a));
+          return activeDiff !== 0 ? activeDiff : Number(a.pin) - Number(b.pin);
+        });
     }
   },
 
@@ -259,6 +276,7 @@ export const useFloorplanStore = defineStore('floorplan', {
       }
       const nextRoom = roomName || null;
       this.selectedRoom = nextRoom;
+      this.hoveredPin = null;
       if (legacyFloorplanRef) {
         legacyFloorplanRef.panX = 0;
         legacyFloorplanRef.panY = 0;
@@ -276,6 +294,13 @@ export const useFloorplanStore = defineStore('floorplan', {
 
     exitRoomFocus() {
       this.selectRoom(null, false);
+    },
+
+    setHoveredPin(pinNum, fromLegacy = false) {
+      this.hoveredPin = (pinNum !== null && pinNum !== undefined) ? Number(pinNum) : null;
+      if (!fromLegacy) {
+        legacyFloorplanRef?.setHoveredPin?.(this.hoveredPin, true);
+      }
     },
 
     resetFilters() {
