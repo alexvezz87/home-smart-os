@@ -52,7 +52,11 @@ function canPayBill(item) {
 
 function canTrustGuest(item) {
   const m = itemMeta(item);
-  return item?.category === 'security' || item?.sourceType === 'security' || Boolean(m.canTrustGuest);
+  if (m.person || item?.sourceType === 'automation' || String(item?.sourceKey || '').startsWith('presence:')) {
+    return false;
+  }
+  if (m.canTrustGuest) return true;
+  return (item?.category === 'security' || item?.sourceType === 'security') && item?.level !== 'info';
 }
 
 function isSafeHttpUrl(url) {
