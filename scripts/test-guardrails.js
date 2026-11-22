@@ -4009,6 +4009,7 @@ test('Comfort Boost Vocale Contestuale, Trigger Relativi & Filtro Stufetta Bagno
   const geminiVision = require('../src/gemini-vision');
   const climateOptimizer = require('../src/climate-optimizer');
   const eventBus = require('../src/event-bus');
+  const hueLocal = require('../src/hue-local');
   const { processAssistantCommand } = require('../src/assistant');
 
   // 1. Addendum Bagno Alex: detectWindowOpen ignora rientro post-stufetta > 21.0°C / 22.5°C
@@ -4052,6 +4053,9 @@ test('Comfort Boost Vocale Contestuale, Trigger Relativi & Filtro Stufetta Bagno
   const origToggleDevice = mcp.toggleDevice;
   const origAnalyzeCam = geminiVision.analyzeCameraScene;
   const origRecordManual = climateOptimizer.recordManualOverride;
+  const origHuePaired = hueLocal.isPaired;
+
+  hueLocal.isPaired = true;
 
   let currentZones = [
     { id: 'zn1', name: 'Salone', tempActual: 19.2, tempSetpoint: 19.5 },
@@ -4158,6 +4162,7 @@ test('Comfort Boost Vocale Contestuale, Trigger Relativi & Filtro Stufetta Bagno
     mcp.toggleDevice = origToggleDevice;
     geminiVision.analyzeCameraScene = origAnalyzeCam;
     climateOptimizer.recordManualOverride = origRecordManual;
+    hueLocal.isPaired = origHuePaired;
   }
 });
 

@@ -551,7 +551,8 @@ async function processAssistantCommand(input, options = {}) {
     const colorMatch = text.match(/\b(bianco\s+caldo|bianco\s+naturale|bianco\s+freddo|blu|azzurro|ciano|rosso|verde|smeraldo|viola|lavanda|malva|arancione|ambra|giallo|oro|rosa|magenta|calda|caldo|naturale|fredda|freddo)\b/i);
     const brightMatch = text.match(/(\d{1,3})\s*%/);
     const hasLightContext = text.includes('luce') || text.includes('luci') || text.includes('lampadario') || text.includes('nuvoletta') || text.includes('piantana') || text.includes('abajour') || text.includes('abat-jour') || text.includes('salone') || text.includes('cucina') || text.includes('camera') || text.includes('cameretta') || text.includes('studio') || text.includes('corridoio') || text.includes('ingresso');
-    if ((colorMatch || brightMatch) && hasLightContext && !text.includes('temperatura')) {
+    const isThermalPhrase = /\b(ho\s+freddo|fa\s+freddo|fa\s+freschino|sento\s+freddo|ho\s+caldo|fa\s+caldo|si\s+muore\s+di\s+caldo|pi[uù]\s+caldo|meno\s+caldo|temperatura|riscaldamento|termostato|caldaia|gradi)\b/i.test(text);
+    if ((colorMatch || brightMatch) && hasLightContext && !isThermalPhrase) {
       const isSalone = text.includes('salone') || text.includes('soggiorno') || text.includes('sala');
       const isStudio = text.includes('studio') || text.includes('cameretta');
       const isLetto = text.includes('letto') || text.includes('camera');
@@ -724,7 +725,7 @@ async function processAssistantCommand(input, options = {}) {
   // 1a. Delta Esplicito ("aumenta/abbassa la temperatura ... di mezzo / N gradi") (#138)
   const deltaTempMatch =
     text.match(/\b(aumenta|alza|incrementa|abbassa|diminuisci|riduci)\b.*\b(?:temperatura|riscaldamento|termostato|caldaia|clima|gradi)\b.*\bdi\s+(mezzo|\d+(?:[.,]\d+)?)\b/i)
-    || text.match(/\b(aumenta|alza|incrementa|abbassa|diminuisci|riduci)\b(?:\s+un\s+po')?\s+di\s+(mezzo|\d+(?:[.,]\d+)?)\s*(?:grad[oi]|°c?)?/i);
+    || text.match(/\b(aumenta|alza|incrementa|abbassa|diminuisci|riduci)\b.*\bdi\s+(mezzo|\d+(?:[.,]\d+)?)\s*(?:grad[oi]|°c?)(?=\s|$|[.,;!?])/i);
   if (deltaTempMatch) {
     const verb = deltaTempMatch[1] || deltaTempMatch[3];
     const rawVal = deltaTempMatch[2] || deltaTempMatch[4];
@@ -735,8 +736,8 @@ async function processAssistantCommand(input, options = {}) {
 
   // 1b. Target Assoluto Bosch CT200 (es. "imposta temperatura salone a 21 gradi", "alza la temperatura in salone a 20.5")
   const tempMatch =
-    text.match(/(?:imposta|metti|porta|regola|scalda|abbassa|alza|temperatura)(?:\s+(?:la\s+|il\s+)?(?:temperatura|riscaldamento|termostato|clima))?\s+(?:del\s+|della\s+|nel\s+|nella\s+|il\s+|la\s+|in\s+|a\s+)?(salone|cucina|camera da letto|cameretta|camera|bagno cinzia|bagno alex|cabina armadio|ingresso|corridoio)\s+(?:a\s+)?(\d+(?:[.,]\d+)?)/i) ||
-    text.match(/(?:imposta|metti|porta|regola|scalda|abbassa|alza)\s+(?:la\s+|il\s+)?(temperatura|riscaldamento|termostato|caldaia)\s+(?:a\s+)?(\d+(?:[.,]\d+)?)/i);
+    text.match(/(?:imposta|metti|porta|regola|scalda|aumenta|incrementa|abbassa|diminuisci|riduci|alza|temperatura)(?:\s+(?:la\s+|il\s+)?(?:temperatura|riscaldamento|termostato|clima))?\s+(?:del\s+|della\s+|nel\s+|nella\s+|il\s+|la\s+|in\s+|a\s+)?(salone|cucina|camera da letto|cameretta|camera|bagno cinzia|bagno alex|cabina armadio|ingresso|corridoio)\s+(?:a\s+)?(\d+(?:[.,]\d+)?)/i) ||
+    text.match(/(?:imposta|metti|porta|regola|scalda|aumenta|incrementa|abbassa|diminuisci|riduci|alza)\s+(?:la\s+|il\s+)?(temperatura|riscaldamento|termostato|caldaia)\s+(?:a\s+)?(\d+(?:[.,]\d+)?)/i);
   if (tempMatch) {
     const rawZone = tempMatch[1].toLowerCase();
     const isGenericZone = ['temperatura', 'riscaldamento', 'termostato', 'caldaia'].includes(rawZone);
