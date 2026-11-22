@@ -138,7 +138,7 @@ function sceneGradient(scene) {
           v-for="r in INTERACTIVE_ROOMS"
           :key="r.id"
           type="button"
-          @click="store.selectRoom(r.id, false)"
+          @click="store.selectRoom(r.id, true)"
           class="px-2.5 py-1 rounded-lg text-[11px] font-semibold border whitespace-nowrap shrink-0 flex items-center gap-1 transition-all"
           :class="store.selectedRoom === r.id
             ? 'bg-cyan-500/20 text-cyan-200 border-cyan-400/50'
