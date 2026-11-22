@@ -96,6 +96,8 @@ class ThermalAnalytics {
       room: payload.room || payload.zoneName || String(payload.zoneId || 'Zona'),
       targetTemp: typeof payload.targetTemp === 'number' ? payload.targetTemp : null,
       previousTemp: typeof payload.previousTemp === 'number' ? payload.previousTemp : null,
+      source: payload.source ? String(payload.source) : 'manual',
+      intent: payload.intent ? String(payload.intent) : null,
       hour
     };
     this.manualOverrides.push(entry);
@@ -244,8 +246,12 @@ class ThermalAnalytics {
             const rate = dT / dtHours;
 
             if (p.valvePos <= 5 && prev.valvePos <= 5) {
-              coolingRates.push(rate);
-              if ((typeof p.tSet === 'number' && p.tActual > p.tSet + 0.2) || dT > 0.05) {
+              const isElectricSpike = rate > 0.8;
+              const isPostSpikeRebalance = prev.tActual > 22.5 && rate < 0;
+              if (!isElectricSpike && !isPostSpikeRebalance) {
+                coolingRates.push(rate);
+              }
+              if (!isElectricSpike && !isPostSpikeRebalance && ((typeof p.tSet === 'number' && p.tActual > p.tSet + 0.2) || dT > 0.05)) {
                 passiveGainHours += dtHours;
               }
             } else if (p.valvePos >= 25 && prev.valvePos >= 25 && dT > 0) {

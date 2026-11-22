@@ -4001,6 +4001,171 @@ test('Fase 6 (Finale) Frontend Vue 3 + Pinia: La Mia Casa & Floorplan Drawer v1.
   }
 });
 
+test('Comfort Boost Vocale Contestuale, Trigger Relativi & Filtro Stufetta Bagno Alex (#138)', async () => {
+  const { ClimateOptimizer } = require('../src/climate-optimizer');
+  const { ThermalAnalytics } = require('../src/thermal-analytics');
+  const evClimateHub = require('../src/ev-climate-hub');
+  const mcp = require('../src/google-home-mcp');
+  const geminiVision = require('../src/gemini-vision');
+  const climateOptimizer = require('../src/climate-optimizer');
+  const eventBus = require('../src/event-bus');
+  const hueLocal = require('../src/hue-local');
+  const { processAssistantCommand } = require('../src/assistant');
+
+  // 1. Addendum Bagno Alex: detectWindowOpen ignora rientro post-stufetta > 21.0°C / 22.5°C
+  const opt = new ClimateOptimizer();
+  const t0 = 1700000000000;
+  opt.detectWindowOpen('zn6', 26.2, 18.5, t0, { zoneName: 'Bagno Alex' });
+  const postSpike = opt.detectWindowOpen('zn6', 23.5, 18.5, t0 + 12 * 60 * 1000, { zoneName: 'Bagno Alex' });
+  assert.equal(postSpike.paused, false, 'Rientro post-stufetta sopra 21.0/22.5°C non deve attivare window_pause');
+
+  // 2. applyBoilerCoalescing esclude Bagno Alex da coalesce_boost
+  const proposals = [
+    {
+      z: { id: 'zn1', name: 'Salone', tempActual: 18.2, tempSetpoint: 20.5, valvePos: 65 },
+      prop: { currentTemp: 18.2, currentSetpoint: 20.5, targetSetpoint: 20.5, badge: 'comfort', changed: false }
+    },
+    {
+      z: { id: 'zn6', name: 'Bagno Alex', tempActual: 19.0, tempSetpoint: 19.0, valvePos: 0 },
+      prop: { currentTemp: 19.0, currentSetpoint: 19.0, targetSetpoint: 19.0, badge: 'comfort', changed: false }
+    }
+  ];
+  opt.applyBoilerCoalescing(proposals);
+  const bagnoProp = proposals.find((c) => c.z.id === 'zn6').prop;
+  assert.notEqual(bagnoProp.badge, 'coalesce_boost', 'Bagno Alex non deve ricevere coalesce_boost');
+
+  // 3. ThermalAnalytics._computeZoneMetrics esclude picco elettrico (> +0.8°C/h) e discesa > 22.5°C
+  const ta = new ThermalAnalytics();
+  const baseTs = 1700000000000;
+  const samples = [
+    { ts: baseTs, zones: { zn6: { tActual: 21.5, tSet: 18.5, valvePos: 0 } } },
+    { ts: baseTs + 30 * 60 * 1000, zones: { zn6: { tActual: 26.0, tSet: 18.5, valvePos: 0 } } }, // +9.0°C/h (stufetta)
+    { ts: baseTs + 60 * 60 * 1000, zones: { zn6: { tActual: 22.8, tSet: 18.5, valvePos: 0 } } }  // -6.4°C/h da 26.0°C (>22.5°C)
+  ];
+  const metrics = ta._computeZoneMetrics(samples, 'zn6');
+  assert.equal(metrics.passiveGainHours, 0, 'Picco stufetta elettrica non va contato come passiveGainHours');
+  assert.equal(metrics.coolingRatePerHour, null, 'Discesa post-picco >22.5°C non va inclusa in coolingRatePerHour');
+
+  // 4. Comfort Boost Vocale Contestuale & Trigger Relativi in src/assistant.js
+  const origGetUnifiedStatus = evClimateHub.getUnifiedStatus;
+  const origSetBoschSetpoint = evClimateHub.setBoschZoneSetpoint;
+  const origGetSnapshot = mcp.getHomeSnapshot;
+  const origToggleDevice = mcp.toggleDevice;
+  const origAnalyzeCam = geminiVision.analyzeCameraScene;
+  const origRecordManual = climateOptimizer.recordManualOverride;
+  const origHuePaired = hueLocal.isPaired;
+
+  hueLocal.isPaired = true;
+
+  let currentZones = [
+    { id: 'zn1', name: 'Salone', tempActual: 19.2, tempSetpoint: 19.5 },
+    { id: 'zn6', name: 'Bagno Alex', tempActual: 18.8, tempSetpoint: 18.5 }
+  ];
+  let currentSnap = {
+    devices: [
+      { id: 'light-salone', name: 'Luce Salone', room: 'Salone', category: 'light', isOn: true },
+      { id: 'plug-stufetta', name: 'Stufetta Bagno Alex', room: 'Bagno Alex', category: 'plug', isOn: false }
+    ],
+    stats: { temperature: 20.1 }
+  };
+  let setCalls = [];
+  let toggleCalls = [];
+  let visionCalls = 0;
+  let overrideCalls = [];
+  const busEvents = [];
+  const onBus = (ev) => busEvents.push(ev);
+  eventBus.on('climate:manual_override', onBus);
+
+  evClimateHub.getUnifiedStatus = () => ({ bosch: { zones: currentZones } });
+  evClimateHub.setBoschZoneSetpoint = async (z, t) => { setCalls.push({ z, t }); return { success: true }; };
+  mcp.getHomeSnapshot = async () => currentSnap;
+  mcp.toggleDevice = async (id, state) => { toggleCalls.push({ id, state }); return { success: true }; };
+  geminiVision.analyzeCameraScene = async () => { visionCalls += 1; return { analysis: 'NO' }; };
+  climateOptimizer.recordManualOverride = (z, ttl) => { overrideCalls.push({ z, ttl }); };
+
+  try {
+    // 4a. "Ho freddo" senza stanza -> Livello 2 risolve Salone senza chiamare geminiVision
+    setCalls = []; overrideCalls = []; busEvents.length = 0;
+    const rColdAuto = await processAssistantCommand('Ho freddo');
+    assert.equal(rColdAuto.success, true);
+    assert.equal(rColdAuto.room, 'Salone');
+    assert.equal(rColdAuto.roomResolution.level, 2);
+    assert.equal(visionCalls, 0, 'Livello 2 non deve invocare geminiVision');
+    assert.equal(rColdAuto.temperature, 20.5);
+    assert.equal(overrideCalls[0].ttl, 60 * 60 * 1000);
+    assert.ok(busEvents.some((e) => (e.data || e).source === 'voice_comfort_boost' && (e.data || e).intent === 'cold'));
+
+    // 4b. "Ho freddo in salone" con T_actual = 21.3°C (senza conferma) -> nessun invio a Bosch
+    currentZones[0].tempActual = 21.3;
+    setCalls = [];
+    const rWarm = await processAssistantCommand('Ho freddo in salone');
+    assert.equal(rWarm.success, false);
+    assert.equal(rWarm.requiresConfirmation, true);
+    assert.equal(rWarm.action, 'comfort_boost_already_warm');
+    assert.equal(setCalls.length, 0);
+
+    // 4c. "Ho freddo in bagno alex" -> accende stufetta elettrica, 0 chiamate Bosch
+    setCalls = []; toggleCalls = [];
+    const rBagno = await processAssistantCommand('Ho freddo in bagno alex');
+    assert.equal(rBagno.success, true);
+    assert.equal(rBagno.action, 'comfort_boost_electric_heater');
+    assert.equal(setCalls.length, 0, 'Bagno Alex non deve attivare la caldaia gas');
+    assert.equal(toggleCalls.length, 1);
+    assert.equal(toggleCalls[0].id, 'plug-stufetta');
+    assert.equal(toggleCalls[0].state, true);
+
+    // 4d. "Aumenta la temperatura" (relativo senza stanza né numero)
+    currentZones[0].tempActual = 19.2;
+    currentZones[0].tempSetpoint = 19.5;
+    setCalls = [];
+    const rRelUp = await processAssistantCommand('Aumenta la temperatura');
+    assert.equal(rRelUp.success, true);
+    assert.equal(rRelUp.room, 'Salone');
+    assert.equal(rRelUp.temperature, 20.5);
+
+    // 4e. "Abbassa la temperatura di mezzo grado in salone" -> -0.5°C, override 60 min
+    currentZones[0].tempActual = 20.0;
+    currentZones[0].tempSetpoint = 20.0;
+    setCalls = []; overrideCalls = [];
+    const rDeltaDown = await processAssistantCommand('Abbassa la temperatura di mezzo grado in salone');
+    assert.equal(rDeltaDown.success, true);
+    assert.equal(rDeltaDown.temperature, 19.5);
+    assert.equal(overrideCalls[0].ttl, 60 * 60 * 1000);
+
+    // 4f. "Alza la temperatura in salone a 20.5" -> target assoluto 20.5°C
+    setCalls = [];
+    const rAbs = await processAssistantCommand('Alza la temperatura in salone a 20.5');
+    assert.equal(rAbs.success, true);
+    assert.equal(rAbs.action, 'bosch:set_temp');
+    assert.equal(rAbs.temperature, 20.5);
+
+    // 5. Route POST /api/assistant/comfort-boost registrata in hue-appliances-spatial.routes.js
+    const registerHueRoutes = require('../src/routes/hue-appliances-spatial.routes');
+    const postRoutes = new Map();
+    registerHueRoutes(
+      { get: () => {}, post: (p, ...h) => postRoutes.set(p, h[h.length - 1]), delete: () => {} },
+      {
+        handleComfortBoost: async ({ intent, options }) => ({ success: true, action: 'comfort_boost', intent, room: options.room || 'Salone' })
+      }
+    );
+    const cbHandler = postRoutes.get('/api/assistant/comfort-boost');
+    assert.ok(typeof cbHandler === 'function', 'POST /api/assistant/comfort-boost deve essere registrata');
+    const mockRes = { statusCode: 200, body: null, status(c) { this.statusCode = c; return this; }, json(d) { this.body = d; return this; } };
+    await cbHandler({ body: { intent: 'cold', room: 'Salone' } }, mockRes);
+    assert.equal(mockRes.statusCode, 200);
+    assert.equal(mockRes.body.success, true);
+  } finally {
+    eventBus.off('climate:manual_override', onBus);
+    evClimateHub.getUnifiedStatus = origGetUnifiedStatus;
+    evClimateHub.setBoschZoneSetpoint = origSetBoschSetpoint;
+    mcp.getHomeSnapshot = origGetSnapshot;
+    mcp.toggleDevice = origToggleDevice;
+    geminiVision.analyzeCameraScene = origAnalyzeCam;
+    climateOptimizer.recordManualOverride = origRecordManual;
+    hueLocal.isPaired = origHuePaired;
+  }
+});
+
 
 
 

@@ -257,7 +257,8 @@ class ClimateOptimizer {
     const windowSamples = recent.filter((pt) => nowMs - pt.ts <= WINDOW_DROP_WINDOW_MS);
     if (windowSamples.length >= 2) {
       const maxTempInWindow = Math.max(...windowSamples.map((p) => p.temp));
-      if (maxTempInWindow - temp > dropThreshold) {
+      // Ignora cali rapidi in fascia calda o in rientro da picco stufetta elettrica (#138)
+      if (temp <= 21.0 && maxTempInWindow <= 22.5 && maxTempInWindow - temp > dropThreshold) {
         const orig = Number.isFinite(Number(currentSetpoint)) ? Number(currentSetpoint) : 20.0;
         this.windowPauseByZone.set(id, {
           until: nowMs + WINDOW_PAUSE_DURATION_MS,
@@ -486,7 +487,7 @@ class ClimateOptimizer {
         && prop.badge !== 'window_pause'
       ) {
         const nl = String(z.name || '').toLowerCase();
-        if (nl.includes('cameretta') || nl.includes('salone') || nl.includes('camera da letto') || nl.includes('cucina')) {
+        if (!nl.includes('bagno alex') && (nl.includes('cameretta') || nl.includes('salone') || nl.includes('camera da letto') || nl.includes('cucina'))) {
           piggybackList.push(item);
         }
       }
