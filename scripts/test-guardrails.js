@@ -4166,6 +4166,74 @@ test('Comfort Boost Vocale Contestuale, Trigger Relativi & Filtro Stufetta Bagno
   }
 });
 
+test('Notifications: hide Persona Fidata button on resident presence events (#141)', async () => {
+  const fs = require('fs');
+  const path = require('path');
+  const notifier = require('../src/notifier');
+  const eventBus = require('../src/event-bus');
+
+  const upserted = [];
+  const prevUpsert = notifier.upsertFeedItem.bind(notifier);
+  const prevSend = notifier.send.bind(notifier);
+  try {
+    notifier.upsertFeedItem = async (item) => { upserted.push(item); return item; };
+    notifier._attachEventListeners();
+
+    // 1. Resident arrival/departure (Alex) -> must NOT have canTrustGuest
+    eventBus.emit('presence:changed', { person: 'Alex', status: 'home', previous: 'away', reason: 'lan_active' });
+    await new Promise((r) => setTimeout(r, 15));
+    const alexItem = upserted.find((i) => i.metadata?.person === 'Alex');
+    assert.ok(alexItem, 'deve creare feed item per Alex');
+    assert.equal(Boolean(alexItem.metadata?.canTrustGuest), false);
+
+    // 2. Aggregate Casa presence via send() -> must NOT have canTrustGuest
+    const prevPersist = notifier.persistFeed;
+    notifier.persistFeed = async () => {};
+    try {
+      await prevSend({
+        level: 'info',
+        category: 'security',
+        sourceType: 'automation',
+        title: 'Stato Presenza Aggiornato',
+        message: 'Rientro a Casa (aggregate_change)',
+        dedupKey: 'presence:home'
+      });
+      const casaItem = upserted.find((i) => i.sourceKey === 'presence:home');
+      assert.ok(casaItem);
+      assert.equal(Boolean(casaItem.metadata?.canTrustGuest), false);
+
+      // 3. Real security warning/critical alert -> MUST have canTrustGuest
+      await prevSend({
+        level: 'critical',
+        category: 'security',
+        title: 'Sentinella',
+        message: 'Movimento rilevato in Salone',
+        dedupKey: 'sentinel:test-141'
+      });
+      const secItem = upserted.find((i) => i.sourceKey === 'sentinel:test-141');
+      assert.ok(secItem);
+      assert.equal(secItem.metadata?.canTrustGuest, true);
+    } finally {
+      notifier.persistFeed = prevPersist;
+    }
+
+    // 4. Verify Vue 3 views and legacy notifications.js exclude presence items from canTrustGuest
+    const rootDir = path.join(__dirname, '..');
+    for (const rel of [
+      'frontend/src/views/NotificationsPopover.vue',
+      'frontend/src/views/NotificationsView.vue',
+      'public/js/notifications.js'
+    ]) {
+      const src = fs.readFileSync(path.join(rootDir, rel), 'utf8');
+      assert.ok(src.includes('m.person'), `${rel} deve escludere m.person da canTrustGuest`);
+      assert.ok(src.includes("sourceType === 'automation'"), `${rel} deve escludere sourceType automation da canTrustGuest`);
+    }
+  } finally {
+    notifier.upsertFeedItem = prevUpsert;
+    notifier.send = prevSend;
+  }
+});
+
 
 
 

@@ -28,6 +28,16 @@ class NotificationsManager {
       .replace(/'/g, '&#39;');
   }
 
+  _canTrustGuest(item) {
+    if (!item || typeof item !== 'object') return false;
+    const m = item.metadata || {};
+    if (m.person || item.sourceType === 'automation' || String(item.sourceKey || '').startsWith('presence:')) {
+      return false;
+    }
+    if (m.canTrustGuest) return true;
+    return (item.category === 'security' || item.sourceType === 'security') && item.level !== 'info';
+  }
+
   _updateBadges(unreadCount) {
     const count = Math.max(0, Number(unreadCount) || 0);
     const headerBadge = document.getElementById('header-notif-badge');
@@ -96,7 +106,7 @@ class NotificationsManager {
               const isMail = item.sourceType === 'mail_delivery' || item.sourceType === 'mail_bill';
               const isUrgent = item.attentionTier === 'urgent' || item.attentionTier === 'actionable';
               const canReceive = item.sourceType === 'mail_delivery' && item.metadata?.deliveryStatus !== 'delivered';
-              const canTrustGuest = item.category === 'security' || item.sourceType === 'security' || Boolean(item.metadata?.canTrustGuest);
+              const canTrustGuest = this._canTrustGuest(item);
               const calMeta = item.meta?.calendarAction || item.metadata?.calendarAction;
               const calAdded = Boolean(item.meta?.calendarAdded || item.metadata?.calendarAdded);
               const canCalendar = Boolean(calMeta && calMeta.type && calMeta.itemId && !calAdded);
@@ -213,7 +223,7 @@ class NotificationsManager {
         ? 'border-amber-500/40 bg-amber-950/15'
         : 'border-slate-800 bg-slate-900/70';
     const canReceive = item.sourceType === 'mail_delivery' && item.metadata?.deliveryStatus !== 'delivered';
-    const canTrustGuest = item.category === 'security' || item.sourceType === 'security' || Boolean(item.metadata?.canTrustGuest);
+    const canTrustGuest = this._canTrustGuest(item);
     const calMeta = item.meta?.calendarAction || item.metadata?.calendarAction;
     const calAdded = Boolean(item.meta?.calendarAdded || item.metadata?.calendarAdded);
     const canCalendar = Boolean(calMeta && calMeta.type && calMeta.itemId && !calAdded);
@@ -268,7 +278,7 @@ class NotificationsManager {
     if (!modal) return;
     const m = item.metadata || {};
     const canReceive = item.sourceType === 'mail_delivery' && m.deliveryStatus !== 'delivered';
-    const canTrustGuest = item.category === 'security' || item.sourceType === 'security' || Boolean(m.canTrustGuest);
+    const canTrustGuest = this._canTrustGuest(item);
     const calMeta = item.meta?.calendarAction || m.calendarAction;
     const calAdded = Boolean(item.meta?.calendarAdded || m.calendarAdded);
     const canCalendar = Boolean(calMeta && calMeta.type && calMeta.itemId && !calAdded);

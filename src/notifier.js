@@ -220,6 +220,10 @@ class Notifier {
       meta: { level, category, channels: record.channels, dedupKey },
       persistDb: true
     });
+    const isPresenceAutomation = payload.sourceType === 'automation'
+      || String(dedupKey || '').startsWith('presence:')
+      || Boolean(data?.person);
+    const allowTrustGuest = category === 'security' && !isPresenceAutomation && level !== 'info';
     this.upsertFeedItem({
       sourceKey: dedupKey || `alert:${record.id}`,
       sourceType: payload.sourceType || (category === 'mail' ? 'mail_delivery' : category),
@@ -229,7 +233,7 @@ class Notifier {
       message,
       elaboratedText: payload.elaboratedText,
       actionHints: payload.actionHints,
-      metadata: { ...data, targetUrl, ...(category === 'security' ? { canTrustGuest: true } : {}) }
+      metadata: { ...data, targetUrl, ...(allowTrustGuest ? { canTrustGuest: true } : {}) }
     }).catch(() => {});
 
     eventBus.publish('alert:triggered', {
