@@ -4273,8 +4273,15 @@ test('Camera Theater same-origin /go2rtc proxy & no Mixed Content (#144)', async
     );
 
     assert.ok(wsRoutes.has('/go2rtc/api/ws'), 'deve registrare WS /go2rtc/api/ws');
-    const go2rtcHandler = getRoutes.get('/go2rtc/*');
-    assert.ok(typeof go2rtcHandler === 'function', 'deve registrare GET /go2rtc/*');
+    const go2rtcKey = Array.from(getRoutes.keys()).find((k) => k instanceof RegExp && k.test('/go2rtc/stream.html'));
+    const go2rtcHandler = go2rtcKey ? getRoutes.get(go2rtcKey) : null;
+    assert.ok(typeof go2rtcHandler === 'function', 'deve registrare GET /^\\/go2rtc(\\/.*)?$/');
+
+    // Verifica compatibilità reale Express 5 router (nessun PathToRegexpError)
+    const express = require('express');
+    const realApp = express();
+    realApp.ws = () => {};
+    registerSecurityRoutes(realApp, { auth: { isAuthEnabled: () => false }, proxy: () => () => {} });
 
     const fakeReq = Object.assign(new EventEmitter(), {
       method: 'GET',
