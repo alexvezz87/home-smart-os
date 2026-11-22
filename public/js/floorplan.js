@@ -1407,6 +1407,24 @@ class FloorplanEngine {
     return { fill, stroke, iconColor, iconGlyph, subBadge };
   }
 
+  resolveLightGlowHex(p) {
+    const rawHex = String(p?.colorHex || '').trim();
+    if (/^#[0-9a-f]{6}$/i.test(rawHex)) return rawHex.toLowerCase();
+    if (p?.pin === 23 || p?.pin === 25) return '#a855f7';
+    if (p?.pin === 3) return '#38bdf8';
+    return '#f59e0b';
+  }
+
+  mixHexWithWhite(hex, amount = 0.32) {
+    const clean = String(hex || '#f59e0b').replace('#', '').trim();
+    if (!/^[0-9a-f]{6}$/i.test(clean)) return '#fef08a';
+    const r = parseInt(clean.slice(0, 2), 16);
+    const g = parseInt(clean.slice(2, 4), 16);
+    const b = parseInt(clean.slice(4, 6), 16);
+    const mix = (c) => Math.round(Math.min(255, Math.max(0, c + (255 - c) * amount)));
+    return '#' + [mix(r), mix(g), mix(b)].map((v) => v.toString(16).padStart(2, '0')).join('');
+  }
+
   buildDaylightOverlaySvg(dayPhase) {
     return `
       <g id="svg-layer-daylight" pointer-events="none">
@@ -1486,6 +1504,9 @@ class FloorplanEngine {
     const visiblePinsScope = isRoomFocused
       ? pins.filter(p => p.room === focusedRoomObj.id)
       : pins;
+    const focusPositions = isRoomFocused
+      ? this.computeFocusPinPositions(visiblePinsScope, Math.max(18, Math.round(28 * focusPinScale)), 14)
+      : null;
 
     // Proximity Lines
     let proximitySvg = '';
@@ -1505,21 +1526,36 @@ class FloorplanEngine {
       }).join('');
     }
 
-    // Glow luci accese (visibili solo nel layer 'all' o 'lights'), modulati dalla fascia oraria
+    // Glow luci accese (visibili solo nel layer 'all' o 'lights'), modulati da colore reale, luminosità e fascia oraria (#149)
     const showGlows = this.activeLayer === 'all' || this.activeLayer === 'lights';
     const glowMult = useDayPhase ? dayPhase.glowMultiplier : 1;
+    const lightGlowDefs = [];
     const lightGlowsSvg = showGlows ? visiblePinsScope
       .filter(p => (p.category === 'light' || p.category === 'chandelier') && p.isOn)
       .map(p => {
-        const cx = +(p.x * 10).toFixed(1);
-        const cy = +(p.y * 13.37).toFixed(1);
-        const ratio = Math.max(0.25, (p.brightness || 80) / 100);
+        const focusPt = focusPositions ? focusPositions.get(p.pin) : null;
+        const cx = focusPt ? focusPt.x : +(p.x * 10).toFixed(1);
+        const cy = focusPt ? focusPt.y : +(p.y * 13.37).toFixed(1);
+        const rawBri = p.brightness !== undefined && p.brightness !== null ? Number(p.brightness) : 80;
+        const clampedBri = Math.max(1, Math.min(100, Number.isFinite(rawBri) ? rawBri : 80));
+        const ratio = clampedBri / 100;
         const bulbRatio = p.category === 'chandelier' ? Math.max(0.4, (p.activeBulbs || 1) / (p.totalBulbs || 1)) : 1;
-        const r = Math.round((p.lightRadius || 14) * 9.2 * (0.55 + 0.45 * ratio) * bulbRatio * (0.85 + 0.15 * glowMult));
-        const glowOpacity = Math.min(0.98, (0.45 + 0.45 * ratio) * glowMult).toFixed(2);
-        const gradId = p.pin === 23 || p.pin === 25 ? 'glowPurple' : p.pin === 3 ? 'glowSky' : 'glowWarm';
+        const radiusScale = 0.34 + 0.78 * Math.pow(ratio, 0.75);
+        const r = Math.round((p.lightRadius || 14) * 9.2 * radiusScale * bulbRatio * (0.85 + 0.15 * glowMult));
+        const glowOpacity = Math.min(0.98, Math.max(0.14, (0.12 + 0.86 * ratio) * glowMult)).toFixed(2);
+        const glowHex = this.resolveLightGlowHex(p);
+        const coreHex = this.mixHexWithWhite(glowHex, 0.32);
+        const gradId = `glowPin-${p.pin}`;
+        lightGlowDefs.push(`
+          <radialGradient id="${gradId}" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="${coreHex}" stop-opacity="0.90"/>
+            <stop offset="42%" stop-color="${glowHex}" stop-opacity="0.46"/>
+            <stop offset="100%" stop-color="${glowHex}" stop-opacity="0"/>
+          </radialGradient>
+        `);
         return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#${gradId})" opacity="${glowOpacity}" pointer-events="none"/>`;
       }).join('') : '';
+    const lightGlowGradientsSvg = lightGlowDefs.join('');
 
     // Heatmap Energetica
     let heatmapSvg = '';
@@ -1657,9 +1693,6 @@ class FloorplanEngine {
 
     // Rendering Pin Dispositivi (ordinati mettendo quello selezionato sopra gli altri)
     const isEditMode = window.dragEditor?.editMode;
-    const focusPositions = isRoomFocused
-      ? this.computeFocusPinPositions(visiblePinsScope, Math.max(18, Math.round(28 * focusPinScale)), 14)
-      : null;
     const hoveredStorePin = isRoomFocused ? window.homeVueBridge?.floorplanStore?.hoveredPin : null;
     const renderPinsList = [...visiblePinsScope].sort((a, b) => {
       if (hoveredStorePin && a.pin === hoveredStorePin) return 1;
@@ -1973,6 +2006,7 @@ class FloorplanEngine {
                 <stop offset="45%" stop-color="#a855f7" stop-opacity="0.45"/>
                 <stop offset="100%" stop-color="#a855f7" stop-opacity="0"/>
               </radialGradient>
+              ${lightGlowGradientsSvg}
 
               <!-- Gradienti Heatmap Energetica -->
               <radialGradient id="heatHeavy" cx="50%" cy="50%" r="50%">

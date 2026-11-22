@@ -4564,6 +4564,69 @@ test('Selettore Colore & Palette RGB Philips Hue Multicolor (#147)', async () =>
   assert.equal(openedPins.at(-1)?.colorHex, '#d946ef');
 });
 
+test('Planimetria Glow Dinamico da Colore RGB/Kelvin e Intensità Luminosità (#149)', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const vm = require('vm');
+  const rootDir = path.join(__dirname, '..');
+
+  const fpSrc = fs.readFileSync(path.join(rootDir, 'public/js/floorplan.js'), 'utf8');
+  assert.ok(fpSrc.includes('resolveLightGlowHex('), 'floorplan.js deve definire resolveLightGlowHex');
+  assert.ok(fpSrc.includes('glowPin-${p.pin}'), 'floorplan.js deve generare radialGradient dinamico per pin');
+
+  const elements = {};
+  const sandbox = {
+    console,
+    Math,
+    Number,
+    Date,
+    localStorage: { getItem: () => null, setItem: () => {} },
+    document: {
+      head: { appendChild() {} },
+      getElementById: (id) => {
+        if (!elements[id]) elements[id] = { innerHTML: '', className: '', style: {}, dataset: { panZoomBound: 'true' }, classList: { add() {}, remove() {}, toggle() {} }, setAttribute() {}, getAttribute: () => null, querySelectorAll: () => [], querySelector: () => null, addEventListener() {} };
+        return elements[id];
+      },
+      createElement: () => ({ id: '', textContent: '' }),
+      addEventListener() {}
+    },
+    window: {
+      addEventListener() {},
+      setInterval: () => 0,
+      clearInterval: () => {},
+      setTimeout: () => 0,
+      clearTimeout: () => {},
+      requestAnimationFrame: () => 0,
+      dragEditor: { editMode: false },
+      homeData: {
+        spatial: {
+          pins: [
+            { pin: 20, name: 'Piantana divano', room: 'Salone', category: 'light', x: 31.8, y: 63.4, lightRadius: 15, isOn: true, brightness: 25, colorHex: '#22c55e' },
+            { pin: 26, name: 'Lampada Tiffany', room: 'Salone', category: 'light', x: 27.6, y: 87.8, lightRadius: 15, isOn: true, brightness: 95, colorHex: '#ff44aa' }
+          ]
+        }
+      }
+    }
+  };
+  sandbox.window.window = sandbox.window;
+  vm.createContext(sandbox);
+  const fp = vm.runInContext(`${fpSrc}\n;window.floorplan;`, sandbox);
+  fp.render();
+
+  const html = elements['floorplan-container'].innerHTML;
+  assert.ok(html.includes('id="glowPin-20"') && html.includes('stop-color="#22c55e"'), 'Alone pin #20 deve riflettere colore RGB #22c55e');
+  assert.ok(html.includes('id="glowPin-26"') && html.includes('stop-color="#ff44aa"'), 'Alone pin #26 deve riflettere colore RGB #ff44aa');
+
+  const circle20 = html.match(/<circle[^>]*fill="url\(#glowPin-20\)"[^>]*>/);
+  const circle26 = html.match(/<circle[^>]*fill="url\(#glowPin-26\)"[^>]*>/);
+  assert.ok(circle20 && circle26, 'Devono esistere entrambi i cerchi di irraggiamento dinamico');
+  const r20 = Number(circle20[0].match(/\br="(\d+)"/)[1]);
+  const r26 = Number(circle26[0].match(/\br="(\d+)"/)[1]);
+  const op20 = Number(circle20[0].match(/\bopacity="([0-9.]+)"/)[1]);
+  const op26 = Number(circle26[0].match(/\bopacity="([0-9.]+)"/)[1]);
+  assert.ok(r26 > r20 && op26 > op20, `Luminosità 95% (r=${r26}, op=${op26}) deve generare irraggiamento maggiore di 25% (r=${r20}, op=${op20})`);
+});
+
 
 
 
