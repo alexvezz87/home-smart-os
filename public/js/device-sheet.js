@@ -288,7 +288,7 @@ class DeviceSheetManager {
           min="1"
           max="100"
           value="${brightness}"
-          oninput="document.getElementById('bri-val-${p.pin}').textContent = this.value + '%'"
+          oninput="previewLightBrightnessPin(${p.pin}, this.value)"
           onchange="setLightBrightnessPin(${p.pin}, this.value)"
           class="w-full accent-amber-400 bg-slate-800 h-2 rounded-lg cursor-pointer"
         />
@@ -1307,8 +1307,10 @@ async function setLightColorTemperature(pinNum, tempK) {
     });
     const json = await res.json();
     if (json.success) {
+      const kelvinHexMap = { 2200: '#ff934f', 2700: '#ffb46b', 4000: '#fff1d6', 6500: '#cfe7ff' };
       if (p) {
         p.isOn = true;
+        p.colorHex = json.data?.hex || kelvinHexMap[Number(tempK)] || '#ffb46b';
         if (window.floorplan) window.floorplan.render();
         if (window.deviceSheet?.currentPin?.pin === Number(pinNum)) {
           window.deviceSheet.open(p);
@@ -2044,7 +2046,23 @@ window.toggleSheetHueDynamic = toggleSheetHueDynamic;
 window.adjustValveSetpoint = adjustValveSetpoint;
 window.toggleLightPin = toggleLightPin;
 window.setLightBrightnessPin = setLightBrightnessPin;
+function previewLightBrightnessPin(pinNum, value) {
+  const bri = Math.max(0, Math.min(100, Number(value) || 0));
+  const label = document.getElementById(`bri-val-${pinNum}`);
+  if (label) label.textContent = `${bri}%`;
+  const pins = window.homeData?.spatial?.pins || [];
+  const p = pins.find((item) => item.pin === Number(pinNum));
+  if (p) {
+    p.brightness = bri;
+    p.isOn = bri > 0;
+    if (window.floorplan && typeof window.floorplan.render === 'function') {
+      window.floorplan.render();
+    }
+  }
+}
+
 window.setLightColorTemperature = setLightColorTemperature;
+window.previewLightBrightnessPin = previewLightBrightnessPin;
 window.isHueColorCapable = isHueColorCapable;
 window.setLightHexColor = setLightHexColor;
 window.previewHueColorUi = previewHueColorUi;
