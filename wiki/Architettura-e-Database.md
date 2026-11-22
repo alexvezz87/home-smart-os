@@ -298,6 +298,9 @@ Per completare la **Fase 4/4** del refactoring Zero-Regression riducendo `src/se
    - Lo stream **SSE (`/api/events`)** collegato a `EventBus` consente aggiornamenti istantanei di luci, sensori, presenza Wi-Fi e notifiche senza polling aggressivo.
 3. **Resilienza Cloud ↔ Casa (`VPS + WireGuard + PowerOutageWatchdog`)**:
    - L'esecuzione del server su VPS connessa via **WireGuard** (e proxy HTTPS **Caddy 2** con `flush_interval -1` su `/api/events*`) mantiene attivi i refresh OAuth2, il Bot Telegram e il `PowerOutageWatchdog` anche in caso di blackout elettrico in abitazione.
+4. **Intelligenza Termica & Filtro Stufetta Elettrica (`ThermalAnalytics` + `ClimateOptimizer`, `#138`)**:
+   - `ThermalAnalytics._computeZoneMetrics` filtra i picchi rapidi a valvola chiusa (`rate > +0.8°C/h`) e il successivo rientro da `> 22.5°C` affinché la stufetta elettrica del `Bagno Alex` (`zn6`) non falsi `passiveGainHours` e `coolingRatePerHour`.
+   - `ClimateOptimizer.detectWindowOpen` ignora i cali rapidi sopra `21.0°C` / `22.5°C` (evitando falsi `window_pause` al termine della stufetta) e `applyBoilerCoalescing` esclude `Bagno Alex` dal `coalesce_boost`.
 
 ---
 
