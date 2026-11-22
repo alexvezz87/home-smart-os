@@ -1189,6 +1189,13 @@ async function toggleLightPin(pinNum, turnOn) {
   }
 }
 
+function resolveHueLightName(p) {
+  if (!p || typeof p !== 'object') return null;
+  if (Array.isArray(p.hueNames) && p.hueNames[0]) return p.hueNames[0];
+  if (p.deviceId && !String(p.deviceId).startsWith('device@')) return p.deviceId;
+  return p.name || null;
+}
+
 async function setLightBrightnessPin(pinNum, value) {
   const pins = window.homeData?.spatial?.pins || [];
   const p = pins.find(item => item.pin === Number(pinNum));
@@ -1201,6 +1208,9 @@ async function setLightBrightnessPin(pinNum, value) {
     p.brightness = bri;
     p.isOn = bri > 0;
     if (window.floorplan) window.floorplan.render();
+    if (window.deviceSheet?.currentPin?.pin === Number(pinNum)) {
+      window.deviceSheet.open(p);
+    }
     await setChandelierModeUi(p.chandelierId, bri > 0 ? 'full' : 'off', bri);
     return;
   }
@@ -1210,6 +1220,9 @@ async function setLightBrightnessPin(pinNum, value) {
     p.brightness = bri;
     p.isOn = bri > 0;
     if (window.floorplan) window.floorplan.render();
+    if (window.deviceSheet?.currentPin?.pin === Number(pinNum)) {
+      window.deviceSheet.open(p);
+    }
 
     await fetch(`/api/device/${encodeURIComponent(targetName)}/brightness`, {
       method: 'POST',
@@ -1224,16 +1237,34 @@ async function setLightBrightnessPin(pinNum, value) {
 async function setLightColorTemperature(pinNum, tempK) {
   const pins = window.homeData?.spatial?.pins || [];
   const p = pins.find(item => item.pin === Number(pinNum));
-  const targetName = p?.deviceId || p?.hueNames?.[0] || p?.name;
-  if (!targetName) return;
+  const lightName = resolveHueLightName(p);
+  if (!lightName && !p?.room) return;
   try {
-    await fetch(`/api/device/${encodeURIComponent(targetName)}/color-temp`, {
+    const res = await fetch('/api/hue/color', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kelvin: tempK })
+      body: JSON.stringify({
+        lightName: lightName || undefined,
+        roomName: p?.room || undefined,
+        kelvin: Number(tempK)
+      })
     });
-    showToast(`Colore luce: ${tempK}K`, 'info');
-  } catch (_) {}
+    const json = await res.json();
+    if (json.success) {
+      if (p) {
+        p.isOn = true;
+        if (window.floorplan) window.floorplan.render();
+        if (window.deviceSheet?.currentPin?.pin === Number(pinNum)) {
+          window.deviceSheet.open(p);
+        }
+      }
+      showToast(`Colore luce: ${tempK}K`, 'info');
+    } else {
+      showToast('Errore colore: ' + (json.error || 'Errore'), 'error');
+    }
+  } catch (e) {
+    showToast('Errore colore: ' + e.message, 'error');
+  }
 }
 
 async function setChandelierModeUi(chandelierId, mode, brightness = 85) {
@@ -1554,8 +1585,9 @@ async function setLightEffectUi(roomName, effect, pinNum = null) {
       roomName: roomName || 'Salone',
       effect
     };
-    if (p && (p.deviceId || p.hueNames?.[0])) {
-      body.lightName = p.deviceId || p.hueNames?.[0];
+    const hueName = resolveHueLightName(p);
+    if (hueName) {
+      body.lightName = hueName;
     }
     const res = await fetch('/api/hue/effect', {
       method: 'POST',
@@ -1564,6 +1596,13 @@ async function setLightEffectUi(roomName, effect, pinNum = null) {
     });
     const json = await res.json();
     if (json.success) {
+      if (p && effect !== 'no_effect') {
+        p.isOn = true;
+        if (window.floorplan) window.floorplan.render();
+        if (window.deviceSheet?.currentPin?.pin === Number(pinNum)) {
+          window.deviceSheet.open(p);
+        }
+      }
       const msg = effect === 'no_effect' ? 'Effetti speciali disattivati' : `Effetto "${effect}" attivato`;
       showToast(`🕯️ ${msg}`, 'info');
       if (typeof loadDashboard === 'function') await loadDashboard();

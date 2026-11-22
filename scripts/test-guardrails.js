@@ -4366,6 +4366,68 @@ test('Room Focus UX Vue 3: pannello RoomFocusOverlay, icone snelle con hover too
   assert.ok(fpSrc.includes('fp-hover-tooltip'), 'floorplan.js deve mostrare il nome dispositivo su hover nella vista focus');
 });
 
+test('Hue controls, brightness power sync & no DOM reparenting on hover (#146)', async () => {
+  const fs = require('fs');
+  const path = require('path');
+  const vm = require('vm');
+  const rootDir = path.join(__dirname, '..');
+
+  const sheetSrc = fs.readFileSync(path.join(rootDir, 'public/js/device-sheet.js'), 'utf8');
+  assert.ok(sheetSrc.includes('function resolveHueLightName('), 'deve definire resolveHueLightName');
+  assert.ok(!sheetSrc.includes('/color-temp'), 'non deve chiamare endpoint inesistente /color-temp');
+  assert.ok(sheetSrc.includes("fetch('/api/hue/color'"), 'setLightColorTemperature deve chiamare /api/hue/color');
+
+  // Test VM: resolveHueLightName esclude device@ UUID e preferisce hueNames[0]
+  const sandbox = {
+    window: {
+      homeData: {
+        spatial: {
+          pins: [{ pin: 20, name: 'Piantana divano', room: 'Salone', deviceId: 'device@uuid-123', hueNames: ['Piantana divano'], isOn: false, brightness: 44 }]
+        }
+      },
+      floorplan: { renderCalled: false, render() { this.renderCalled = true; } },
+      deviceSheet: { currentPin: { pin: 20 }, openedPin: null, open(p) { this.openedPin = p; } }
+    },
+    document: { getElementById: () => null },
+    fetchCalls: [],
+    fetch: async (url, opts) => {
+      sandbox.fetchCalls.push({ url, body: JSON.parse(opts.body) });
+      return { json: async () => ({ success: true }) };
+    },
+    showToast: () => {},
+    loadDashboard: async () => {}
+  };
+  sandbox.window.window = sandbox.window;
+  vm.createContext(sandbox);
+  const fnMatch = sheetSrc.match(/function resolveHueLightName[\s\S]*?\r?\n\}\r?\n\r?\nasync function setLightBrightnessPin[\s\S]*?\r?\n\}\r?\n\r?\nasync function setLightColorTemperature[\s\S]*?\r?\n\}/);
+  const effMatch = sheetSrc.match(/async function setLightEffectUi[\s\S]*?\r?\n\}/);
+  assert.ok(fnMatch && effMatch, 'deve estrarre le funzioni da device-sheet.js');
+  vm.runInContext(`${fnMatch[0]}\n${effMatch[0]}`, sandbox);
+
+  assert.equal(sandbox.resolveHueLightName(sandbox.window.homeData.spatial.pins[0]), 'Piantana divano');
+
+  await sandbox.setLightBrightnessPin(20, 38);
+  assert.equal(sandbox.window.homeData.spatial.pins[0].isOn, true);
+  assert.equal(sandbox.window.deviceSheet.openedPin?.isOn, true, 'setLightBrightnessPin deve aggiornare deviceSheet');
+
+  await sandbox.setLightColorTemperature(20, 2700);
+  const colorCall = sandbox.fetchCalls.find((c) => c.url === '/api/hue/color');
+  assert.ok(colorCall, 'deve chiamare /api/hue/color');
+  assert.equal(colorCall.body.lightName, 'Piantana divano');
+  assert.equal(colorCall.body.kelvin, 2700);
+
+  await sandbox.setLightEffectUi('Salone', 'candle', 20);
+  const effectCall = sandbox.fetchCalls.find((c) => c.url === '/api/hue/effect');
+  assert.ok(effectCall, 'deve chiamare /api/hue/effect');
+  assert.equal(effectCall.body.lightName, 'Piantana divano');
+
+  // Verifica che setHoveredPin in floorplan.js NON sposti il nodo nel DOM con appendChild
+  const fpSrc = fs.readFileSync(path.join(rootDir, 'public/js/floorplan.js'), 'utf8');
+  const hoverFnMatch = fpSrc.match(/setHoveredPin\(pinNum[\s\S]*?\n  \}/);
+  assert.ok(hoverFnMatch, 'setHoveredPin deve esistere in floorplan.js');
+  assert.ok(!hoverFnMatch[0].includes('appendChild('), 'setHoveredPin non deve usare layer.appendChild(el) per non riavviare fp-pin-enter');
+});
+
 
 
 
