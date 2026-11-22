@@ -132,3 +132,6 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 
 ### Canale Email SMTP & `PowerOutageWatchdog` (`#115`)
 - **Configurazione `.env` & Endpoint**: `EmailSender` (`src/email-sender.js`) legge `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` e `ALERT_EMAIL_TO` (fallback `ALLOWED_GOOGLE_EMAILS`) senza mai esporre la password via API. Endpoint protetti: `GET /api/power-watchdog/status`, `POST /api/power-watchdog/config`, `POST /api/power-watchdog/test-email`.
+
+### Comfort Boost Vocale & Routine Google Home (`#138`)
+- **Endpoint Protetto `POST /api/assistant/comfort-boost`**: accetta `{ intent: 'cold'|'hot', room?, deltaC?, text?, humanConfirmed? }` e delega a `handleComfortBoost()` (`src/assistant.js`) con risoluzione stanza a cascata, rispetto dei guardrail `ai-gateway`, estensione override `45–60 min` su `ClimateOptimizer` ed evento `climate:manual_override` su `EventBus`.

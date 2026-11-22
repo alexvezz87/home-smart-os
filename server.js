@@ -61,6 +61,8 @@ const services = {
   scriptUrl,
   mcp: null,
   processAssistantCommand: null,
+  handleComfortBoost: null,
+  resolveUserRoom: null,
   aiOrchestrator: null,
   googleFulfillment: null,
   nestCaster: null,
@@ -208,7 +210,11 @@ async function bootstrap() {
   services.climateOptimizer = require('./src/climate-optimizer');
   services.thermalAnalytics = require('./src/thermal-analytics');
   services.mcp = require('./src/google-home-mcp');
-  ({ processAssistantCommand: services.processAssistantCommand } = require('./src/assistant'));
+  ({
+    processAssistantCommand: services.processAssistantCommand,
+    handleComfortBoost: services.handleComfortBoost,
+    resolveUserRoom: services.resolveUserRoom
+  } = require('./src/assistant'));
   services.aiOrchestrator = require('./src/ai-orchestrator');
   services.googleFulfillment = require('./src/google-fulfillment');
   services.nestCaster = require('./src/nest-caster');

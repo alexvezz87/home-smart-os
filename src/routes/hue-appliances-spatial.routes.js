@@ -455,4 +455,28 @@ module.exports = function registerHueAppliancesSpatialRoutes(app, services) {
       res.status(500).json({ success: false, error: error.message });
     }
   });
+
+  app.post('/api/assistant/comfort-boost', async (req, res) => {
+    try {
+      const { intent, room, deltaC, text, command, message, humanConfirmed } = req.body || {};
+      const cleanIntent = String(intent || '').trim().toLowerCase();
+      if (!['cold', 'hot'].includes(cleanIntent)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Parametro intent obbligatorio ("cold" o "hot").'
+        });
+      }
+      const fn = services.handleComfortBoost || require('../assistant').handleComfortBoost;
+      const result = await fn({
+        intent: cleanIntent,
+        deltaC: deltaC !== undefined && deltaC !== null && deltaC !== '' ? Number(deltaC) : null,
+        text: text || command || message || '',
+        options: { room, humanConfirmed: Boolean(humanConfirmed) }
+      });
+      res.json({ success: result?.success !== false, ...result });
+    } catch (error) {
+      console.error('[API /api/assistant/comfort-boost Error]:', error.message);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
 };

@@ -10,6 +10,305 @@ const aiGateway = require('./ai-gateway');
 const evClimateHub = require('./ev-climate-hub');
 const aiOrchestrator = require('./ai-orchestrator');
 const calendarHub = require('./calendar-hub');
+const eventBus = require('./event-bus');
+const climateOptimizer = require('./climate-optimizer');
+const thermalAnalytics = require('./thermal-analytics');
+
+function roundHalf(v) {
+  return +(Math.round(Number(v) * 2) / 2).toFixed(1);
+}
+
+const ROOM_MATCH_RULES = [
+  { room: 'Camera da letto', patterns: ['camera da letto'] },
+  { room: 'Cameretta', patterns: ['cameretta', 'studio', 'francesco', 'bimbo', 'bambino'] },
+  { room: 'Bagno Alex', patterns: ['bagno alex'] },
+  { room: 'Bagno Cinzia', patterns: ['bagno cinzia', 'bagno grande'] },
+  { room: 'Cabina armadio', patterns: ['cabina armadio', 'cabina'] },
+  { room: 'Salone', patterns: ['salone', 'soggiorno', 'sala'] },
+  { room: 'Cucina', patterns: ['cucina'] },
+  { room: 'Ingresso', patterns: ['ingresso'] },
+  { room: 'Corridoio', patterns: ['corridoio'] },
+  { room: 'Camera da letto', patterns: ['letto', 'camera'] },
+  { room: 'Bagno Cinzia', patterns: ['bagno'] }
+];
+
+const LIVED_ROOMS = ['Salone', 'Camera da letto', 'Cucina', 'Cameretta'];
+
+function canonicalRoom(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (!s) return null;
+  for (const rule of ROOM_MATCH_RULES) {
+    if (rule.patterns.some((p) => s.includes(p))) {
+      return rule.room;
+    }
+  }
+  return null;
+}
+
+async function resolveUserRoom(text, options = {}, snapshot = null) {
+  if (options && options.room) {
+    const norm = canonicalRoom(options.room) || String(options.room).trim();
+    return { room: norm, level: 1, source: 'explicit_option' };
+  }
+
+  const lower = String(text || '').toLowerCase();
+  for (const rule of ROOM_MATCH_RULES) {
+    for (const pat of rule.patterns) {
+      const rx = new RegExp(`\\b${pat.replace(/\s+/g, '\\s+')}\\b`, 'i');
+      if (rx.test(lower)) {
+        return { room: rule.room, level: 1, source: 'explicit_text' };
+      }
+    }
+  }
+
+  // Livello 2: dispositivi attivi nelle stanze vissute
+  const snap = snapshot || (await mcp.getHomeSnapshot().catch(() => ({ devices: [], rooms: [] })));
+  const devices = Array.isArray(snap?.devices) ? snap.devices : [];
+
+  const activeLightRooms = new Set();
+  for (const d of devices) {
+    if ((d.category === 'light' || d.category === 'chandelier') && d.isOn) {
+      const r = canonicalRoom(d.room || d.name);
+      if (r && LIVED_ROOMS.includes(r)) activeLightRooms.add(r);
+    }
+  }
+  if (activeLightRooms.size === 0 && hueLocal?.isPaired && hueLocal?.lightsById) {
+    const allLights = Object.values(hueLocal.lightsById || {});
+    for (const l of allLights) {
+      if (l?.on?.on || l?.isOn) {
+        const r = canonicalRoom(l.room || l.metadata?.name || l.name);
+        if (r && LIVED_ROOMS.includes(r)) activeLightRooms.add(r);
+      }
+    }
+  }
+  if (activeLightRooms.size === 1) {
+    return { room: Array.from(activeLightRooms)[0], level: 2, source: 'active_lights' };
+  }
+
+  const activePlugRooms = new Set();
+  for (const d of devices) {
+    if (d.category === 'plug' && d.isOn) {
+      const r = canonicalRoom(d.room || d.name);
+      if (r && LIVED_ROOMS.includes(r)) activePlugRooms.add(r);
+    }
+  }
+  if (activePlugRooms.size === 1) {
+    return { room: Array.from(activePlugRooms)[0], level: 2, source: 'active_plug' };
+  }
+
+  // Livello 3: fallback visivo opzionale con Gemini Vision
+  if (options?.allowVisionFallback !== false && aiGateway.getApiKey()) {
+    const cams = Array.isArray(securitySystem?.cameras) ? securitySystem.cameras : [];
+    const candidateCams = cams.filter((c) => {
+      if (!c || c.privacyMode === true) return false;
+      const r = canonicalRoom(c.room || c.name);
+      return r === 'Salone' || r === 'Camera da letto';
+    });
+
+    const detectedRooms = [];
+    for (const cam of candidateCams) {
+      try {
+        const res = await geminiVision.analyzeCameraScene(
+          cam.id,
+          "C'è almeno una persona visibile nella stanza? Rispondi solo con SI o NO e una breve nota.",
+          securitySystem
+        );
+        const analysis = String(res?.analysis || '');
+        if (/\bs[iì]\b/i.test(analysis) && !/\bnon\s+c['’]?[èe]\b|\bnessun[ao]?\b|\bno\b/i.test(analysis)) {
+          const r = canonicalRoom(cam.room || cam.name);
+          if (r) detectedRooms.push(r);
+        }
+      } catch (_) {}
+    }
+    const uniq = [...new Set(detectedRooms)];
+    if (uniq.length === 1) {
+      return { room: uniq[0], level: 3, source: 'gemini_vision' };
+    }
+  }
+
+  return { room: null, level: null, source: 'unresolved', ambiguous: true };
+}
+
+async function handleComfortBoost({ intent, deltaC = null, text = '', options = {}, snapshot = null } = {}) {
+  const cleanIntent = intent === 'hot' ? 'hot' : 'cold';
+  const snap = snapshot || (await mcp.getHomeSnapshot().catch(() => ({ devices: [], rooms: [] })));
+  const resolved = await resolveUserRoom(text, options, snap);
+
+  if (!resolved.room) {
+    return {
+      success: false,
+      requiresRoom: true,
+      action: 'comfort_boost_ask_room',
+      reply: 'In quale stanza ti trovi? Prova a dirmi ad esempio: "Ho freddo in salone" oppure "Aumenta la temperatura in camera da letto".'
+    };
+  }
+
+  // Caso speciale Bagno Alex (stufetta elettrica)
+  if (resolved.room === 'Bagno Alex' && cleanIntent === 'cold') {
+    const devices = Array.isArray(snap?.devices) ? snap.devices : [];
+    const heaterPlug = devices.find((d) => {
+      if (d.category !== 'plug') return false;
+      const hay = `${d.room || ''} ${d.name || ''}`.toLowerCase();
+      return hay.includes('bagno alex') || hay.includes('stufetta');
+    });
+
+    let heaterActivated = false;
+    if (heaterPlug) {
+      if (!heaterPlug.isOn && typeof mcp.toggleDevice === 'function') {
+        await mcp.toggleDevice(heaterPlug.id, true).catch(() => {});
+      }
+      heaterActivated = true;
+    }
+
+    return {
+      success: true,
+      action: 'comfort_boost_electric_heater',
+      intent: cleanIntent,
+      room: 'Bagno Alex',
+      roomResolution: resolved,
+      heaterActivated,
+      reply: heaterActivated
+        ? `Ho acceso la stufetta elettrica del Bagno Alex (${heaterPlug.name}) senza attivare la caldaia a gas.`
+        : 'Per il Bagno Alex usa la stufetta elettrica dedicata invece di alzare la caldaia a gas.'
+    };
+  }
+
+  const status = typeof evClimateHub.getUnifiedStatus === 'function'
+    ? evClimateHub.getUnifiedStatus()
+    : {};
+  const zones = Array.isArray(status?.bosch?.zones) ? status.bosch.zones : [];
+  const roomLower = resolved.room.toLowerCase();
+  const zone = zones.find((z) => {
+    const zn = String(z.name || '').toLowerCase();
+    return zn === roomLower || zn.includes(roomLower) || roomLower.includes(zn);
+  }) || { id: resolved.room, name: resolved.room, tempActual: null, tempSetpoint: 20.0 };
+
+  const T_actual = Number.isFinite(Number(zone.tempActual)) ? Number(zone.tempActual) : null;
+  const tempSetpoint = Number.isFinite(Number(zone.tempSetpoint))
+    ? Number(zone.tempSetpoint)
+    : (T_actual ?? 20.0);
+
+  // Delta ultimi ~15 min (finestra 5-35 min prima di nowMs)
+  const nowMs = Date.now();
+  const samples = Array.isArray(thermalAnalytics?.samples) ? thermalAnalytics.samples : [];
+  const zoneKey = String(zone.id || resolved.room);
+  const recentPrev = [...samples]
+    .reverse()
+    .find((s) => {
+      const age = nowMs - Number(s.ts || 0);
+      return age >= 5 * 60 * 1000 && age <= 35 * 60 * 1000 && s.zones && s.zones[zoneKey];
+    });
+  const prevTemp = recentPrev && Number.isFinite(Number(recentPrev.zones[zoneKey]?.tActual))
+    ? Number(recentPrev.zones[zoneKey].tActual)
+    : null;
+  const deltaLast15m = (T_actual !== null && prevTemp !== null)
+    ? +(T_actual - prevTemp).toFixed(2)
+    : null;
+
+  const isCameretta = roomLower.includes('cameretta');
+  const minFloor = isCameretta ? 19.5 : 19.0;
+  const maxVoiceCap = 21.0;
+
+  let proposed = tempSetpoint;
+  let ttlMs = 45 * 60 * 1000;
+  let note = '';
+
+  if (deltaC !== null && Number.isFinite(Number(deltaC)) && Number(deltaC) > 0) {
+    const signedDelta = cleanIntent === 'hot' ? -Math.abs(Number(deltaC)) : Math.abs(Number(deltaC));
+    const baseTemp = Number.isFinite(Number(zone.tempSetpoint)) ? Number(zone.tempSetpoint) : (T_actual ?? 20.0);
+    proposed = Math.max(minFloor, Math.min(maxVoiceCap, roundHalf(baseTemp + signedDelta)));
+    ttlMs = 60 * 60 * 1000;
+  } else if (cleanIntent === 'cold') {
+    if (T_actual !== null && T_actual > 21.0 && !options?.humanConfirmed) {
+      return {
+        success: false,
+        requiresConfirmation: true,
+        action: 'comfort_boost_already_warm',
+        room: resolved.room,
+        currentTemp: T_actual,
+        reply: `In ${resolved.room} ci sono già ${T_actual}°C (oltre i 21.0°C). Vuoi comunque forzare un boost di +0.5°C?`
+      };
+    }
+    if (options?.humanConfirmed && T_actual !== null && T_actual > 21.0) {
+      proposed = Math.min(21.5, roundHalf(tempSetpoint + 0.5));
+      ttlMs = 45 * 60 * 1000;
+    } else if (deltaLast15m !== null && deltaLast15m >= 0.3) {
+      proposed = Math.min(20.5, roundHalf(Math.max(T_actual ?? tempSetpoint, tempSetpoint) + 0.5));
+      ttlMs = 45 * 60 * 1000;
+      note = " (la stanza sta già recuperando calore dopo il ricambio d'aria)";
+    } else if (T_actual !== null && T_actual < 19.5) {
+      proposed = Math.min(maxVoiceCap, Math.max(20.5, roundHalf(T_actual + 1.0)));
+      ttlMs = 60 * 60 * 1000;
+    } else {
+      const base = Math.max(T_actual ?? tempSetpoint, tempSetpoint);
+      proposed = Math.min(maxVoiceCap, roundHalf(base + 0.5));
+      ttlMs = 45 * 60 * 1000;
+    }
+  } else {
+    const step = (T_actual !== null && T_actual >= 21.5) ? 1.0 : 0.5;
+    const base = Math.min(T_actual ?? tempSetpoint, tempSetpoint);
+    proposed = Math.max(minFloor, roundHalf(base - step));
+    ttlMs = 60 * 60 * 1000;
+  }
+
+  const guard = aiGateway.validateHardwareAction({
+    action: 'climate:set_temp',
+    value: proposed,
+    actor: 'voice-comfort-boost'
+  });
+  if (guard && guard.allowed === false) {
+    return {
+      success: false,
+      blocked: true,
+      reply: guard.reason || 'Temperatura bloccata dai guardrail.'
+    };
+  }
+  const finalTemp = guard?.finalValue ?? proposed;
+  const targetZoneId = zone.id || resolved.room;
+
+  try {
+    await evClimateHub.setBoschZoneSetpoint(targetZoneId, finalTemp);
+  } catch (err) {
+    if (!String(err.message || '').includes('non conness')) throw err;
+  }
+
+  climateOptimizer.recordManualOverride(targetZoneId, ttlMs);
+
+  eventBus.publish('climate:manual_override', {
+    ts: Date.now(),
+    zoneId: targetZoneId,
+    room: resolved.room,
+    targetTemp: finalTemp,
+    previousTemp: tempSetpoint,
+    source: 'voice_comfort_boost',
+    intent: cleanIntent
+  });
+
+  const ttlMinutes = Math.round(ttlMs / 60000);
+  const reply = cleanIntent === 'cold'
+    ? `Ho impostato ${resolved.room} a ${finalTemp}°C per i prossimi ${ttlMinutes} minuti${note}.`
+    : `Ho abbassato ${resolved.room} a ${finalTemp}°C per i prossimi ${ttlMinutes} minuti.`;
+
+  eventLogger.log('bosch_thermo', `Comfort Boost (${cleanIntent}) ${resolved.room} -> ${finalTemp}°C`, {
+    source: 'voice_comfort_boost',
+    zoneId: targetZoneId,
+    ttlMinutes
+  });
+
+  return {
+    success: true,
+    action: 'comfort_boost',
+    intent: cleanIntent,
+    room: resolved.room,
+    roomResolution: resolved,
+    zoneId: zone.id || null,
+    currentTemp: T_actual,
+    previousSetpoint: tempSetpoint,
+    temperature: finalTemp,
+    ttlMinutes,
+    reply
+  };
+}
 
 /**
  * Interprete di comandi in linguaggio naturale (italiano) per la Smart Home.
@@ -252,7 +551,8 @@ async function processAssistantCommand(input, options = {}) {
     const colorMatch = text.match(/\b(bianco\s+caldo|bianco\s+naturale|bianco\s+freddo|blu|azzurro|ciano|rosso|verde|smeraldo|viola|lavanda|malva|arancione|ambra|giallo|oro|rosa|magenta|calda|caldo|naturale|fredda|freddo)\b/i);
     const brightMatch = text.match(/(\d{1,3})\s*%/);
     const hasLightContext = text.includes('luce') || text.includes('luci') || text.includes('lampadario') || text.includes('nuvoletta') || text.includes('piantana') || text.includes('abajour') || text.includes('abat-jour') || text.includes('salone') || text.includes('cucina') || text.includes('camera') || text.includes('cameretta') || text.includes('studio') || text.includes('corridoio') || text.includes('ingresso');
-    if ((colorMatch || brightMatch) && hasLightContext && !text.includes('temperatura')) {
+    const isThermalPhrase = /\b(ho\s+freddo|fa\s+freddo|fa\s+freschino|sento\s+freddo|ho\s+caldo|fa\s+caldo|si\s+muore\s+di\s+caldo|pi[uù]\s+caldo|meno\s+caldo|temperatura|riscaldamento|termostato|caldaia|gradi)\b/i.test(text);
+    if ((colorMatch || brightMatch) && hasLightContext && !isThermalPhrase) {
       const isSalone = text.includes('salone') || text.includes('soggiorno') || text.includes('sala');
       const isStudio = text.includes('studio') || text.includes('cameretta');
       const isLetto = text.includes('letto') || text.includes('camera');
@@ -422,10 +722,22 @@ async function processAssistantCommand(input, options = {}) {
     return { success: true, action: 'query_status', reply };
   }
 
-  // Impostazione temperatura stanza/zona Bosch CT200 (es. "imposta temperatura salone a 21 gradi", "imposta salone a 21 gradi", "metti riscaldamento a 20.5")
+  // 1a. Delta Esplicito ("aumenta/abbassa la temperatura ... di mezzo / N gradi") (#138)
+  const deltaTempMatch =
+    text.match(/\b(aumenta|alza|incrementa|abbassa|diminuisci|riduci)\b.*\b(?:temperatura|riscaldamento|termostato|caldaia|clima|gradi)\b.*\bdi\s+(mezzo|\d+(?:[.,]\d+)?)\b/i)
+    || text.match(/\b(aumenta|alza|incrementa|abbassa|diminuisci|riduci)\b.*\bdi\s+(mezzo|\d+(?:[.,]\d+)?)\s*(?:grad[oi]|°c?)(?=\s|$|[.,;!?])/i);
+  if (deltaTempMatch) {
+    const verb = deltaTempMatch[1] || deltaTempMatch[3];
+    const rawVal = deltaTempMatch[2] || deltaTempMatch[4];
+    const deltaC = String(rawVal).toLowerCase() === 'mezzo' ? 0.5 : parseFloat(String(rawVal).replace(',', '.'));
+    const intent = /(abbassa|diminuisci|riduci)/i.test(verb) ? 'hot' : 'cold';
+    return await handleComfortBoost({ intent, deltaC, text, options, snapshot });
+  }
+
+  // 1b. Target Assoluto Bosch CT200 (es. "imposta temperatura salone a 21 gradi", "alza la temperatura in salone a 20.5")
   const tempMatch =
-    text.match(/(?:imposta|metti|porta|regola|scalda|abbassa|alza|temperatura)(?:\s+(?:la\s+|il\s+)?(?:temperatura|riscaldamento|termostato|clima))?\s+(?:del\s+|della\s+|nel\s+|nella\s+|il\s+|la\s+|in\s+|a\s+)?(salone|cucina|camera da letto|cameretta|camera|bagno cinzia|bagno alex|cabina armadio|ingresso|corridoio)\s+(?:a\s+)?(\d+(?:[.,]\d+)?)/i) ||
-    text.match(/(?:imposta|metti|porta|regola|scalda|abbassa|alza)\s+(?:la\s+|il\s+)?(temperatura|riscaldamento|termostato|caldaia)\s+(?:a\s+)?(\d+(?:[.,]\d+)?)/i);
+    text.match(/(?:imposta|metti|porta|regola|scalda|aumenta|incrementa|abbassa|diminuisci|riduci|alza|temperatura)(?:\s+(?:la\s+|il\s+)?(?:temperatura|riscaldamento|termostato|clima))?\s+(?:del\s+|della\s+|nel\s+|nella\s+|il\s+|la\s+|in\s+|a\s+)?(salone|cucina|camera da letto|cameretta|camera|bagno cinzia|bagno alex|cabina armadio|ingresso|corridoio)\s+(?:a\s+)?(\d+(?:[.,]\d+)?)/i) ||
+    text.match(/(?:imposta|metti|porta|regola|scalda|aumenta|incrementa|abbassa|diminuisci|riduci|alza)\s+(?:la\s+|il\s+)?(temperatura|riscaldamento|termostato|caldaia)\s+(?:a\s+)?(\d+(?:[.,]\d+)?)/i);
   if (tempMatch) {
     const rawZone = tempMatch[1].toLowerCase();
     const isGenericZone = ['temperatura', 'riscaldamento', 'termostato', 'caldaia'].includes(rawZone);
@@ -441,6 +753,7 @@ async function processAssistantCommand(input, options = {}) {
     } catch (err) {
       if (!String(err.message || '').includes('non conness')) throw err;
     }
+    climateOptimizer.recordManualOverride(zone);
     return {
       success: true,
       action: 'bosch:set_temp',
@@ -449,6 +762,22 @@ async function processAssistantCommand(input, options = {}) {
       clamped: Boolean(guard?.clamped),
       reply: `Temperatura ${isGenericZone ? 'casa' : zone} impostata a ${finalTemp}°C${guard?.clamped ? ' (limitata dai guardrail)' : ''}.`
     };
+  }
+
+  // 1c. Comfort Boost & Trigger Relativo senza numero (#138)
+  const isColdTrigger =
+    /\b(ho\s+freddo|fa\s+freddo|fa\s+freschino|sento\s+freddo|scalda\s+qui|scalda\s+un\s+po')\b/i.test(text)
+    || /\b(aumenta|alza(?:\s+un\s+po')?|incrementa|pi[uù]\s+caldo)\b.*\b(temperatura|riscaldamento|termostato|caldaia|calore)\b/i.test(text);
+  const isHotTrigger =
+    /\b(ho\s+caldo|fa\s+caldo|si\s+muore\s+di\s+caldo|rinfresca\s+qui|abbassa\s+qui)\b/i.test(text)
+    || /\b(abbassa(?:\s+un\s+po')?|diminuisci|riduci|meno\s+caldo)\b.*\b(temperatura|riscaldamento|termostato|caldaia|calore)\b/i.test(text);
+  if (isColdTrigger || isHotTrigger) {
+    return await handleComfortBoost({
+      intent: isHotTrigger && !isColdTrigger ? 'hot' : 'cold',
+      text,
+      options,
+      snapshot
+    });
   }
 
   // 2. Temperatura / Clima
@@ -737,5 +1066,7 @@ async function processAssistantCommand(input, options = {}) {
 }
 
 module.exports = {
-  processAssistantCommand
+  processAssistantCommand,
+  resolveUserRoom,
+  handleComfortBoost
 };
