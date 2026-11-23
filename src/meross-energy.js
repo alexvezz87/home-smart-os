@@ -14,6 +14,7 @@ class MerossEnergyService {
     this.meross = null;
     this.devicesMap = new Map(); // uuid -> { device, def, electricity: null }
     this.metricsByName = new Map(); // normalized name -> { powerW, voltageV, currentA, updatedAt, uuid }
+    this.relayStateByName = new Map(); // normalized name -> boolean (stato relè da togglex)
     this.rollingHistory = new Map(); // normalized name -> Array of { time, timestamp, powerW, voltageV }
     this.consumptionCache = new Map(); // deviceId -> { timestamp, data }
     this.pollInterval = null;
@@ -183,7 +184,26 @@ class MerossEnergyService {
   }
 
   queryDeviceElectricity(deviceId, device, name) {
-    if (!device || typeof device.getControlElectricity !== 'function') return;
+    if (!device) return;
+
+    const normKey = (name || '').toLowerCase();
+    if (typeof device.getSystemAllData === 'function') {
+      device.getSystemAllData((errAll, resAll) => {
+        if (errAll || !resAll) return;
+        const toggleArr = resAll?.all?.digest?.togglex;
+        if (Array.isArray(toggleArr) && toggleArr.length > 0) {
+          const ch0 = toggleArr.find(t => t.channel === 0) || toggleArr[0];
+          if (ch0 && ch0.onoff !== undefined) {
+            const relayOn = ch0.onoff === 1 || ch0.onoff === true;
+            this.relayStateByName.set(normKey, relayOn);
+            const existing = this.metricsByName.get(normKey);
+            if (existing) existing.isOn = relayOn;
+          }
+        }
+      });
+    }
+
+    if (typeof device.getControlElectricity !== 'function') return;
 
     device.getControlElectricity((err, res) => {
       if (err) return;
@@ -195,13 +215,14 @@ class MerossEnergyService {
         const currentA = el.current !== undefined ? +(el.current / 10000).toFixed(2) : 0;
 
         const nowMs = Date.now();
+        const knownRelay = this.relayStateByName.get(normKey);
         const data = {
           name,
           uuid: deviceId,
           powerW,
           voltageV,
           currentA,
-          isOn: el.power !== undefined ? powerW > 0.1 || this.metricsByName.get(name.toLowerCase())?.isOn !== false : true,
+          isOn: typeof knownRelay === 'boolean' ? knownRelay : (el.power !== undefined ? powerW > 0.1 : false),
           updatedAt: nowMs
         };
 
@@ -363,6 +384,7 @@ class MerossEnergyService {
         powerW: m.powerW,
         voltageV: m.voltageV,
         currentA: m.currentA,
+        isOn: typeof m.isOn === 'boolean' ? m.isOn : (m.powerW > 0.1),
         isStandbyVampire: isVampire,
         hourlyCostEur: +((m.powerW / 1000) * tariff.priceKwh).toFixed(4),
         annualProjectionEur: annualStandbyEur,
