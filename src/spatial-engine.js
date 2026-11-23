@@ -1141,7 +1141,9 @@ class SpatialEngine {
         clone.powerW = mPlug ? mPlug.powerW : (dMatch?.energy?.powerW || 0);
         clone.voltageV = mPlug ? mPlug.voltageV : (dMatch?.energy?.voltageV || 230);
         clone.currentA = mPlug ? mPlug.currentA : (dMatch?.energy?.currentA || 0);
-        clone.isOn = dMatch ? Boolean(dMatch.isOn) : (clone.powerW > 0.5);
+        clone.isOn = mPlug
+          ? (typeof mPlug.isOn === 'boolean' ? mPlug.isOn : (clone.powerW > 0.5))
+          : (dMatch ? Boolean(dMatch.isOn) : (clone.powerW > 0.5));
         clone.deviceId = dMatch?.id || (mPlug ? mPlug.uuid : p.name);
         clone.merossId = mPlug ? mPlug.name : (p.merossName || p.name);
       } else if (p.category === 'camera') {

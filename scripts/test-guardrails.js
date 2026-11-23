@@ -4627,6 +4627,46 @@ test('Planimetria Glow Dinamico da Colore RGB/Kelvin e Intensità Luminosità (#
   assert.ok(r26 > r20 && op26 > op20, `Luminosità 95% (r=${r26}, op=${op26}) deve generare irraggiamento maggiore di 25% (r=${r20}, op=${op20})`);
 });
 
+test('SpatialEngine & MerossEnergy (#152): stato live Meross MQTT ha priorità su cache stantia MCP per le prese', () => {
+  const spatialEngine = require('../src/spatial-engine');
+  const merossEnergy = require('../src/meross-energy');
+
+  // 1. Meross OFF (isOn: false, powerW: 0) deve prevalere su MCP cache stantia (isOn: true)
+  const mapOff = spatialEngine.getEnrichedMapState({
+    devices: [{ id: 'dev-angolo', name: 'Angolo bar', isOn: true }],
+    energySummary: {
+      plugs: [{ name: 'Angolo bar', uuid: 'meross-angolo', powerW: 0, voltageV: 235, currentA: 0, isOn: false }]
+    }
+  });
+  const pinOff = mapOff.pins.find(p => p.pin === 28);
+  assert.ok(pinOff, 'Pin #28 (Angolo lettura) deve esistere');
+  assert.equal(pinOff.isOn, false);
+
+  // 2. Meross ON anche a 0W (relè chiuso senza carico) deve prevalere su MCP cache (isOn: false)
+  const mapOn = spatialEngine.getEnrichedMapState({
+    devices: [{ id: 'dev-angolo', name: 'Angolo bar', isOn: false }],
+    energySummary: {
+      plugs: [{ name: 'Angolo bar', uuid: 'meross-angolo', powerW: 0, voltageV: 235, currentA: 0, isOn: true }]
+    }
+  });
+  const pinOn = mapOn.pins.find(p => p.pin === 28);
+  assert.equal(pinOn.isOn, true);
+
+  // 3. MerossEnergy: getSystemAllData (togglex) + getControlElectricity popolano isOn in getIntelligenceSummary
+  merossEnergy.metricsByName.clear();
+  merossEnergy.relayStateByName.clear();
+  const fakeDevice = {
+    getSystemAllData: (cb) => cb(null, { all: { digest: { togglex: [{ channel: 0, onoff: 0 }] } } }),
+    getControlElectricity: (cb) => cb(null, { electricity: { power: 0, voltage: 2350, current: 0 } })
+  };
+  merossEnergy.queryDeviceElectricity('uuid-test-angolo', fakeDevice, 'Angolo bar');
+  const summary = merossEnergy.getIntelligenceSummary([]);
+  const plug = summary.plugs.find(p => p.name === 'Angolo bar');
+  assert.ok(plug, 'Angolo bar deve comparire in getIntelligenceSummary().plugs');
+  assert.equal(plug.isOn, false);
+});
+
+
 
 
 
