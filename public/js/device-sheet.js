@@ -1558,6 +1558,8 @@ async function togglePlugPin(pinNum, turnOn) {
     const json = await res.json();
     if (json.success) {
       showToast(`${p?.name || targetName}: ${turnOn ? 'Accesa' : 'Spenta'}`, 'success');
+    } else {
+      showToast(`Errore presa: ${json.error || 'comando non riuscito'}`, 'error');
     }
     if (typeof loadDashboard === 'function') loadDashboard();
   } catch (e) {
