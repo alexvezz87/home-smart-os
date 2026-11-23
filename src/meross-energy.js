@@ -883,7 +883,12 @@ class MerossEnergyService {
    * Comanda direttamente una presa smart Meross tramite MQTT nativo (fallback o controllo primario non-Google)
    */
   async togglePlugByName(deviceName, targetState) {
-    const term = (deviceName || '').trim().toLowerCase();
+    const MEROSS_PLUG_ALIASES = {
+      'angolo lettura': 'angolo bar',
+      'angolo lettura (presa)': 'angolo bar'
+    };
+    const rawTerm = (deviceName || '').trim().toLowerCase();
+    const term = MEROSS_PLUG_ALIASES[rawTerm] || rawTerm;
     for (const [deviceId, item] of this.devicesMap.entries()) {
       const devName = (item.def?.devName || '').trim().toLowerCase();
       if (devName === term || devName.includes(term) || term.includes(devName)) {
@@ -894,6 +899,7 @@ class MerossEnergyService {
               resolve(res);
             });
           });
+          this.relayStateByName.set(devName, Boolean(targetState));
           const m = this.metricsByName.get(devName);
           if (m) m.isOn = Boolean(targetState);
           return { success: true, name: item.def.devName, state: Boolean(targetState) };
