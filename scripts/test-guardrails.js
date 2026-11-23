@@ -4666,6 +4666,32 @@ test('SpatialEngine & MerossEnergy (#152): stato live Meross MQTT ha priorità s
   assert.equal(plug.isOn, false);
 });
 
+test('MerossEnergy (#153): togglePlugByName risolve alias Angolo Lettura -> Angolo bar e aggiorna relayStateByName', async () => {
+  const merossEnergy = require('../src/meross-energy');
+  merossEnergy.devicesMap.clear();
+  merossEnergy.relayStateByName.clear();
+  merossEnergy.metricsByName.clear();
+
+  let toggledState = null;
+  merossEnergy.devicesMap.set('uuid-angolo-bar', {
+    def: { devName: 'Angolo bar' },
+    device: {
+      controlToggleX: (ch, state, cb) => {
+        toggledState = { ch, state };
+        cb(null, {});
+      }
+    }
+  });
+  merossEnergy.metricsByName.set('angolo bar', { name: 'Angolo bar', uuid: 'uuid-angolo-bar', powerW: 0, isOn: false });
+
+  const res = await merossEnergy.togglePlugByName('Angolo Lettura', true);
+  assert.deepEqual(res, { success: true, name: 'Angolo bar', state: true });
+  assert.deepEqual(toggledState, { ch: 0, state: true });
+  assert.equal(merossEnergy.relayStateByName.get('angolo bar'), true);
+  assert.equal(merossEnergy.metricsByName.get('angolo bar').isOn, true);
+});
+
+
 
 
 
