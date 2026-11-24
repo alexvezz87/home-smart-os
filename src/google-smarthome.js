@@ -495,7 +495,10 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
                 commandResults.push({ ids: [devId], status: 'ERROR', errorCode: 'deviceNotFound' });
                 continue;
               }
-              const res = await this.assistant.handleComfortBoost(sceneDef.mappedPayload);
+              const res = await this.assistant.handleComfortBoost({
+                ...sceneDef.mappedPayload,
+                options: { ...(sceneDef.mappedPayload.options || {}) }
+              });
               this.eventLogger?.log?.('google_smarthome', `ActivateScene ${devId}`, {
                 source: 'Google Nest',
                 sceneId: devId,
