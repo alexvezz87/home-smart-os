@@ -90,6 +90,7 @@ class GoogleSmartHomeManager {
     this.authCodes = new Map();
     this.tokensStore = { accessTokens: {}, refreshTokens: {} };
     this._tokensLoaded = false;
+    this._recentAnnouncements = new Map();
   }
 
   get db() {
@@ -138,7 +139,19 @@ class GoogleSmartHomeManager {
     if (typeof this.nestCaster?.isWelcomeWithinActiveHours === 'function' && !this.nestCaster.isWelcomeWithinActiveHours()) {
       return;
     }
-    Promise.resolve(this.nestCaster.speak(res.reply, { followMe: true, playChime: false })).catch(() => {});
+    const now = this._nowFn();
+    const dedupKey = String(res.reply).trim().toLowerCase();
+    const lastAt = this._recentAnnouncements.get(dedupKey);
+    if (lastAt !== undefined && (now - lastAt) < 5000) {
+      return;
+    }
+    this._recentAnnouncements.set(dedupKey, now);
+    const chimePreset = this.nestCaster?.config?.welcomeChimePreset || 'welcome_chime';
+    Promise.resolve(this.nestCaster.speak(res.reply, {
+      followMe: true,
+      playChime: true,
+      chimePreset
+    })).catch(() => {});
   }
 
   _nowFn() {
