@@ -6073,3 +6073,119 @@ test('TEST 71: Routing fisso su Nest Salone per annunci vocali Google Smart Home
     assert.equal(call.opts.chimePreset, 'welcome_chime');
   }
 });
+
+test('TEST 72: Refresh live Volvo Cloud on-demand non-bloccante prima del briefing vocale (#173)', async () => {
+  const { GoogleSmartHomeManager } = require('../src/google-smarthome');
+  const speakCalls = [];
+  const syncCalls = [];
+  let nowTick = 1200000;
+
+  const volvoState = {
+    connected: true,
+    batteryChargeLevel: 38,
+    electricRangeKm: 136,
+    chargingStatus: 'IDLE',
+    carLocked: true,
+    doors: { centralLock: 'LOCKED' },
+    windows: {},
+    tyres: {},
+    diagnostics: {},
+    warnings: { activeWarnings: [] }
+  };
+
+  // 1. Refresh live asincrono: EXECUTE risponde subito (< 80ms), syncVolvoEx30({ force: true }) aggiorna a sbloccata
+  const mgr = new GoogleSmartHomeManager({
+    nowFn: () => {
+      nowTick += 10000;
+      return nowTick;
+    },
+    volvoLiveSyncTimeoutMs: 500,
+    climateOptimizer: { config: { comfortVoiceAnnounce: true } },
+    sandboxManager: { config: { systemPaused: false } },
+    eventLogger: { log: () => {} },
+    evClimateHub: {
+      getUnifiedStatus: () => ({ bosch: { zones: [] }, volvo: volvoState }),
+      syncVolvoEx30: async (opts) => {
+        syncCalls.push(opts);
+        await new Promise((r) => setTimeout(r, 110));
+        volvoState.carLocked = false;
+        volvoState.doors.centralLock = 'UNLOCKED';
+        return volvoState;
+      }
+    },
+    nestCaster: {
+      config: { welcomeChimePreset: 'welcome_chime' },
+      isWelcomeWithinActiveHours: () => false,
+      speak: async (text, opts) => {
+        speakCalls.push({ text, opts });
+        return { success: true };
+      }
+    }
+  });
+
+  const t0 = Date.now();
+  const res = await mgr.handleFulfillment({
+    requestId: 'vs-live-1',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'switch-volvo-status' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: true } }]
+        }]
+      }
+    }]
+  });
+  const elapsed = Date.now() - t0;
+  assert.equal(res.payload.commands[0].status, 'SUCCESS');
+  assert.ok(elapsed < 80, `EXECUTE deve restare non-bloccante (${elapsed}ms)`);
+
+  await new Promise((r) => setTimeout(r, 160));
+  assert.equal(syncCalls.length, 1);
+  assert.deepEqual(syncCalls[0], { force: true });
+  assert.equal(speakCalls.length, 1);
+  assert.ok(speakCalls[0].text.includes('sbloccata'), `Atteso 'sbloccata', ottenuto: ${speakCalls[0].text}`);
+  assert.equal(speakCalls[0].opts.roomName, 'Salone');
+  assert.equal(speakCalls[0].opts.followMe, false);
+
+  // 2. Fallback timeout: se Volvo Cloud è lento (> timeout), Leda parla comunque con la cache
+  const slowSpeak = [];
+  const slowMgr = new GoogleSmartHomeManager({
+    nowFn: () => {
+      nowTick += 10000;
+      return nowTick;
+    },
+    volvoLiveSyncTimeoutMs: 60,
+    climateOptimizer: { config: { comfortVoiceAnnounce: true } },
+    sandboxManager: { config: { systemPaused: false } },
+    eventLogger: { log: () => {} },
+    evClimateHub: {
+      getUnifiedStatus: () => ({ bosch: { zones: [] }, volvo: { ...volvoState, carLocked: true, doors: { centralLock: 'LOCKED' } } }),
+      syncVolvoEx30: () => new Promise((r) => setTimeout(r, 250))
+    },
+    nestCaster: {
+      config: { welcomeChimePreset: 'welcome_chime' },
+      isWelcomeWithinActiveHours: () => false,
+      speak: async (text, opts) => {
+        slowSpeak.push({ text, opts });
+        return { success: true };
+      }
+    }
+  });
+
+  await slowMgr.handleFulfillment({
+    requestId: 'vs-live-timeout',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'switch-volvo-status' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: true } }]
+        }]
+      }
+    }]
+  });
+  await new Promise((r) => setTimeout(r, 110));
+  assert.equal(slowSpeak.length, 1, 'Fallback alla cache deve far parlare Leda allo scadere del timeout');
+  assert.ok(slowSpeak[0].text.includes('chiusa a chiave'));
+});

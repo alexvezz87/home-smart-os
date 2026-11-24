@@ -91,6 +91,9 @@ class GoogleSmartHomeManager {
     this.tokensStore = { accessTokens: {}, refreshTokens: {} };
     this._tokensLoaded = false;
     this._recentAnnouncements = new Map();
+    this._volvoLiveSyncTimeoutMs = Number.isFinite(Number(deps.volvoLiveSyncTimeoutMs))
+      ? Number(deps.volvoLiveSyncTimeoutMs)
+      : 4000;
   }
 
   get db() {
@@ -288,6 +291,33 @@ class GoogleSmartHomeManager {
       sentence = `${cleanCut.replace(/[,;\s]+$/, '')}.`;
     }
     return sentence;
+  }
+
+  async _announceVolvoStatusLiveAsync(deviceId = 'switch-volvo-status') {
+    const timeoutMs = this._volvoLiveSyncTimeoutMs;
+    if (typeof this.evClimateHub?.syncVolvoEx30 === 'function') {
+      let timer = null;
+      try {
+        await Promise.race([
+          Promise.resolve(this.evClimateHub.syncVolvoEx30({ force: true })).catch(() => null),
+          new Promise((resolve) => {
+            timer = setTimeout(resolve, timeoutMs);
+          })
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
+    const volvo = typeof this.evClimateHub?.getUnifiedStatus === 'function'
+      ? this.evClimateHub.getUnifiedStatus()?.volvo
+      : null;
+    const briefing = this._buildVolvoDiagnosticBriefing(volvo);
+    this.eventLogger?.log?.('google_smarthome', `Volvo EX30 briefing vocale: ${briefing}`, {
+      source: 'Google Nest',
+      deviceId
+    });
+    this._announceComfortAsync({ reply: briefing }, { bypassQuietHours: true });
+    return briefing;
   }
 
   async _executeWallboxCharge(shouldCharge) {
@@ -925,15 +955,19 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
 
               if (devId === 'switch-volvo-status') {
                 if (exec?.params?.on === true) {
-                  const volvo = typeof this.evClimateHub?.getUnifiedStatus === 'function'
-                    ? this.evClimateHub.getUnifiedStatus()?.volvo
-                    : null;
-                  const briefing = this._buildVolvoDiagnosticBriefing(volvo);
-                  this.eventLogger?.log?.('google_smarthome', `Volvo EX30 briefing vocale: ${briefing}`, {
-                    source: 'Google Nest',
-                    deviceId: devId
-                  });
-                  this._announceComfortAsync({ reply: briefing }, { bypassQuietHours: true });
+                  if (typeof this.evClimateHub?.syncVolvoEx30 === 'function') {
+                    this._announceVolvoStatusLiveAsync(devId).catch(() => {});
+                  } else {
+                    const volvo = typeof this.evClimateHub?.getUnifiedStatus === 'function'
+                      ? this.evClimateHub.getUnifiedStatus()?.volvo
+                      : null;
+                    const briefing = this._buildVolvoDiagnosticBriefing(volvo);
+                    this.eventLogger?.log?.('google_smarthome', `Volvo EX30 briefing vocale: ${briefing}`, {
+                      source: 'Google Nest',
+                      deviceId: devId
+                    });
+                    this._announceComfortAsync({ reply: briefing }, { bypassQuietHours: true });
+                  }
                 }
                 commandResults.push({ ids: [devId], status: 'SUCCESS', states: { online: true, on: false } });
                 continue;
