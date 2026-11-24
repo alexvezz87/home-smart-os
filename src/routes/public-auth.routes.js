@@ -105,6 +105,15 @@ module.exports = function registerPublicAuthRoutes(app, services) {
         return res.redirect(`/?auth_error=${encodeURIComponent(result.error || 'unauthorized')}`);
       }
       auth.setSessionCookie(res, result.token, result.maxAge);
+      const returnTo = req.cookies?.smarthome_return_to;
+      if (
+        typeof returnTo === 'string'
+        && returnTo.startsWith('/oauth/google-smarthome/authorize?')
+        && !returnTo.includes('//')
+      ) {
+        res.clearCookie('smarthome_return_to');
+        return res.redirect(returnTo);
+      }
       res.redirect('/');
     } catch (err) {
       console.error('[Google OAuth Error]:', err.message);
