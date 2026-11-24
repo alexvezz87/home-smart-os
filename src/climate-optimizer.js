@@ -81,7 +81,11 @@ class ClimateOptimizer {
       enableNightShift: true,
       enableWindowProtect: true,
       gasPricePerSmc: 1.10,
-      maxComfortTempC: DEFAULT_MAX_COMFORT_TEMP_C
+      maxComfortTempC: DEFAULT_MAX_COMFORT_TEMP_C,
+      comfortColdTempC: 21.5,
+      comfortHotTempC: 19.0,
+      comfortOverrideMinutes: 60,
+      comfortVoiceAnnounce: true
     };
 
     this.tempHistoryByZone = new Map(); // zoneId -> [{ ts, temp }]
@@ -769,6 +773,20 @@ Restituisci JSON con schema: { "motivation": "frase breve in italiano", "adjustm
     if (patch.maxComfortTempC !== undefined && Number.isFinite(Number(patch.maxComfortTempC))) {
       const clamped = Math.max(17.0, Math.min(23.5, Number(patch.maxComfortTempC)));
       this.config.maxComfortTempC = +(Math.round(clamped * 2) / 2).toFixed(1);
+    }
+    if (patch.comfortColdTempC !== undefined && Number.isFinite(Number(patch.comfortColdTempC))) {
+      const clamped = Math.max(18.5, Math.min(23.0, Number(patch.comfortColdTempC)));
+      this.config.comfortColdTempC = +(Math.round(clamped * 2) / 2).toFixed(1);
+    }
+    if (patch.comfortHotTempC !== undefined && Number.isFinite(Number(patch.comfortHotTempC))) {
+      const clamped = Math.max(17.5, Math.min(21.5, Number(patch.comfortHotTempC)));
+      this.config.comfortHotTempC = +(Math.round(clamped * 2) / 2).toFixed(1);
+    }
+    if (patch.comfortOverrideMinutes !== undefined && Number.isFinite(Number(patch.comfortOverrideMinutes))) {
+      this.config.comfortOverrideMinutes = Math.round(Math.max(15, Math.min(180, Number(patch.comfortOverrideMinutes))));
+    }
+    if (patch.comfortVoiceAnnounce !== undefined) {
+      this.config.comfortVoiceAnnounce = Boolean(patch.comfortVoiceAnnounce);
     }
     await this.persistState();
     return this.getStatus();

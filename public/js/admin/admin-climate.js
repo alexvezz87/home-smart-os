@@ -918,6 +918,36 @@ AdminManager.prototype.renderClimateOptimizerPanel = function() {
         </div>
       </div>
     </div>
+    <div class="flex items-center justify-between flex-wrap gap-3 text-xs pt-2 border-t border-slate-800/70">
+      <div class="text-[11px] font-semibold text-sky-300">🎙️ Comfort Vocale / Google Nest (4 Stanze Vissute)</div>
+      <div class="flex items-center gap-3 flex-wrap">
+        <div class="flex items-center gap-1.5">
+          <span class="text-slate-400 text-[11px]">Comfort Freddo (°C):</span>
+          <input id="opt-comfort-cold-temp" type="number" step="0.5" min="18.5" max="23.0" value="${cfg.comfortColdTempC ?? 21.5}"
+                 class="w-16 px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-sky-300 font-mono text-[11px]" />
+          <button onclick="window.toggleClimateOptimizer({ comfortColdTempC: Number(document.getElementById('opt-comfort-cold-temp').value || 21.5) })"
+                  class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-bold border border-slate-700">OK</button>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span class="text-slate-400 text-[11px]">Comfort Caldo (°C):</span>
+          <input id="opt-comfort-hot-temp" type="number" step="0.5" min="17.5" max="21.5" value="${cfg.comfortHotTempC ?? 19.0}"
+                 class="w-16 px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-emerald-300 font-mono text-[11px]" />
+          <button onclick="window.toggleClimateOptimizer({ comfortHotTempC: Number(document.getElementById('opt-comfort-hot-temp').value || 19.0) })"
+                  class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-bold border border-slate-700">OK</button>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span class="text-slate-400 text-[11px]">Override (min):</span>
+          <input id="opt-comfort-override-min" type="number" step="5" min="15" max="180" value="${cfg.comfortOverrideMinutes ?? 60}"
+                 class="w-16 px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-amber-300 font-mono text-[11px]" />
+          <button onclick="window.toggleClimateOptimizer({ comfortOverrideMinutes: Number(document.getElementById('opt-comfort-override-min').value || 60) })"
+                  class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-bold border border-slate-700">OK</button>
+        </div>
+        <label class="flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer">
+          <input type="checkbox" ${cfg.comfortVoiceAnnounce !== false ? 'checked' : ''} onchange="window.toggleClimateOptimizer({ comfortVoiceAnnounce: this.checked })" />
+          <span>🔊 Annuncio Vocale Nest</span>
+        </label>
+      </div>
+    </div>
     ${met.lastForecastMotivation ? `<div class="text-[11px] text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 rounded-lg p-2">🤖 ${this.escapeHtml(met.lastForecastMotivation)}</div>` : ''}
   `;
 };
