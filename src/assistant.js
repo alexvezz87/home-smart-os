@@ -18,6 +18,17 @@ function roundHalf(v) {
   return +(Math.round(Number(v) * 2) / 2).toFixed(1);
 }
 
+function formatTempIt(v) {
+  return Number(v).toFixed(1).replace(/\.0$/, '').replace('.', ',');
+}
+
+function formatRoomListIt(rooms = []) {
+  if (!Array.isArray(rooms) || rooms.length === 0) return '';
+  if (rooms.length === 1) return rooms[0];
+  if (rooms.length === 2) return `${rooms[0]} e ${rooms[1]}`;
+  return `${rooms.slice(0, -1).join(', ')} e ${rooms[rooms.length - 1]}`;
+}
+
 const ROOM_MATCH_RULES = [
   { room: 'Camera da letto', patterns: ['camera da letto'] },
   { room: 'Cameretta', patterns: ['cameretta', 'studio', 'francesco', 'bimbo', 'bambino'] },
@@ -131,6 +142,137 @@ async function resolveUserRoom(text, options = {}, snapshot = null) {
 
 async function handleComfortBoost({ intent, deltaC = null, text = '', options = {}, snapshot = null } = {}) {
   const cleanIntent = intent === 'hot' ? 'hot' : 'cold';
+
+  if (options?.allLivedRooms === true || options?.parametric === true) {
+    const cfg = climateOptimizer?.config || {};
+    const coldTarget = Number.isFinite(Number(cfg.comfortColdTempC)) ? roundHalf(Number(cfg.comfortColdTempC)) : 21.5;
+    const hotTarget = Number.isFinite(Number(cfg.comfortHotTempC)) ? roundHalf(Number(cfg.comfortHotTempC)) : 19.0;
+    const overrideMin = Number.isFinite(Number(cfg.comfortOverrideMinutes)) ? Math.round(Number(cfg.comfortOverrideMinutes)) : 60;
+    const ttlMs = overrideMin * 60 * 1000;
+
+    const targetRooms = options?.allLivedRooms === true
+      ? ['Salone', 'Cameretta', 'Cucina', 'Camera da letto']
+      : [canonicalRoom(options.room) || String(options.room || '').trim()].filter(Boolean);
+
+    const status = typeof evClimateHub?.getUnifiedStatus === 'function'
+      ? evClimateHub.getUnifiedStatus()
+      : {};
+    const zones = Array.isArray(status?.bosch?.zones) ? status.bosch.zones : [];
+
+    const updatedRooms = [];
+    const skippedRooms = [];
+    const source = options?.source || 'voice_comfort_boost';
+
+    for (const roomName of targetRooms) {
+      if (!roomName || roomName === 'Bagno Alex') continue;
+      const z = zones.find((zoneItem) => {
+        const zId = String(zoneItem?.id || '').toLowerCase();
+        const zName = String(zoneItem?.name || '').toLowerCase();
+        if (zId === 'zn6' || zName.includes('bagno alex')) return false;
+        return canonicalRoom(zoneItem?.name) === roomName;
+      });
+      if (!z) continue;
+
+      const tActual = Number.isFinite(Number(z.tempActual)) ? Number(z.tempActual) : null;
+      const tSet = Number.isFinite(Number(z.tempSetpoint)) ? Number(z.tempSetpoint) : null;
+      const isCameretta = roomName.toLowerCase().includes('cameretta');
+
+      if (cleanIntent === 'cold') {
+        if (tActual !== null && tActual >= coldTarget) {
+          skippedRooms.push({ room: roomName, zoneId: z.id, tempActual: tActual, reason: 'already_above_target' });
+          continue;
+        }
+        const guard = await aiGateway.validateHardwareAction({
+          action: 'climate:set_temp',
+          value: coldTarget,
+          actor: 'voice-comfort-boost'
+        });
+        if (guard && guard.allowed === false) continue;
+        const finalTemp = guard?.finalValue ?? coldTarget;
+
+        try {
+          await evClimateHub.setBoschZoneSetpoint(z.id, finalTemp);
+        } catch (err) {
+          if (!String(err.message || '').includes('non conness')) throw err;
+        }
+
+        climateOptimizer.recordManualOverride(z.id, ttlMs);
+        eventBus.publish('climate:manual_override', {
+          ts: Date.now(),
+          zoneId: z.id,
+          room: roomName,
+          targetTemp: finalTemp,
+          previousTemp: tSet,
+          source,
+          intent: 'cold'
+        });
+        updatedRooms.push({ room: roomName, zoneId: z.id, targetTemp: finalTemp, tempActual: tActual });
+      } else {
+        const roomTarget = isCameretta ? Math.max(19.5, hotTarget) : hotTarget;
+        if (tActual !== null && tActual <= roomTarget && (tSet === null || tSet <= roomTarget)) {
+          skippedRooms.push({ room: roomName, zoneId: z.id, tempActual: tActual, reason: 'already_below_target' });
+          continue;
+        }
+        const guard = await aiGateway.validateHardwareAction({
+          action: 'climate:set_temp',
+          value: roomTarget,
+          actor: 'voice-comfort-boost'
+        });
+        if (guard && guard.allowed === false) continue;
+        const finalTemp = guard?.finalValue ?? roomTarget;
+
+        try {
+          await evClimateHub.setBoschZoneSetpoint(z.id, finalTemp);
+        } catch (err) {
+          if (!String(err.message || '').includes('non conness')) throw err;
+        }
+
+        climateOptimizer.recordManualOverride(z.id, ttlMs);
+        eventBus.publish('climate:manual_override', {
+          ts: Date.now(),
+          zoneId: z.id,
+          room: roomName,
+          targetTemp: finalTemp,
+          previousTemp: tSet,
+          source,
+          intent: 'hot'
+        });
+        updatedRooms.push({ room: roomName, zoneId: z.id, targetTemp: finalTemp, tempActual: tActual });
+      }
+    }
+
+    const mainTemp = cleanIntent === 'cold' ? coldTarget : hotTarget;
+    let reply = '';
+    if (updatedRooms.length > 0) {
+      const roomList = formatRoomListIt(updatedRooms.map((u) => u.room));
+      const prefix = updatedRooms.length === 1 ? 'Ho regolato il termosifone di' : 'Ho regolato i termosifoni di';
+      reply = `${prefix} ${roomList} a ${formatTempIt(mainTemp)} gradi per ${overrideMin} minuti.`;
+    } else {
+      reply = cleanIntent === 'cold'
+        ? `Le stanze vissute sono già oltre i ${formatTempIt(coldTarget)} gradi, non ho attivato i termosifoni.`
+        : `Le stanze vissute sono già sotto i ${formatTempIt(hotTarget)} gradi, non ho abbassato i termosifoni.`;
+    }
+
+    eventLogger.log('bosch_thermo', reply, {
+      source,
+      intent: cleanIntent,
+      updatedRooms: updatedRooms.map((u) => u.room),
+      skippedRooms: skippedRooms.map((s) => s.room),
+      ttlMinutes: overrideMin
+    });
+
+    return {
+      success: true,
+      action: updatedRooms.length > 0 ? 'comfort_boost_multi' : 'comfort_boost_already_warm',
+      intent: cleanIntent,
+      temperature: mainTemp,
+      ttlMinutes: overrideMin,
+      updatedRooms,
+      skippedRooms,
+      reply
+    };
+  }
+
   const snap = snapshot || (await mcp.getHomeSnapshot().catch(() => ({ devices: [], rooms: [] })));
   const resolved = await resolveUserRoom(text, options, snap);
 

@@ -12,7 +12,7 @@ const SCENE_DEFINITIONS = [
       name: 'Comfort Freddo',
       nicknames: ['Comfort Freddo', 'Comfort Boost Freddo']
     },
-    mappedPayload: { intent: 'cold', text: 'ho freddo', options: {} }
+    mappedPayload: { intent: 'cold', text: 'ho freddo', options: { allLivedRooms: true, source: 'google_smarthome' } }
   },
   {
     id: 'scene-comfort-hot',
@@ -21,7 +21,7 @@ const SCENE_DEFINITIONS = [
       name: 'Comfort Caldo',
       nicknames: ['Comfort Caldo', 'Comfort Boost Caldo']
     },
-    mappedPayload: { intent: 'hot', text: 'ho caldo', options: {} }
+    mappedPayload: { intent: 'hot', text: 'ho caldo', options: { allLivedRooms: true, source: 'google_smarthome' } }
   },
   {
     id: 'scene-comfort-cold-salone',
@@ -31,7 +31,7 @@ const SCENE_DEFINITIONS = [
       nicknames: ['Scalda Salone']
     },
     roomHint: 'Salone',
-    mappedPayload: { intent: 'cold', text: 'ho freddo in salone', options: { room: 'Salone' } }
+    mappedPayload: { intent: 'cold', text: 'ho freddo in salone', options: { room: 'Salone', parametric: true, source: 'google_smarthome' } }
   },
   {
     id: 'scene-comfort-cold-camera',
@@ -41,7 +41,7 @@ const SCENE_DEFINITIONS = [
       nicknames: ['Scalda Camera da letto']
     },
     roomHint: 'Camera da letto',
-    mappedPayload: { intent: 'cold', text: 'ho freddo in camera da letto', options: { room: 'Camera da letto' } }
+    mappedPayload: { intent: 'cold', text: 'ho freddo in camera da letto', options: { room: 'Camera da letto', parametric: true, source: 'google_smarthome' } }
   },
   {
     id: 'scene-comfort-cold-cameretta',
@@ -51,11 +51,34 @@ const SCENE_DEFINITIONS = [
       nicknames: ['Scalda Cameretta']
     },
     roomHint: 'Cameretta',
-    mappedPayload: { intent: 'cold', text: 'ho freddo in cameretta', options: { room: 'Cameretta' } }
+    mappedPayload: { intent: 'cold', text: 'ho freddo in cameretta', options: { room: 'Cameretta', parametric: true, source: 'google_smarthome' } }
   }
 ];
 
 const SCENE_MAP = new Map(SCENE_DEFINITIONS.map((s) => [s.id, s]));
+
+const SWITCH_DEFINITIONS = [
+  {
+    id: 'switch-comfort-cold',
+    name: {
+      defaultNames: ['Interruttore Comfort Freddo'],
+      name: 'Interruttore Comfort Freddo',
+      nicknames: ['Comfort Freddo', 'Boost Comfort Freddo']
+    },
+    mappedPayload: { intent: 'cold', text: 'ho freddo', options: { allLivedRooms: true, source: 'google_smarthome' } }
+  },
+  {
+    id: 'switch-comfort-hot',
+    name: {
+      defaultNames: ['Interruttore Comfort Caldo'],
+      name: 'Interruttore Comfort Caldo',
+      nicknames: ['Comfort Caldo', 'Boost Comfort Caldo']
+    },
+    mappedPayload: { intent: 'hot', text: 'ho caldo', options: { allLivedRooms: true, source: 'google_smarthome' } }
+  }
+];
+
+const SWITCH_MAP = new Map(SWITCH_DEFINITIONS.map((s) => [s.id, s]));
 
 function roundHalf(v) {
   return +(Math.round(Number(v) * 2) / 2).toFixed(1);
@@ -103,6 +126,19 @@ class GoogleSmartHomeManager {
 
   get assistant() {
     return this._deps.assistant || require('./assistant');
+  }
+
+  get nestCaster() {
+    return this._deps.nestCaster || require('./nest-caster');
+  }
+
+  _announceComfortAsync(res) {
+    if (this.climateOptimizer?.config?.comfortVoiceAnnounce === false) return;
+    if (!res?.reply || typeof this.nestCaster?.speak !== 'function') return;
+    if (typeof this.nestCaster?.isWelcomeWithinActiveHours === 'function' && !this.nestCaster.isWelcomeWithinActiveHours()) {
+      return;
+    }
+    Promise.resolve(this.nestCaster.speak(res.reply, { followMe: true, playChime: false })).catch(() => {});
   }
 
   _nowFn() {
@@ -388,6 +424,17 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
         ...(sc.roomHint ? { roomHint: sc.roomHint } : {})
       }));
 
+      for (const sw of SWITCH_DEFINITIONS) {
+        devices.push({
+          id: sw.id,
+          type: 'action.devices.types.SWITCH',
+          traits: ['action.devices.traits.OnOff'],
+          name: sw.name,
+          willReportState: false,
+          attributes: { commandOnlyOnOff: true }
+        });
+      }
+
       const zones = Array.isArray(this.evClimateHub?.getUnifiedStatus?.()?.bosch?.zones)
         ? this.evClimateHub.getUnifiedStatus().bosch.zones
         : [];
@@ -438,6 +485,10 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
         const id = String(dev?.id || '');
         if (SCENE_MAP.has(id)) {
           devicesMap[id] = { online: true, status: 'SUCCESS' };
+          continue;
+        }
+        if (SWITCH_MAP.has(id)) {
+          devicesMap[id] = { online: true, status: 'SUCCESS', on: false };
           continue;
         }
         if (id.startsWith('bosch-zone-')) {
@@ -507,6 +558,7 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
                 temperature: res?.temperature ?? null
               });
               if (res?.success === true || res?.action === 'comfort_boost_already_warm') {
+                this._announceComfortAsync(res);
                 commandResults.push({ ids: [devId], status: 'SUCCESS', states: {} });
               } else {
                 commandResults.push({
@@ -514,6 +566,40 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
                   status: 'ERROR',
                   errorCode: res?.blocked ? 'valueOutOfRange' : 'deviceNotReady'
                 });
+              }
+              continue;
+            }
+
+            if (cmd === 'action.devices.commands.OnOff') {
+              const sw = SWITCH_MAP.get(devId);
+              if (!sw) {
+                commandResults.push({ ids: [devId], status: 'ERROR', errorCode: 'deviceNotFound' });
+                continue;
+              }
+              if (exec?.params?.on === true) {
+                const res = await this.assistant.handleComfortBoost({
+                  ...sw.mappedPayload,
+                  options: { ...(sw.mappedPayload.options || {}) }
+                });
+                this.eventLogger?.log?.('google_smarthome', `Switch OnOff ${devId}`, {
+                  source: 'Google Nest',
+                  switchId: devId,
+                  action: res?.action,
+                  updatedRooms: res?.updatedRooms?.map((u) => u.room) || [],
+                  temperature: res?.temperature ?? null
+                });
+                if (res?.success === true || res?.action === 'comfort_boost_already_warm') {
+                  this._announceComfortAsync(res);
+                  commandResults.push({ ids: [devId], status: 'SUCCESS', states: { online: true, on: false } });
+                } else {
+                  commandResults.push({
+                    ids: [devId],
+                    status: 'ERROR',
+                    errorCode: res?.blocked ? 'valueOutOfRange' : 'deviceNotReady'
+                  });
+                }
+              } else {
+                commandResults.push({ ids: [devId], status: 'SUCCESS', states: { online: true, on: false } });
               }
               continue;
             }
