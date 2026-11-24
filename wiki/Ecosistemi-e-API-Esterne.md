@@ -135,3 +135,9 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 
 ### Comfort Boost Vocale & Routine Google Home (`#138`)
 - **Endpoint Protetto `POST /api/assistant/comfort-boost`**: accetta `{ intent: 'cold'|'hot', room?, deltaC?, text?, humanConfirmed? }` e delega a `handleComfortBoost()` (`src/assistant.js`) con risoluzione stanza a cascata, rispetto dei guardrail `ai-gateway`, estensione override `45–60 min` su `ClimateOptimizer` ed evento `climate:manual_override` su `EventBus`.
+
+### Google Smart Home Cloud-to-Cloud (`#154`)
+- **OAuth 2.0 Account Linking & Webhook (`src/google-smarthome.js`, `src/routes/google-smarthome.routes.js`)**:
+  - `GET /oauth/google-smarthome/authorize`: valida `client_id`, `response_type=code` e `redirect_uri` ufficiali Google (`oauth-redirect*.googleusercontent.com/r/<GOOGLE_SMARTHOME_PROJECT_ID>`), verifica la sessione `home-smart-os` (con ripresa automatica post-login via cookie `smarthome_return_to` in `public-auth.routes.js`) ed emette `authorization_code` monouso (TTL 5 min).
+  - `POST /oauth/google-smarthome/token`: scambia `authorization_code` / `refresh_token` e persiste i token cifrati AES-256-GCM su TiDB (`google-smarthome-tokens`).
+  - `POST /api/google-smarthome/fulfillment`: montato prima di `auth.middleware()` e protetto da Bearer Token dedicato, gestisce `SYNC`, `QUERY`, `EXECUTE` (`ActivateScene` -> `handleComfortBoost` per Routine Google Home *"Ho freddo"* / *"Ho caldo"*, `ThermostatTemperatureSetpoint` -> Bosch CT200 con guardrail `19.0–21.0°C`, `Cameretta >= 19.5°C` ed esclusione `Bagno Alex zn6`) e `DISCONNECT`.

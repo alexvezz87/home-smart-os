@@ -16,6 +16,7 @@ const db = require('./src/db');
 const auth = require('./src/auth');
 
 const registerPublicAuthRoutes = require('./src/routes/public-auth.routes');
+const registerGoogleSmartHomeRoutes = require('./src/routes/google-smarthome.routes');
 const registerHueAppliancesSpatialRoutes = require('./src/routes/hue-appliances-spatial.routes');
 const registerEvClimateEnergyRoutes = require('./src/routes/ev-climate-energy.routes');
 const registerSecurityVisionNestRoutes = require('./src/routes/security-vision-nest.routes');
@@ -65,6 +66,7 @@ const services = {
   resolveUserRoom: null,
   aiOrchestrator: null,
   googleFulfillment: null,
+  googleSmartHome: null,
   nestCaster: null,
   sandboxManager: null,
   eventLogger: null,
@@ -134,6 +136,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // 1. Rotte pubbliche (Healthcheck, Auth, OAuth callbacks, Google Fulfillment)
 registerPublicAuthRoutes(app, services);
+registerGoogleSmartHomeRoutes(app, services);
 
 // 2. Protezione obbligatoria per tutte le altre API (/api/*)
 app.use(auth.middleware());
@@ -217,6 +220,10 @@ async function bootstrap() {
   } = require('./src/assistant'));
   services.aiOrchestrator = require('./src/ai-orchestrator');
   services.googleFulfillment = require('./src/google-fulfillment');
+  services.googleSmartHome = require('./src/google-smarthome');
+  services.googleSmartHome.init?.().catch((err) => {
+    console.warn('[Google Smart Home] Avviso init token:', err.message);
+  });
   services.nestCaster = require('./src/nest-caster');
   services.sandboxManager = require('./src/sandbox-manager');
   services.eventLogger = require('./src/event-logger');
