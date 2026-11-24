@@ -13,7 +13,8 @@ const SENSITIVE_KEYS = new Set([
   'ev-climate-config',
   'meross-token',
   'hue-config',
-  'security-config'
+  'security-config',
+  'google-smarthome-tokens'
 ]);
 
 class DatabaseManager {

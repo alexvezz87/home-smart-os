@@ -4696,3 +4696,248 @@ test('MerossEnergy (#153): togglePlugByName risolve alias Angolo Lettura -> Ango
 
 
 
+
+test('Google Smart Home Cloud-to-Cloud: OAuth2, Bearer Auth, SYNC/QUERY/EXECUTE/DISCONNECT (#154)', async () => {
+  const { GoogleSmartHomeManager } = require('../src/google-smarthome');
+  const registerGoogleSmartHomeRoutes = require('../src/routes/google-smarthome.routes');
+
+  let currentNow = 1700000000000;
+  const memDb = new Map();
+  let lastDbEncryptFlag = null;
+  const setCalls = [];
+  const overrideCalls = [];
+  const busEvents = [];
+  const logEntries = [];
+  const boostCalls = [];
+  const zonesState = [
+    { id: 'zn1', name: 'Salone', tempActual: 19.4, tempSetpoint: 19.5 },
+    { id: 'zn3', name: 'Cameretta', tempActual: 19.8, tempSetpoint: 20.0 },
+    { id: 'zn6', name: 'Bagno Alex', tempActual: 22.1, tempSetpoint: 18.5 }
+  ];
+
+  const gsh = new GoogleSmartHomeManager({
+    nowFn: () => currentNow,
+    env: {
+      GOOGLE_SMARTHOME_PROJECT_ID: 'home-smart-os-test',
+      GOOGLE_SMARTHOME_CLIENT_ID: 'test-gsh-client',
+      GOOGLE_SMARTHOME_CLIENT_SECRET: 'test-gsh-secret'
+    },
+    db: {
+      get: async (k) => memDb.get(k) || null,
+      set: async (k, v, enc) => {
+        lastDbEncryptFlag = enc;
+        memDb.set(k, JSON.parse(JSON.stringify(v)));
+      }
+    },
+    auth: {
+      isAuthEnabled: () => true,
+      extractToken: (req) => req.headers?.['x-test-session'] || null,
+      verifyToken: (tok) => (tok === 'valid-session' ? { email: 'family@example.com' } : null),
+      isTrustedHomeNetwork: () => false
+    },
+    evClimateHub: {
+      getUnifiedStatus: () => ({ bosch: { zones: zonesState } }),
+      setBoschZoneSetpoint: async (z, t) => { setCalls.push({ z, t }); return { success: true }; }
+    },
+    climateOptimizer: {
+      recordManualOverride: (z, ttl) => { overrideCalls.push({ z, ttl }); }
+    },
+    aiGateway: {
+      validateHardwareAction: ({ value }) => ({ allowed: true, finalValue: value })
+    },
+    eventLogger: {
+      log: (cat, msg, meta) => { logEntries.push({ cat, msg, meta }); }
+    },
+    eventBus: {
+      publish: (ev, data) => { busEvents.push({ ev, data }); }
+    },
+    sandboxManager: { config: { systemPaused: false } },
+    assistant: {
+      handleComfortBoost: async (payload) => {
+        boostCalls.push(payload);
+        const salone = zonesState.find((z) => z.id === 'zn1');
+        if (salone.tempActual > 21.0) {
+          return { success: false, requiresConfirmation: true, action: 'comfort_boost_already_warm', room: 'Salone' };
+        }
+        setCalls.push({ z: 'zn1', t: 20.5 });
+        overrideCalls.push({ z: 'zn1', ttl: 45 * 60 * 1000 });
+        return { success: true, action: 'comfort_boost', room: 'Salone', temperature: 20.5 };
+      }
+    }
+  });
+
+  const routes = { get: new Map(), post: new Map() };
+  registerGoogleSmartHomeRoutes(
+    {
+      get: (p, ...h) => routes.get.set(p, h[h.length - 1]),
+      post: (p, ...h) => routes.post.set(p, h[h.length - 1])
+    },
+    { googleSmartHome: gsh, logger: { recordAudit: () => {} } }
+  );
+
+  const makeRes = () => {
+    const out = { statusCode: 200, body: null, redirectUrl: null };
+    out.status = (c) => { out.statusCode = c; return out; };
+    out.json = (d) => { out.body = d; return out; };
+    out.send = (d) => { out.body = d; return out; };
+    out.redirect = (u) => { out.statusCode = 302; out.redirectUrl = u; return out; };
+    out.cookie = () => out;
+    return out;
+  };
+
+  // 1. OAuth2 Authorize: client_id errato -> 401, redirect_uri errato -> 400, non autenticato -> 401
+  const authHandler = routes.get.get('/oauth/google-smarthome/authorize');
+  const resBadClient = makeRes();
+  authHandler({ query: { client_id: 'wrong', redirect_uri: 'https://oauth-redirect.googleusercontent.com/r/home-smart-os-test', response_type: 'code' } }, resBadClient);
+  assert.equal(resBadClient.statusCode, 401);
+
+  const resBadUri = makeRes();
+  authHandler({ query: { client_id: 'test-gsh-client', redirect_uri: 'https://evil.example.com/cb', response_type: 'code' } }, resBadUri);
+  assert.equal(resBadUri.statusCode, 400);
+
+  const resNoAuth = makeRes();
+  authHandler({ query: { client_id: 'test-gsh-client', redirect_uri: 'https://oauth-redirect.googleusercontent.com/r/home-smart-os-test', response_type: 'code' }, headers: {} }, resNoAuth);
+  assert.equal(resNoAuth.statusCode, 401);
+
+  const resAuthOk = makeRes();
+  authHandler({
+    query: { client_id: 'test-gsh-client', redirect_uri: 'https://oauth-redirect.googleusercontent.com/r/home-smart-os-test', state: 'xyz123', response_type: 'code' },
+    headers: { 'x-test-session': 'valid-session' }
+  }, resAuthOk);
+  assert.equal(resAuthOk.statusCode, 302);
+  const codeMatch = resAuthOk.redirectUrl.match(/[?&]code=([^&]+)/);
+  assert.ok(codeMatch && codeMatch[1], 'Deve generare authorization_code');
+  const authCode = decodeURIComponent(codeMatch[1]);
+
+  // 2. OAuth2 Token: exchange + one-time use + refresh_token + encrypted TiDB save
+  const tokenHandler = routes.post.get('/oauth/google-smarthome/token');
+  const resTok = makeRes();
+  await tokenHandler({
+    headers: {},
+    body: {
+      grant_type: 'authorization_code',
+      code: authCode,
+      client_id: 'test-gsh-client',
+      client_secret: 'test-gsh-secret',
+      redirect_uri: 'https://oauth-redirect.googleusercontent.com/r/home-smart-os-test'
+    }
+  }, resTok);
+  assert.equal(resTok.statusCode, 200);
+  assert.equal(resTok.body.token_type, 'Bearer');
+  assert.ok(resTok.body.access_token && resTok.body.refresh_token);
+  assert.equal(lastDbEncryptFlag, true, 'Token salvati cifrati su TiDB');
+
+  // Riuso dello stesso code -> 400 invalid_grant
+  const resReuse = makeRes();
+  await tokenHandler({
+    headers: {},
+    body: {
+      grant_type: 'authorization_code',
+      code: authCode,
+      client_id: 'test-gsh-client',
+      client_secret: 'test-gsh-secret'
+    }
+  }, resReuse);
+  assert.equal(resReuse.statusCode, 400);
+  assert.equal(resReuse.body.error, 'invalid_grant');
+
+  // Refresh token
+  const resRefresh = makeRes();
+  await tokenHandler({
+    headers: { authorization: `Basic ${Buffer.from('test-gsh-client:test-gsh-secret').toString('base64')}` },
+    body: { grant_type: 'refresh_token', refresh_token: resTok.body.refresh_token }
+  }, resRefresh);
+  assert.equal(resRefresh.statusCode, 200);
+  const bearerToken = resRefresh.body.access_token;
+  assert.ok(bearerToken);
+
+  // 3. Sicurezza Webhook: senza Bearer o token invalido -> 401
+  const fulfillHandler = routes.post.get('/api/google-smarthome/fulfillment');
+  const resUnauth = makeRes();
+  await fulfillHandler({ headers: {}, body: { requestId: 'r0', inputs: [{ intent: 'action.devices.SYNC' }] } }, resUnauth);
+  assert.equal(resUnauth.statusCode, 401);
+
+  // 4. SYNC: scene + zone Bosch escludendo Bagno Alex (zn6)
+  const resSync = makeRes();
+  await fulfillHandler({
+    headers: { authorization: `Bearer ${bearerToken}` },
+    body: { requestId: 'r1', inputs: [{ intent: 'action.devices.SYNC' }] }
+  }, resSync);
+  assert.equal(resSync.statusCode, 200);
+  const syncDevices = resSync.body.payload.devices;
+  assert.ok(syncDevices.some((d) => d.id === 'scene-comfort-cold'));
+  assert.ok(syncDevices.some((d) => d.id === 'scene-comfort-hot'));
+  assert.ok(syncDevices.some((d) => d.id === 'bosch-zone-zn1' && d.roomHint === 'Salone'));
+  assert.ok(!syncDevices.some((d) => d.id === 'bosch-zone-zn6'), 'Bagno Alex (zn6) deve essere escluso da SYNC');
+
+  // 5. QUERY: stato live
+  const resQuery = makeRes();
+  await fulfillHandler({
+    headers: { authorization: `Bearer ${bearerToken}` },
+    body: {
+      requestId: 'r2',
+      inputs: [{ intent: 'action.devices.QUERY', payload: { devices: [{ id: 'bosch-zone-zn1' }, { id: 'bosch-zone-zn6' }] } }]
+    }
+  }, resQuery);
+  assert.equal(resQuery.body.payload.devices['bosch-zone-zn1'].thermostatTemperatureAmbient, 19.4);
+  assert.equal(resQuery.body.payload.devices['bosch-zone-zn6'].status, 'ERROR');
+
+  // 6. EXECUTE ActivateScene (anti-spreco > 21.0°C non chiama setBoschZoneSetpoint ma risponde SUCCESS)
+  zonesState[0].tempActual = 21.4;
+  setCalls.length = 0; boostCalls.length = 0;
+  const resSceneWarm = makeRes();
+  await fulfillHandler({
+    headers: { authorization: `Bearer ${bearerToken}` },
+    body: {
+      requestId: 'r3',
+      inputs: [{
+        intent: 'action.devices.EXECUTE',
+        payload: { commands: [{ devices: [{ id: 'scene-comfort-cold' }], execution: [{ command: 'action.devices.commands.ActivateScene', params: { deactivate: false } }] }] }
+      }]
+    }
+  }, resSceneWarm);
+  assert.equal(boostCalls.length, 1);
+  assert.equal(setCalls.length, 0, 'Con T_actual > 21.0°C non deve chiamare setBoschZoneSetpoint');
+  assert.equal(resSceneWarm.body.payload.commands[0].status, 'SUCCESS');
+  assert.ok(logEntries.some((l) => l.cat === 'google_smarthome' && l.meta?.source === 'Google Nest'));
+
+  // 7. EXECUTE ThermostatTemperatureSetpoint: clamp Cameretta min 19.5°C, blocco zn6, eventBus
+  setCalls.length = 0; overrideCalls.length = 0; busEvents.length = 0;
+  const resSet = makeRes();
+  await fulfillHandler({
+    headers: { authorization: `Bearer ${bearerToken}` },
+    body: {
+      requestId: 'r4',
+      inputs: [{
+        intent: 'action.devices.EXECUTE',
+        payload: {
+          commands: [
+            { devices: [{ id: 'bosch-zone-zn3' }], execution: [{ command: 'action.devices.commands.ThermostatTemperatureSetpoint', params: { thermostatTemperatureSetpoint: 17.0 } }] },
+            { devices: [{ id: 'bosch-zone-zn6' }], execution: [{ command: 'action.devices.commands.ThermostatTemperatureSetpoint', params: { thermostatTemperatureSetpoint: 20.0 } }] }
+          ]
+        }
+      }]
+    }
+  }, resSet);
+  assert.equal(resSet.body.payload.commands[0].status, 'SUCCESS');
+  assert.equal(resSet.body.payload.commands[0].states.thermostatTemperatureSetpoint, 19.5);
+  assert.equal(resSet.body.payload.commands[1].status, 'ERROR');
+  assert.equal(resSet.body.payload.commands[1].errorCode, 'notSupported');
+  assert.equal(overrideCalls[0].ttl, 60 * 60 * 1000);
+  assert.ok(busEvents.some((e) => e.ev === 'climate:manual_override' && e.data.source === 'google_smarthome'));
+
+  // 8. DISCONNECT: revoca token in memoria e TiDB, vecchio Bearer respinto con 401
+  const resDisc = makeRes();
+  await fulfillHandler({
+    headers: { authorization: `Bearer ${bearerToken}` },
+    body: { requestId: 'r5', inputs: [{ intent: 'action.devices.DISCONNECT' }] }
+  }, resDisc);
+  assert.equal(resDisc.statusCode, 200);
+
+  const resAfterDisc = makeRes();
+  await fulfillHandler({
+    headers: { authorization: `Bearer ${bearerToken}` },
+    body: { requestId: 'r6', inputs: [{ intent: 'action.devices.SYNC' }] }
+  }, resAfterDisc);
+  assert.equal(resAfterDisc.statusCode, 401);
+});
