@@ -5171,3 +5171,155 @@ test('TEST 65: Comfort Freddo/Caldo parametrico 4 stanze, Interruttori Google Ho
   });
   assert.equal(speakCalls.length, 1);
 });
+
+
+test('TEST 66: Disattivazione Rapida Comfort & Ripristino Bilanciamento Standard su Switch OFF e Admin (#158)', async () => {
+  const { ClimateOptimizer } = require('../src/climate-optimizer');
+  const { GoogleSmartHomeManager } = require('../src/google-smarthome');
+  const registerEvClimateEnergyRoutes = require('../src/routes/ev-climate-energy.routes');
+
+  // 1. ClimateOptimizer.clearManualOverrides() e resetComfortAndRebalance()
+  const opt = new ClimateOptimizer();
+  opt.recordManualOverride('zn1', 60 * 60 * 1000);
+  opt.recordManualOverride('zn3', 60 * 60 * 1000);
+  assert.equal(opt.isManualOverrideActive('zn1'), true);
+  assert.equal(opt.isManualOverrideActive('zn3'), true);
+
+  const evalCalls = [];
+  opt.evaluateNow = async (args) => {
+    evalCalls.push(args);
+    return { evaluatedZones: 4 };
+  };
+
+  const resetOut = await opt.resetComfortAndRebalance({ reason: 'comfort_reset', source: 'test_158' });
+  assert.equal(resetOut.success, true);
+  assert.equal(resetOut.clearedCount, 2);
+  assert.equal(opt.isManualOverrideActive('zn1'), false);
+  assert.equal(opt.isManualOverrideActive('zn3'), false);
+  assert.deepEqual(evalCalls, [{ reason: 'comfort_reset' }]);
+  assert.ok(resetOut.reply.includes('ripristinato il bilanciamento automatico'));
+
+  // 2. GoogleSmartHomeManager EXECUTE OnOff (on: false) su switch-comfort-cold
+  const resetCalls = [];
+  const logEntries = [];
+  const speakCalls = [];
+  let withinActiveHours = true;
+  const optCfg = { comfortVoiceAnnounce: true };
+
+  const mgr = new GoogleSmartHomeManager({
+    env: { GOOGLE_SMARTHOME_CLIENT_ID: 'c', GOOGLE_SMARTHOME_CLIENT_SECRET: 's' },
+    db: { get: async () => null, set: async () => true },
+    evClimateHub: { getUnifiedStatus: () => ({ bosch: { zones: [] } }) },
+    climateOptimizer: {
+      config: optCfg,
+      resetComfortAndRebalance: async (opts) => {
+        resetCalls.push(opts);
+        return {
+          success: true,
+          clearedCount: 2,
+          reply: 'Ho disattivato la modalità comfort e ripristinato il bilanciamento automatico dei termosifoni.'
+        };
+      }
+    },
+    sandboxManager: { config: { systemPaused: false } },
+    eventLogger: {
+      log: (cat, msg, meta) => {
+        logEntries.push({ cat, msg, meta });
+      }
+    },
+    nestCaster: {
+      isWelcomeWithinActiveHours: () => withinActiveHours,
+      speak: async (text, opts) => {
+        speakCalls.push({ text, opts });
+      }
+    }
+  });
+
+  const execOff1 = await mgr.handleFulfillment({
+    requestId: 'sw-off-1',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'switch-comfort-cold' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: false } }]
+        }]
+      }
+    }]
+  });
+
+  assert.deepEqual(execOff1.payload.commands[0], {
+    ids: ['switch-comfort-cold'],
+    status: 'SUCCESS',
+    states: { online: true, on: false }
+  });
+  assert.deepEqual(resetCalls, [{ reason: 'comfort_reset', source: 'google_smarthome' }]);
+  assert.ok(logEntries.some((l) => l.cat === 'google_smarthome' && l.meta?.source === 'Google Nest'));
+  assert.equal(speakCalls.length, 1);
+  assert.ok(speakCalls[0].text.includes('ripristinato il bilanciamento automatico'));
+
+  // comfortVoiceAnnounce: false -> NON parla
+  optCfg.comfortVoiceAnnounce = false;
+  await mgr.handleFulfillment({
+    requestId: 'sw-off-2',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'switch-comfort-hot' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: false } }]
+        }]
+      }
+    }]
+  });
+  assert.equal(speakCalls.length, 1);
+
+  // Fuori fascia silenziosa -> NON parla
+  optCfg.comfortVoiceAnnounce = true;
+  withinActiveHours = false;
+  await mgr.handleFulfillment({
+    requestId: 'sw-off-3',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'switch-comfort-cold' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: false } }]
+        }]
+      }
+    }]
+  });
+  assert.equal(speakCalls.length, 1);
+
+  // 3. Verifica registrazione route POST /api/climate/optimizer/reset-comfort
+  const postRoutes = new Map();
+  const mockApp = {
+    get: () => {},
+    post: (path, handler) => { postRoutes.set(path, handler); },
+    delete: () => {}
+  };
+  const routeResetCalls = [];
+  registerEvClimateEnergyRoutes(mockApp, {
+    climateOptimizer: {
+      resetComfortAndRebalance: async (opts) => {
+        routeResetCalls.push(opts);
+        return { success: true, clearedCount: 1, reply: 'ok' };
+      },
+      getStatus: () => ({ config: { enabled: true } })
+    },
+    evClimateHub: {},
+    merossEnergy: {},
+    thermalAnalytics: {},
+    dolomitiBillsSync: {},
+    boschEnergyHistory: {},
+    aiGateway: {},
+    db: {},
+    eventLogger: { log: () => {} }
+  });
+  const resetHandler = postRoutes.get('/api/climate/optimizer/reset-comfort');
+  assert.equal(typeof resetHandler, 'function', 'Route POST /api/climate/optimizer/reset-comfort deve essere registrata');
+  let jsonOut = null;
+  await resetHandler({}, { json: (d) => { jsonOut = d; }, status: () => ({ json: (d) => { jsonOut = d; } }) });
+  assert.equal(jsonOut.success, true);
+  assert.deepEqual(routeResetCalls, [{ reason: 'admin_reset', source: 'admin_ui' }]);
+});

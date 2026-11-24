@@ -394,6 +394,18 @@ module.exports = function registerEvClimateEnergyRoutes(app, services) {
     }
   });
 
+  app.post('/api/climate/optimizer/reset-comfort', async (req, res) => {
+    try {
+      const result = await services.climateOptimizer.resetComfortAndRebalance({
+        reason: 'admin_reset',
+        source: 'admin_ui'
+      });
+      res.json({ success: true, result, data: services.climateOptimizer.getStatus() });
+    } catch (error) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
   // Analisi Storica Termica per Stanza (Thermal Learning Loop #60)
   app.get('/api/climate/analytics/summary', async (req, res) => {
     try {

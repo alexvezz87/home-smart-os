@@ -599,6 +599,19 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
                   });
                 }
               } else {
+                const resetRes = typeof this.climateOptimizer?.resetComfortAndRebalance === 'function'
+                  ? await this.climateOptimizer.resetComfortAndRebalance({ reason: 'comfort_reset', source: 'google_smarthome' })
+                  : {
+                      success: true,
+                      clearedCount: 0,
+                      reply: 'Ho disattivato la modalità comfort e ripristinato il bilanciamento automatico dei termosifoni.'
+                    };
+                this.eventLogger?.log?.('google_smarthome', `Switch Off ${devId} -> Reset bilanciamento standard`, {
+                  source: 'Google Nest',
+                  switchId: devId,
+                  clearedCount: resetRes?.clearedCount ?? 0
+                });
+                this._announceComfortAsync(resetRes);
                 commandResults.push({ ids: [devId], status: 'SUCCESS', states: { online: true, on: false } });
               }
               continue;
