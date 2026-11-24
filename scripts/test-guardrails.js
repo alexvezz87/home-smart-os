@@ -5323,3 +5323,73 @@ test('TEST 66: Disattivazione Rapida Comfort & Ripristino Bilanciamento Standard
   assert.equal(jsonOut.success, true);
   assert.deepEqual(routeResetCalls, [{ reason: 'admin_reset', source: 'admin_ui' }]);
 });
+
+test('TEST 67: Jingle personalizzato welcome_chime e dedup 5s su annunci Comfort Nest (#160)', async () => {
+  const { GoogleSmartHomeManager } = require('../src/google-smarthome');
+  let now = 1700000000000;
+  const speakCalls = [];
+  const mgr = new GoogleSmartHomeManager({
+    nowFn: () => now,
+    climateOptimizer: {
+      config: { comfortVoiceAnnounce: true },
+      resetComfortAndRebalance: async () => ({
+        success: true,
+        clearedCount: 1,
+        reply: 'Ho disattivato la modalità comfort e ripristinato il bilanciamento automatico dei termosifoni.'
+      })
+    },
+    nestCaster: {
+      config: { welcomeChimePreset: 'welcome_chime' },
+      isWelcomeWithinActiveHours: () => true,
+      speak: async (text, opts) => { speakCalls.push({ text, opts }); return { success: true }; }
+    },
+    eventLogger: { log: () => {} },
+    sandboxManager: { config: { systemPaused: false } }
+  });
+
+  // Doppio spegnimento ravvicinato (switch-comfort-cold + switch-comfort-hot entro 100ms) -> 1 solo speak con welcome_chime
+  await mgr.handleFulfillment({
+    requestId: 'dedup-1',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'switch-comfort-cold' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: false } }]
+        }]
+      }
+    }]
+  });
+  now += 100;
+  await mgr.handleFulfillment({
+    requestId: 'dedup-2',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'switch-comfort-hot' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: false } }]
+        }]
+      }
+    }]
+  });
+  assert.equal(speakCalls.length, 1, 'Il dedup 5s deve evitare il doppio annuncio TTS su spegnimento simultaneo');
+  assert.equal(speakCalls[0].opts.playChime, true);
+  assert.equal(speakCalls[0].opts.chimePreset, 'welcome_chime');
+
+  // Dopo > 5s l'annuncio torna disponibile
+  now += 6000;
+  await mgr.handleFulfillment({
+    requestId: 'dedup-3',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'switch-comfort-cold' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: false } }]
+        }]
+      }
+    }]
+  });
+  assert.equal(speakCalls.length, 2);
+});
