@@ -4689,6 +4689,25 @@ test('MerossEnergy (#153): togglePlugByName risolve alias Angolo Lettura -> Ango
   assert.deepEqual(toggledState, { ch: 0, state: true });
   assert.equal(merossEnergy.relayStateByName.get('angolo bar'), true);
   assert.equal(merossEnergy.metricsByName.get('angolo bar').isOn, true);
+
+  // Caso rinomina su Meross Cloud: dispositivo registrato come "Angolo lettura" (#170)
+  merossEnergy.devicesMap.clear();
+  merossEnergy.relayStateByName.clear();
+  merossEnergy.metricsByName.clear();
+  let toggledRenamed = null;
+  merossEnergy.devicesMap.set('uuid-angolo-lettura', {
+    def: { devName: 'Angolo lettura' },
+    device: {
+      controlToggleX: (ch, state, cb) => {
+        toggledRenamed = { ch, state };
+        cb(null, {});
+      }
+    }
+  });
+  const resRenamed = await merossEnergy.togglePlugByName('Angolo Lettura', false);
+  assert.deepEqual(resRenamed, { success: true, name: 'Angolo lettura', state: false });
+  assert.deepEqual(toggledRenamed, { ch: 0, state: false });
+  assert.equal(merossEnergy.relayStateByName.get('angolo lettura'), false);
 });
 
 test('DeviceSheet (#163): Pin #13 Dyson HP11 (category climate) renderizza renderDysonControls e non Caldaia Bosch CT200', () => {
