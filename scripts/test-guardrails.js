@@ -5393,3 +5393,127 @@ test('TEST 67: Jingle personalizzato welcome_chime e dedup 5s su annunci Comfort
   });
   assert.equal(speakCalls.length, 2);
 });
+
+test('TEST 68: Restyling popover notifiche (data/ora ricezione) e notifiche azioni Scene Hue & Comfort (#162)', async () => {
+  const fs = require('fs');
+  const path = require('path');
+  const notifier = require('../src/notifier');
+  const eventBus = require('../src/event-bus');
+  const hueLocal = require('../src/hue-local');
+  const { ClimateOptimizer } = require('../src/climate-optimizer');
+
+  const prevFeed = [...notifier.feed];
+  const prevDismissed = new Set(notifier.dismissedSourceKeys);
+  const prevPersist = notifier._persistFeed;
+
+  const prevPaired = hueLocal.isPaired;
+  const prevV2Client = hueLocal.v2Client;
+  const prevScenesById = hueLocal.scenesById;
+
+  notifier._persistFeed = async () => {};
+  notifier.feed = [];
+  notifier.dismissedSourceKeys = new Set();
+  notifier._attachEventListeners();
+
+  try {
+    const fixedTs = 1795550005000;
+
+    // 1. Hue activateScene pubblica hue:scene_activated -> feed item in-app category='lights'
+    hueLocal.isPaired = true;
+    hueLocal.scenesById = {
+      'sc-savana': { id: 'sc-savana', name: 'Tramonto nella savana', groupName: 'Salone', colors: ['#ff7a18'] }
+    };
+    hueLocal.v2Client = { put: async () => ({ data: { data: [] } }) };
+
+    const hueRes = await hueLocal.activateScene('sc-savana', { dynamic: true });
+    assert.equal(hueRes.success, true);
+
+    await new Promise((r) => setTimeout(r, 15));
+    const hueNotif = notifier.feed.find((i) => i.metadata?.actionKind === 'hue_scene');
+    assert.ok(hueNotif, 'Attivazione scena Hue deve creare notifica in-app');
+    assert.equal(hueNotif.sourceType, 'automation');
+    assert.equal(hueNotif.category, 'lights');
+    assert.ok(hueNotif.createdAt, 'Notifica deve avere createdAt');
+    assert.equal(Boolean(hueNotif.metadata.canTrustGuest), false);
+    assert.match(hueNotif.title, /Tramonto nella savana/);
+    assert.match(hueNotif.message, /Salone/);
+
+    // 2. Comfort Freddo & Caldo -> notifiche dedicate con category='climate' e actionKind specifico
+    eventBus.publish('climate:comfort_changed', {
+      action: 'activated',
+      intent: 'cold',
+      mode: 'all_lived_rooms',
+      temperature: 21.5,
+      ttlMinutes: 60,
+      updatedRooms: ['Salone', 'Cameretta'],
+      source: 'google_smarthome',
+      reply: 'Ho regolato i termosifoni di Salone e Cameretta a 21,5 gradi per 60 minuti.',
+      ts: fixedTs
+    });
+
+    eventBus.publish('climate:comfort_changed', {
+      action: 'activated',
+      intent: 'hot',
+      mode: 'all_lived_rooms',
+      temperature: 19.0,
+      ttlMinutes: 60,
+      updatedRooms: ['Camera da letto'],
+      source: 'voice_comfort_boost',
+      reply: 'Ho regolato il termosifone di Camera da letto a 19 gradi per 60 minuti.',
+      ts: fixedTs
+    });
+
+    await new Promise((r) => setTimeout(r, 15));
+    const coldNotif = notifier.feed.find((i) => i.metadata?.actionKind === 'comfort_cold');
+    const hotNotif = notifier.feed.find((i) => i.metadata?.actionKind === 'comfort_hot');
+    assert.ok(coldNotif && hotNotif, 'Comfort Freddo e Comfort Caldo devono creare notifiche distinte');
+    assert.equal(coldNotif.title, 'Comfort Freddo attivato');
+    assert.equal(hotNotif.title, 'Comfort Caldo attivato');
+    assert.equal(coldNotif.category, 'climate');
+    assert.equal(coldNotif.sourceType, 'automation');
+
+    // 3. ClimateOptimizer.resetComfortAndRebalance + dedup 10s su doppio spegnimento
+    const opt = new ClimateOptimizer();
+    opt.evClimateHub = {
+      getUnifiedStatus: () => ({ bosch: { zones: [] } }),
+      setBoschZoneSetpoint: async () => ({})
+    };
+    opt.securitySystem = { mode: 'home', cameras: [] };
+    opt.recordManualOverride('zn1', 600000);
+    await opt.resetComfortAndRebalance({ reason: 'comfort_reset', source: 'google_smarthome' });
+    // Secondo evento ravvicinato nello stesso bucket 10s deve aggiornare lo stesso elemento senza duplicarlo
+    eventBus.publish('climate:comfort_changed', {
+      action: 'deactivated',
+      intent: 'reset',
+      reason: 'comfort_reset',
+      source: 'google_smarthome',
+      clearedCount: 0,
+      ts: Date.now()
+    });
+
+    await new Promise((r) => setTimeout(r, 15));
+    const resetNotifs = notifier.feed.filter((i) => i.metadata?.actionKind === 'comfort_reset');
+    assert.equal(resetNotifs.length, 1, 'Doppio switch OFF ravvicinato deve coalescere in una sola notifica Comfort Off');
+    assert.equal(resetNotifs[0].title, 'Comfort disattivato');
+
+    // 4. Verifica data/ora ricezione e badge azioni nel Popover Vue, NotificationsView e fallback JS
+    const popVue = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'src', 'views', 'NotificationsPopover.vue'), 'utf8');
+    const viewVue = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'src', 'views', 'NotificationsView.vue'), 'utf8');
+    const legacyJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'notifications.js'), 'utf8');
+
+    for (const content of [popVue, legacyJs]) {
+      assert.ok(content.includes('createdAt'), 'Popover deve leggere createdAt per data/ora ricezione');
+      assert.ok(content.includes('hue_scene') && content.includes('comfort_cold') && content.includes('comfort_hot') && content.includes('comfort_reset'));
+    }
+    assert.ok(popVue.includes('formatShortDate('), 'NotificationsPopover.vue deve formattare data/ora compatta');
+    assert.ok(legacyJs.includes('_formatPopoverDate('), 'public/js/notifications.js deve formattare data/ora compatta');
+    assert.ok(viewVue.includes('Scena Hue') && viewVue.includes('Comfort Freddo') && viewVue.includes('Comfort Disattivato'));
+  } finally {
+    hueLocal.isPaired = prevPaired;
+    hueLocal.v2Client = prevV2Client;
+    hueLocal.scenesById = prevScenesById;
+    notifier.feed = prevFeed;
+    notifier.dismissedSourceKeys = prevDismissed;
+    notifier._persistFeed = prevPersist;
+  }
+});

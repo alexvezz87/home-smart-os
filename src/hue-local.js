@@ -694,6 +694,15 @@ class HueLocalManager extends EventEmitter {
         `Scena "${scene.name}" attivata in ${scene.groupName}${isDynamic ? ' [Dinamica]' : ''} via Hue Bridge LAN`,
         { sceneId: scene.id, room: scene.groupName, dynamic: isDynamic }
       );
+      eventBus?.publish?.('hue:scene_activated', {
+        sceneId: scene.id,
+        sceneName: scene.name,
+        room: scene.groupName,
+        dynamic: isDynamic,
+        colors: Array.isArray(scene.colors) ? scene.colors.slice(0, 4) : [],
+        source: options.source || 'hue_bridge',
+        ts: Date.now()
+      });
       return {
         success: true,
         scene: {
@@ -924,6 +933,12 @@ class HueLocalManager extends EventEmitter {
       `Effetto "${targetEffect}" applicato su ${targetDesc} via Hue Bridge LAN`,
       { effect: targetEffect, target: targetDesc, count: targetV2LightIds.length }
     );
+    eventBus?.publish?.('hue:effect_changed', {
+      effect: targetEffect,
+      target: targetDesc,
+      lightsCount: targetV2LightIds.length,
+      ts: Date.now()
+    });
 
     return {
       success: true,

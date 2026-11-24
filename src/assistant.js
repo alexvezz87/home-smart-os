@@ -261,6 +261,20 @@ async function handleComfortBoost({ intent, deltaC = null, text = '', options = 
       ttlMinutes: overrideMin
     });
 
+    eventBus.publish('climate:comfort_changed', {
+      action: 'activated',
+      intent: cleanIntent,
+      mode: options?.allLivedRooms ? 'all_lived_rooms' : 'parametric_room',
+      temperature: mainTemp,
+      ttlMinutes: overrideMin,
+      updatedRooms: updatedRooms.map((u) => u.room),
+      skippedRooms: skippedRooms.map((s) => s.room),
+      alreadyOptimal: updatedRooms.length === 0,
+      source,
+      reply,
+      ts: Date.now()
+    });
+
     return {
       success: true,
       action: updatedRooms.length > 0 ? 'comfort_boost_multi' : 'comfort_boost_already_warm',
@@ -302,6 +316,23 @@ async function handleComfortBoost({ intent, deltaC = null, text = '', options = 
       heaterActivated = true;
     }
 
+    const heaterReply = heaterActivated
+      ? `Ho acceso la stufetta elettrica del Bagno Alex (${heaterPlug.name}) senza attivare la caldaia a gas.`
+      : 'Per il Bagno Alex usa la stufetta elettrica dedicata invece di alzare la caldaia a gas.';
+
+    if (heaterActivated) {
+      eventBus.publish('climate:comfort_changed', {
+        action: 'activated',
+        intent: 'cold',
+        mode: 'electric_heater',
+        room: 'Bagno Alex',
+        updatedRooms: ['Bagno Alex'],
+        source: options?.source || 'voice_comfort_boost',
+        reply: heaterReply,
+        ts: Date.now()
+      });
+    }
+
     return {
       success: true,
       action: 'comfort_boost_electric_heater',
@@ -309,9 +340,7 @@ async function handleComfortBoost({ intent, deltaC = null, text = '', options = 
       room: 'Bagno Alex',
       roomResolution: resolved,
       heaterActivated,
-      reply: heaterActivated
-        ? `Ho acceso la stufetta elettrica del Bagno Alex (${heaterPlug.name}) senza attivare la caldaia a gas.`
-        : 'Per il Bagno Alex usa la stufetta elettrica dedicata invece di alzare la caldaia a gas.'
+      reply: heaterReply
     };
   }
 
@@ -435,6 +464,21 @@ async function handleComfortBoost({ intent, deltaC = null, text = '', options = 
     source: 'voice_comfort_boost',
     zoneId: targetZoneId,
     ttlMinutes
+  });
+
+  eventBus.publish('climate:comfort_changed', {
+    action: 'activated',
+    intent: cleanIntent,
+    mode: 'single_room',
+    room: resolved.room,
+    zoneId: targetZoneId,
+    temperature: finalTemp,
+    previousSetpoint: tempSetpoint,
+    ttlMinutes,
+    updatedRooms: [resolved.room],
+    source: options?.source || 'voice_comfort_boost',
+    reply,
+    ts: Date.now()
   });
 
   return {
