@@ -408,6 +408,118 @@ class Notifier {
         metadata: { ...payload, deliveryStatus: payload.status }
       }).catch(() => {});
     });
+
+    eventBus.on('hue:scene_activated', (evt = {}) => {
+      const payload = unwrap(evt);
+      const bucket = Math.floor((Number(payload.ts) || Date.now()) / 10000);
+      const sceneName = payload.sceneName || 'Atmosfera';
+      const room = payload.room || 'Casa';
+      const dynamicSuffix = payload.dynamic ? ' (modalità dinamica)' : '';
+      this.upsertFeedItem({
+        sourceKey: `hue:scene:${payload.sceneId || sceneName}:${bucket}`,
+        sourceType: 'automation',
+        level: 'info',
+        attentionTier: 'informative',
+        category: 'lights',
+        title: `Scena Hue: ${sceneName}`,
+        message: `Attivata in ${room}${dynamicSuffix}.`,
+        elaboratedText: `Scena Philips Hue "${sceneName}" attivata in ${room}${payload.dynamic ? ' in modalità dinamica' : ''}.`,
+        metadata: {
+          actionKind: 'hue_scene',
+          sceneId: payload.sceneId || null,
+          sceneName,
+          room,
+          dynamic: Boolean(payload.dynamic),
+          source: payload.source || 'hue_bridge'
+        }
+      }).catch(() => {});
+    });
+
+    eventBus.on('hue:effect_changed', (evt = {}) => {
+      const payload = unwrap(evt);
+      const bucket = Math.floor((Number(payload.ts) || Date.now()) / 10000);
+      const effect = payload.effect || 'no_effect';
+      const target = payload.target || 'Casa';
+      const isStop = effect === 'no_effect';
+      const count = Number(payload.lightsCount || 0);
+      this.upsertFeedItem({
+        sourceKey: `hue:effect:${effect}:${target}:${bucket}`,
+        sourceType: 'automation',
+        level: 'info',
+        attentionTier: 'informative',
+        category: 'lights',
+        title: isStop ? 'Effetto Hue disattivato' : `Effetto Hue: ${effect}`,
+        message: isStop
+          ? `Effetti dinamici fermati su ${target}.`
+          : `Applicato su ${target}${count > 0 ? ` (${count} ${count === 1 ? 'luce' : 'luci'})` : ''}.`,
+        elaboratedText: isStop
+          ? `Effetti dinamici Philips Hue disattivati su ${target}.`
+          : `Effetto Philips Hue "${effect}" avviato su ${target}${count > 0 ? ` su ${count} ${count === 1 ? 'luce' : 'luci'}` : ''}.`,
+        metadata: {
+          actionKind: 'hue_effect',
+          effect,
+          target,
+          lightsCount: count
+        }
+      }).catch(() => {});
+    });
+
+    eventBus.on('climate:comfort_changed', (evt = {}) => {
+      const payload = unwrap(evt);
+      const bucket = Math.floor((Number(payload.ts) || Date.now()) / 10000);
+      const isReset = payload.action === 'deactivated' || payload.intent === 'reset';
+      const isHot = payload.intent === 'hot';
+      const actionKind = isReset ? 'comfort_reset' : (isHot ? 'comfort_hot' : 'comfort_cold');
+      const rooms = Array.isArray(payload.updatedRooms) ? payload.updatedRooms.filter(Boolean) : [];
+      const roomScope = payload.room || (rooms.length > 0 ? rooms.join(',') : 'all');
+      const title = isReset
+        ? 'Comfort disattivato'
+        : (isHot ? 'Comfort Caldo attivato' : 'Comfort Freddo attivato');
+
+      let message = payload.reply || '';
+      if (!message) {
+        if (isReset) {
+          message = 'Ripristinato il bilanciamento automatico dei termosifoni.';
+        } else {
+          const targetLabel = rooms.length > 0 ? rooms.join(', ') : (payload.room || 'Casa');
+          const tempLabel = payload.temperature !== undefined && payload.temperature !== null ? ` a ${payload.temperature}°C` : '';
+          const ttlLabel = payload.ttlMinutes ? ` per ${payload.ttlMinutes} minuti` : '';
+          message = `${targetLabel}${tempLabel}${ttlLabel}.`;
+        }
+      }
+
+      const sourceLabel = payload.source === 'google_smarthome'
+        ? 'Google Nest / Smart Home'
+        : (payload.source || 'Assistente Domestico');
+      const elaboratedParts = [message];
+      if (!isReset && rooms.length > 0) elaboratedParts.push(`Stanze: ${rooms.join(', ')}`);
+      if (!isReset && payload.temperature !== undefined && payload.temperature !== null) elaboratedParts.push(`Target: ${payload.temperature}°C`);
+      if (isReset && payload.clearedCount !== undefined && payload.clearedCount !== null) elaboratedParts.push(`Override azzerati: ${payload.clearedCount}`);
+      elaboratedParts.push(`Origine: ${sourceLabel}`);
+
+      this.upsertFeedItem({
+        sourceKey: `comfort:${actionKind}:${payload.mode || 'default'}:${roomScope}:${bucket}`,
+        sourceType: 'automation',
+        level: 'info',
+        attentionTier: 'informative',
+        category: 'climate',
+        title,
+        message,
+        elaboratedText: elaboratedParts.join(' · '),
+        metadata: {
+          actionKind,
+          action: payload.action || (isReset ? 'deactivated' : 'activated'),
+          intent: payload.intent || (isReset ? 'reset' : 'cold'),
+          mode: payload.mode || null,
+          room: payload.room || null,
+          updatedRooms: rooms,
+          temperature: payload.temperature ?? null,
+          ttlMinutes: payload.ttlMinutes ?? null,
+          clearedCount: payload.clearedCount ?? null,
+          source: payload.source || 'system'
+        }
+      }).catch(() => {});
+    });
   }
 
   async loadFeed() {
