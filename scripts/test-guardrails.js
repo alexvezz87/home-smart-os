@@ -4691,6 +4691,57 @@ test('MerossEnergy (#153): togglePlugByName risolve alias Angolo Lettura -> Ango
   assert.equal(merossEnergy.metricsByName.get('angolo bar').isOn, true);
 });
 
+test('DeviceSheet (#163): Pin #13 Dyson HP11 (category climate) renderizza renderDysonControls e non Caldaia Bosch CT200', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const vm = require('vm');
+  const sheetSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'device-sheet.js'), 'utf8');
+  const bodyEl = { innerHTML: '' };
+  const sheetEl = { classList: { remove() {}, add() {} } };
+  const sandbox = {
+    console,
+    Math,
+    Number,
+    String,
+    Boolean,
+    Array,
+    Object,
+    JSON,
+    encodeURIComponent,
+    fetch: async () => ({ ok: true, json: async () => ({ success: true }) }),
+    document: {
+      getElementById: (id) => (id === 'device-drawer-content' ? bodyEl : sheetEl)
+    },
+    window: {
+      homeData: { dyson: { configured: true, mqttConnected: true } },
+      addEventListener() {}
+    }
+  };
+  sandbox.window.window = sandbox.window;
+  vm.createContext(sandbox);
+  vm.runInContext(sheetSrc, sandbox);
+  sandbox.window.deviceSheet.open({
+    pin: 13,
+    name: 'Purificatore Dyson HP11',
+    room: 'Cameretta',
+    category: 'climate',
+    vendor: 'Dyson HP11',
+    isDyson: true,
+    configured: true,
+    mqttConnected: true,
+    isOn: false,
+    temperatureC: 21.2,
+    pm25: 21,
+    pm10: 14,
+    filterLifePercent: 81,
+    airQualityLabel: 'Buona'
+  });
+  assert.ok(bodyEl.innerHTML.includes('Stato Dyson HP11'), 'Deve renderizzare Stato Dyson HP11');
+  assert.ok(bodyEl.innerHTML.includes('MQTT LAN'), 'Deve mostrare badge MQTT LAN');
+  assert.ok(!bodyEl.innerHTML.includes('Caldaia Bosch CT200'), 'Non deve renderizzare Caldaia Bosch CT200');
+});
+
+
 
 
 
