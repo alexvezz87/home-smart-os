@@ -4941,3 +4941,233 @@ test('Google Smart Home Cloud-to-Cloud: OAuth2, Bearer Auth, SYNC/QUERY/EXECUTE/
   }, resAfterDisc);
   assert.equal(resAfterDisc.statusCode, 401);
 });
+
+
+test('TEST 65: Comfort Freddo/Caldo parametrico 4 stanze, Interruttori Google Home & Annuncio Vocale Nest (#156)', async () => {
+  const climateOptimizer = require('../src/climate-optimizer');
+  const { ClimateOptimizer } = climateOptimizer;
+  const evClimateHub = require('../src/ev-climate-hub');
+  const aiGateway = require('../src/ai-gateway');
+  const eventLogger = require('../src/event-logger');
+  const { handleComfortBoost } = require('../src/assistant');
+  const { GoogleSmartHomeManager } = require('../src/google-smarthome');
+
+  // 1. ClimateOptimizer.updateConfig: validazione e clamp dei 4 parametri
+  const opt = new ClimateOptimizer();
+  opt.persistState = async () => {};
+  const st1 = await opt.updateConfig({
+    comfortColdTempC: 25.4,
+    comfortHotTempC: 16.0,
+    comfortOverrideMinutes: 300,
+    comfortVoiceAnnounce: false
+  });
+  assert.equal(st1.config.comfortColdTempC, 23.0);
+  assert.equal(st1.config.comfortHotTempC, 17.5);
+  assert.equal(st1.config.comfortOverrideMinutes, 180);
+  assert.equal(st1.config.comfortVoiceAnnounce, false);
+
+  const st2 = await opt.updateConfig({
+    comfortColdTempC: 21.8,
+    comfortHotTempC: 19.2,
+    comfortOverrideMinutes: 10,
+    comfortVoiceAnnounce: true
+  });
+  assert.equal(st2.config.comfortColdTempC, 22.0);
+  assert.equal(st2.config.comfortHotTempC, 19.0);
+  assert.equal(st2.config.comfortOverrideMinutes, 15);
+  assert.equal(st2.config.comfortVoiceAnnounce, true);
+
+  // 2 & 3. handleComfortBoost parametrico sulle 4 stanze vissute
+  const origGetUnifiedStatus = evClimateHub.getUnifiedStatus;
+  const origSetBoschZoneSetpoint = evClimateHub.setBoschZoneSetpoint;
+  const origRecordManualOverride = climateOptimizer.recordManualOverride;
+  const origConfig = { ...climateOptimizer.config };
+  const origValidate = aiGateway.validateHardwareAction;
+  const origLog = eventLogger.log;
+
+  try {
+    const boschCalls = [];
+    const overrideCalls = [];
+    let mockZones = [
+      { id: 'zn1', name: 'Salone', tempActual: 23.0, tempSetpoint: 20.5 },
+      { id: 'zn2', name: 'Camera da letto', tempActual: 19.0, tempSetpoint: 19.0 },
+      { id: 'zn3', name: 'Cameretta', tempActual: 19.8, tempSetpoint: 19.5 },
+      { id: 'zn4', name: 'Cucina', tempActual: 22.0, tempSetpoint: 20.0 },
+      { id: 'zn6', name: 'Bagno Alex', tempActual: 18.0, tempSetpoint: 18.0 }
+    ];
+
+    evClimateHub.getUnifiedStatus = () => ({ bosch: { zones: mockZones } });
+    evClimateHub.setBoschZoneSetpoint = async (zoneId, temp) => {
+      boschCalls.push({ zoneId, temp });
+    };
+    climateOptimizer.recordManualOverride = (zoneId, ttlMs) => {
+      overrideCalls.push({ zoneId, ttlMs });
+    };
+    aiGateway.validateHardwareAction = async ({ value }) => ({ allowed: true, finalValue: value });
+    eventLogger.log = () => {};
+
+    climateOptimizer.config.comfortColdTempC = 22.0;
+    climateOptimizer.config.comfortOverrideMinutes = 75;
+
+    const coldRes = await handleComfortBoost({
+      intent: 'cold',
+      text: 'ho freddo',
+      options: { allLivedRooms: true, source: 'test_156' }
+    });
+
+    assert.equal(coldRes.success, true);
+    assert.equal(coldRes.action, 'comfort_boost_multi');
+    assert.equal(coldRes.ttlMinutes, 75);
+    assert.deepEqual(boschCalls, [
+      { zoneId: 'zn3', temp: 22.0 },
+      { zoneId: 'zn2', temp: 22.0 }
+    ]);
+    assert.ok(!boschCalls.some((c) => c.zoneId === 'zn1' || c.zoneId === 'zn4' || c.zoneId === 'zn6'));
+    assert.deepEqual(overrideCalls, [
+      { zoneId: 'zn3', ttlMs: 75 * 60 * 1000 },
+      { zoneId: 'zn2', ttlMs: 75 * 60 * 1000 }
+    ]);
+    assert.ok(coldRes.skippedRooms.some((s) => s.room === 'Salone'));
+    assert.ok(coldRes.skippedRooms.some((s) => s.room === 'Cucina'));
+    assert.ok(coldRes.reply.includes('Camera da letto'));
+    assert.ok(coldRes.reply.includes('Cameretta'));
+    assert.ok(coldRes.reply.includes('22'));
+    assert.ok(coldRes.reply.includes('75 minuti'));
+
+    // Comfort Caldo: Cameretta clampata a 19.5°C, stanze già sotto soglia saltate
+    boschCalls.length = 0;
+    overrideCalls.length = 0;
+    climateOptimizer.config.comfortHotTempC = 18.5;
+    mockZones = [
+      { id: 'zn1', name: 'Salone', tempActual: 18.0, tempSetpoint: 18.0 },
+      { id: 'zn2', name: 'Camera da letto', tempActual: 21.0, tempSetpoint: 20.5 },
+      { id: 'zn3', name: 'Cameretta', tempActual: 21.0, tempSetpoint: 20.5 },
+      { id: 'zn4', name: 'Cucina', tempActual: 18.4, tempSetpoint: 19.5 },
+      { id: 'zn6', name: 'Bagno Alex', tempActual: 22.0, tempSetpoint: 22.0 }
+    ];
+
+    const hotRes = await handleComfortBoost({
+      intent: 'hot',
+      text: 'ho caldo',
+      options: { allLivedRooms: true, source: 'test_156' }
+    });
+
+    assert.equal(hotRes.success, true);
+    assert.deepEqual(boschCalls, [
+      { zoneId: 'zn3', temp: 19.5 },
+      { zoneId: 'zn4', temp: 18.5 },
+      { zoneId: 'zn2', temp: 18.5 }
+    ]);
+    assert.ok(hotRes.skippedRooms.some((s) => s.room === 'Salone'));
+  } finally {
+    evClimateHub.getUnifiedStatus = origGetUnifiedStatus;
+    evClimateHub.setBoschZoneSetpoint = origSetBoschZoneSetpoint;
+    climateOptimizer.recordManualOverride = origRecordManualOverride;
+    Object.assign(climateOptimizer.config, origConfig);
+    aiGateway.validateHardwareAction = origValidate;
+    eventLogger.log = origLog;
+  }
+
+  // 4. GoogleSmartHomeManager: Switch SYNC, QUERY, EXECUTE OnOff & Nest Speak
+  const speakCalls = [];
+  let withinActiveHours = true;
+  const optCfg = { comfortVoiceAnnounce: true };
+  const boostCalls = [];
+
+  const mgr = new GoogleSmartHomeManager({
+    env: { GOOGLE_SMARTHOME_CLIENT_ID: 'c', GOOGLE_SMARTHOME_CLIENT_SECRET: 's' },
+    db: { get: async () => null, set: async () => true },
+    evClimateHub: { getUnifiedStatus: () => ({ bosch: { zones: [] } }) },
+    climateOptimizer: { config: optCfg },
+    sandboxManager: { config: { systemPaused: false } },
+    eventLogger: { log: () => {} },
+    assistant: {
+      handleComfortBoost: async (payload) => {
+        boostCalls.push(payload);
+        return {
+          success: true,
+          action: 'comfort_boost_multi',
+          temperature: 21.5,
+          reply: 'Ho regolato i termosifoni di Salone e Cucina a 21,5 gradi per 60 minuti.'
+        };
+      }
+    },
+    nestCaster: {
+      isWelcomeWithinActiveHours: () => withinActiveHours,
+      speak: async (text, opts) => {
+        speakCalls.push({ text, opts });
+      }
+    }
+  });
+
+  const syncRes = await mgr.handleFulfillment({
+    requestId: 'sw-sync',
+    inputs: [{ intent: 'action.devices.SYNC' }]
+  });
+  const swCold = syncRes.payload.devices.find((d) => d.id === 'switch-comfort-cold');
+  const swHot = syncRes.payload.devices.find((d) => d.id === 'switch-comfort-hot');
+  assert.ok(swCold && swCold.type === 'action.devices.types.SWITCH');
+  assert.deepEqual(swCold.traits, ['action.devices.traits.OnOff']);
+  assert.equal(swCold.attributes.commandOnlyOnOff, true);
+  assert.ok(swHot && swHot.type === 'action.devices.types.SWITCH');
+
+  const queryRes = await mgr.handleFulfillment({
+    requestId: 'sw-query',
+    inputs: [{ intent: 'action.devices.QUERY', payload: { devices: [{ id: 'switch-comfort-cold' }, { id: 'switch-comfort-hot' }] } }]
+  });
+  assert.deepEqual(queryRes.payload.devices['switch-comfort-cold'], { online: true, status: 'SUCCESS', on: false });
+  assert.deepEqual(queryRes.payload.devices['switch-comfort-hot'], { online: true, status: 'SUCCESS', on: false });
+
+  // EXECUTE OnOff on: true con comfortVoiceAnnounce: true & fascia attiva -> parla
+  const execOn = await mgr.handleFulfillment({
+    requestId: 'sw-exec-1',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'switch-comfort-cold' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: true } }]
+        }]
+      }
+    }]
+  });
+  assert.equal(execOn.payload.commands[0].status, 'SUCCESS');
+  assert.deepEqual(execOn.payload.commands[0].states, { online: true, on: false });
+  assert.equal(boostCalls.length, 1);
+  assert.equal(boostCalls[0].options.allLivedRooms, true);
+  assert.equal(speakCalls.length, 1);
+  assert.ok(speakCalls[0].text.includes('21,5 gradi'));
+
+  // EXECUTE OnOff con comfortVoiceAnnounce: false -> NON parla
+  optCfg.comfortVoiceAnnounce = false;
+  await mgr.handleFulfillment({
+    requestId: 'sw-exec-2',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'switch-comfort-cold' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: true } }]
+        }]
+      }
+    }]
+  });
+  assert.equal(speakCalls.length, 1);
+
+  // EXECUTE OnOff con fascia silenziosa notturna -> NON parla
+  optCfg.comfortVoiceAnnounce = true;
+  withinActiveHours = false;
+  await mgr.handleFulfillment({
+    requestId: 'sw-exec-3',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'switch-comfort-hot' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: true } }]
+        }]
+      }
+    }]
+  });
+  assert.equal(speakCalls.length, 1);
+});
