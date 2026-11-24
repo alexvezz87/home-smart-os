@@ -5784,3 +5784,69 @@ test('TEST 68: Google Smart Home Volvo EX30 & Wallbox ABB Terra AC con guardrail
   assert.deepEqual(wallboxCalls, [{ action: 'stop', val: undefined }]);
   assert.ok(logEntries.some((l) => l.cat === 'google_smarthome' && l.meta?.source === 'Google Nest'));
 });
+
+test('TEST 69: Volvo EX30 EXECUTE asincrono (<100ms) & risposta Leda anche dopo le 20:00 (#166)', async () => {
+  const { GoogleSmartHomeManager } = require('../src/google-smarthome');
+  let volvoStarted = false;
+  const speakCalls = [];
+  const volvoState = { connected: true, climatizationActive: false };
+
+  const mgr = new GoogleSmartHomeManager({
+    evClimateHub: {
+      getUnifiedStatus: () => ({ volvo: volvoState, wallbox: { connected: true }, bosch: { zones: [] } }),
+      controlVolvo: async (action) => {
+        await new Promise((r) => setTimeout(r, 150));
+        if (action === 'climatization_start') volvoStarted = true;
+        return { success: true };
+      }
+    },
+    climateOptimizer: { config: { comfortVoiceAnnounce: true } },
+    aiGateway: { validateHardwareAction: () => ({ allowed: true }) },
+    nestCaster: {
+      config: { welcomeChimePreset: 'welcome_chime' },
+      isWelcomeWithinActiveHours: () => false, // simula 22:37 (fascia silenziosa)
+      speak: async (text, opts) => { speakCalls.push({ text, opts }); return { success: true }; }
+    },
+    eventLogger: { log: () => {} },
+    sandboxManager: { config: { systemPaused: false } }
+  });
+
+  // 1. Risposta immediata (< 100ms) anche se Volvo impiega 150ms+, e Leda parla anche fuori fascia 08-20
+  const t0 = Date.now();
+  const res = await mgr.handleFulfillment({
+    requestId: 'volvo-fast-1',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'volvo-ex30' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: true } }]
+        }]
+      }
+    }]
+  });
+  const elapsed = Date.now() - t0;
+  assert.equal(res.payload.commands[0].status, 'SUCCESS');
+  assert.ok(elapsed < 100, `EXECUTE Volvo deve rispondere subito senza bloccarsi (${elapsed}ms)`);
+  assert.equal(speakCalls.length, 1, 'Leda deve rispondere anche dopo le 20:00 su comando vocale diretto');
+  assert.ok(speakCalls[0].text.includes('Volvo EX30'));
+  await new Promise((r) => setTimeout(r, 180));
+  assert.equal(volvoStarted, true, 'controlVolvo deve comunque completare in background');
+
+  // 2. Se volvo.connected === false ritorna subito deviceOffline
+  volvoState.connected = false;
+  const resOff = await mgr.handleFulfillment({
+    requestId: 'volvo-off-1',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'volvo-ex30' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: true } }]
+        }]
+      }
+    }]
+  });
+  assert.equal(resOff.payload.commands[0].status, 'ERROR');
+  assert.equal(resOff.payload.commands[0].errorCode, 'deviceOffline');
+});

@@ -133,10 +133,10 @@ class GoogleSmartHomeManager {
     return this._deps.nestCaster || require('./nest-caster');
   }
 
-  _announceComfortAsync(res) {
+  _announceComfortAsync(res, { bypassQuietHours = false } = {}) {
     if (this.climateOptimizer?.config?.comfortVoiceAnnounce === false) return;
     if (!res?.reply || typeof this.nestCaster?.speak !== 'function') return;
-    if (typeof this.nestCaster?.isWelcomeWithinActiveHours === 'function' && !this.nestCaster.isWelcomeWithinActiveHours()) {
+    if (!bypassQuietHours && typeof this.nestCaster?.isWelcomeWithinActiveHours === 'function' && !this.nestCaster.isWelcomeWithinActiveHours()) {
       return;
     }
     const now = this._nowFn();
@@ -219,7 +219,7 @@ class GoogleSmartHomeManager {
           deviceId: devId,
           availableWattsForEv
         });
-        this._announceComfortAsync({ reply: 'Carico elettrico domestico troppo alto, non ho avviato la Wallbox.' });
+        this._announceComfortAsync({ reply: 'Carico elettrico domestico troppo alto, non ho avviato la Wallbox.' }, { bypassQuietHours: true });
         return { ids: [devId], status: 'ERROR', errorCode: 'deviceNotReady' };
       }
 
@@ -241,7 +241,7 @@ class GoogleSmartHomeManager {
         deviceId: devId,
         action: 'start'
       });
-      this._announceComfortAsync({ reply: 'Ho avviato la ricarica sulla Wallbox ABB.' });
+      this._announceComfortAsync({ reply: 'Ho avviato la ricarica sulla Wallbox ABB.' }, { bypassQuietHours: true });
       return {
         ids: [devId],
         status: 'SUCCESS',
@@ -260,7 +260,7 @@ class GoogleSmartHomeManager {
       deviceId: devId,
       action: 'stop'
     });
-    this._announceComfortAsync({ reply: 'Ho fermato la ricarica sulla Wallbox ABB.' });
+    this._announceComfortAsync({ reply: 'Ho fermato la ricarica sulla Wallbox ABB.' }, { bypassQuietHours: true });
     return {
       ids: [devId],
       status: 'SUCCESS',
@@ -774,12 +774,22 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
                   commandResults.push({ ids: [devId], status: 'ERROR', errorCode: 'functionNotSupported' });
                   continue;
                 }
-                try {
-                  await this.evClimateHub.controlVolvo(actionName);
-                } catch (err) {
-                  commandResults.push({ ids: [devId], status: 'ERROR', errorCode: 'deviceOffline', debugString: err.message });
+                const volvoStatus = typeof this.evClimateHub?.getUnifiedStatus === 'function'
+                  ? this.evClimateHub.getUnifiedStatus()?.volvo
+                  : null;
+                if (volvoStatus && volvoStatus.connected === false) {
+                  commandResults.push({ ids: [devId], status: 'ERROR', errorCode: 'deviceOffline', debugString: 'Volvo EX30 non connessa' });
                   continue;
                 }
+                Promise.resolve()
+                  .then(() => this.evClimateHub.controlVolvo(actionName))
+                  .catch((err) => {
+                    this.eventLogger?.log?.('google_smarthome', `Volvo EX30 ${actionName} errore background: ${err?.message || err}`, {
+                      source: 'Google Nest',
+                      deviceId: devId,
+                      action: actionName
+                    });
+                  });
                 this.eventLogger?.log?.('google_smarthome', `Volvo EX30 ${actionName}`, {
                   source: 'Google Nest',
                   deviceId: devId,
@@ -789,7 +799,7 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
                   reply: turnOn
                     ? 'Ho avviato la climatizzazione della Volvo EX30.'
                     : 'Ho spento la climatizzazione della Volvo EX30.'
-                });
+                }, { bypassQuietHours: true });
                 commandResults.push({ ids: [devId], status: 'SUCCESS', states: { online: true, on: turnOn } });
                 continue;
               }
