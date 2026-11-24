@@ -888,10 +888,11 @@ class MerossEnergyService {
       'angolo lettura (presa)': 'angolo bar'
     };
     const rawTerm = (deviceName || '').trim().toLowerCase();
-    const term = MEROSS_PLUG_ALIASES[rawTerm] || rawTerm;
+    const candidates = [rawTerm];
+    if (MEROSS_PLUG_ALIASES[rawTerm]) candidates.push(MEROSS_PLUG_ALIASES[rawTerm]);
     for (const [deviceId, item] of this.devicesMap.entries()) {
       const devName = (item.def?.devName || '').trim().toLowerCase();
-      if (devName === term || devName.includes(term) || term.includes(devName)) {
+      if (candidates.some(term => devName === term || devName.includes(term) || term.includes(devName))) {
         if (item.device && typeof item.device.controlToggleX === 'function') {
           await new Promise((resolve, reject) => {
             item.device.controlToggleX(0, Boolean(targetState), (err, res) => {

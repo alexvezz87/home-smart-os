@@ -426,7 +426,8 @@ class SpatialEngine {
         microZone: 'angolo_lettura',
         category: 'plug',
         vendor: 'Meross Smart Plug',
-        merossName: 'Angolo bar',
+        merossName: 'Angolo lettura',
+        merossAliases: ['Angolo bar'],
         googleName: 'Angolo Lettura',
         x: 55.6,
         y: 78.2,
@@ -1132,7 +1133,13 @@ class SpatialEngine {
         const activeColorHex = bulbs.find(b => b.isOn && b.colorHex)?.colorHex || bulbs.find(b => b.colorHex)?.colorHex || null;
         if (activeColorHex) clone.colorHex = activeColorHex;
       } else if (p.category === 'plug') {
-        const mPlug = plugs.find(pl => pl.name.toLowerCase() === (p.merossName || p.name).toLowerCase());
+        const mPlug = plugs.find(pl => {
+          const n = pl.name.toLowerCase();
+          return (p.merossName && n === p.merossName.toLowerCase()) ||
+            (Array.isArray(p.merossAliases) && p.merossAliases.some(a => a.toLowerCase() === n)) ||
+            (p.googleName && n === p.googleName.toLowerCase()) ||
+            n === p.name.toLowerCase();
+        });
         const dMatch = devices.find(d =>
           d.name.toLowerCase() === p.name.toLowerCase() ||
           (p.merossName && d.name.toLowerCase() === p.merossName.toLowerCase()) ||
@@ -1346,7 +1353,7 @@ class SpatialEngine {
         break;
 
       case 'angolo_lettura':
-        await merossEnergy.togglePlugByName('Angolo bar', true).catch(() => {});
+        await merossEnergy.togglePlugByName('Angolo lettura', true).catch(() => {});
         await hueLocal.setBrightnessByName('Piantana Libreria', 85);
         await this.setChandelierMode('giunone', 'off');
         await hueLocal.setBrightnessByName('Lampada Tiffany', 35);
