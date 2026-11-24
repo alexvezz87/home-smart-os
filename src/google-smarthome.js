@@ -148,7 +148,8 @@ class GoogleSmartHomeManager {
     this._recentAnnouncements.set(dedupKey, now);
     const chimePreset = this.nestCaster?.config?.welcomeChimePreset || 'welcome_chime';
     Promise.resolve(this.nestCaster.speak(res.reply, {
-      followMe: true,
+      roomName: 'Salone',
+      followMe: false,
       playChime: true,
       chimePreset
     })).catch(() => {});
