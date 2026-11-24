@@ -82,9 +82,17 @@ function tierLabel(item) {
 }
 
 function sourceLabel(item) {
+  const m = itemMeta(item);
   if (item.sourceType === 'mail_delivery') return '📦 Consegna';
   if (item.sourceType === 'mail_bill') return '🧾 Bolletta';
-  if (item.sourceType === 'security') return '🛡️ Sicurezza';
+  if (m.actionKind === 'hue_scene') return '✨ Scena Hue';
+  if (m.actionKind === 'hue_effect') return '🪄 Effetto Hue';
+  if (m.actionKind === 'comfort_cold') return '🔥 Comfort Freddo';
+  if (m.actionKind === 'comfort_hot') return '❄️ Comfort Caldo';
+  if (m.actionKind === 'comfort_reset') return '♻️ Comfort Disattivato';
+  if (item.category === 'lights') return '💡 Luci';
+  if (item.category === 'climate' || item.sourceType === 'climate') return '🌡️ Clima';
+  if (item.sourceType === 'security' || item.category === 'security') return '🛡️ Sicurezza';
   return '🏠 Casa';
 }
 
@@ -240,7 +248,7 @@ function feedbackClass(type) {
                 {{ tierLabel(item) }}
               </span>
               <span class="text-[11px] font-semibold text-slate-300">{{ sourceLabel(item) }}</span>
-              <span class="text-[10px] font-mono text-slate-400">{{ formatDateIt(item.createdAt || item.timestamp) }}</span>
+              <span class="text-[10px] font-mono text-slate-400">{{ formatDateIt(item.createdAt || item.timestamp || item.updatedAt) }}</span>
             </div>
 
             <button

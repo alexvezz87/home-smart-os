@@ -88,6 +88,55 @@ class NotificationsManager {
     }
   }
 
+  _formatPopoverDate(item) {
+    const ts = item?.createdAt || item?.timestamp || item?.updatedAt;
+    if (!ts) return '';
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return '';
+    const sameYear = d.getFullYear() === new Date().getFullYear();
+    try {
+      return d.toLocaleString('it-IT', {
+        day: '2-digit',
+        month: '2-digit',
+        ...(sameYear ? {} : { year: '2-digit' }),
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (_) {
+      return '';
+    }
+  }
+
+  _getBadgeMeta(item) {
+    const m = item?.metadata || item?.meta || {};
+    const actionKind = m.actionKind;
+    if (item?.sourceType === 'mail_delivery') {
+      return { label: 'Consegna', cls: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30', accent: 'border-l-indigo-400/75' };
+    }
+    if (item?.sourceType === 'mail_bill') {
+      return { label: 'Bolletta', cls: 'bg-amber-500/20 text-amber-300 border-amber-500/30', accent: 'border-l-amber-400/75' };
+    }
+    if (actionKind === 'hue_scene' || actionKind === 'hue_effect' || item?.category === 'lights') {
+      return { label: 'Hue', cls: 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/30', accent: 'border-l-fuchsia-400/75' };
+    }
+    if (actionKind === 'comfort_cold') {
+      return { label: 'Comfort Freddo', cls: 'bg-orange-500/20 text-orange-300 border-orange-500/30', accent: 'border-l-orange-400/80' };
+    }
+    if (actionKind === 'comfort_hot') {
+      return { label: 'Comfort Caldo', cls: 'bg-sky-500/20 text-sky-300 border-sky-500/30', accent: 'border-l-sky-400/80' };
+    }
+    if (actionKind === 'comfort_reset') {
+      return { label: 'Comfort Off', cls: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30', accent: 'border-l-emerald-400/75' };
+    }
+    if (item?.category === 'climate' || item?.sourceType === 'climate') {
+      return { label: 'Clima', cls: 'bg-orange-500/20 text-orange-300 border-orange-500/30', accent: 'border-l-orange-400/75' };
+    }
+    if (item?.sourceType === 'security' || item?.category === 'security') {
+      return { label: 'Sicurezza', cls: 'bg-rose-500/20 text-rose-300 border-rose-500/30', accent: 'border-l-rose-400/75' };
+    }
+    return { label: 'Casa', cls: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30', accent: 'border-l-cyan-400/75' };
+  }
+
   _renderPopover() {
     const pop = document.getElementById('header-notifications-popover');
     if (!pop) return;
@@ -95,43 +144,48 @@ class NotificationsManager {
     const unread = this.feedData.unreadCount || items.length;
 
     pop.innerHTML = `
-      <div class="px-3.5 py-2.5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
-        <span class="text-xs font-bold text-white">📬 Notifiche (${unread})</span>
-        <button type="button" onclick="window.notificationsManager.markAllAsRead()" class="text-[11px] text-indigo-300 hover:text-indigo-200 font-semibold">Segna lette</button>
+      <div class="px-3.5 py-2.5 border-b border-slate-800/90 flex items-center justify-between bg-slate-950/75">
+        <span class="text-xs font-bold text-white">Notifiche <span class="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-cyan-500/20 text-cyan-200">${unread}</span></span>
+        <button type="button" onclick="window.notificationsManager.markAllAsRead()" class="text-[11px] text-cyan-300 hover:text-cyan-200 font-semibold">Segna lette</button>
       </div>
-      <div class="max-h-80 overflow-y-auto divide-y divide-slate-800/70">
+      <div class="max-h-[26rem] overflow-y-auto divide-y divide-slate-800/80">
         ${items.length === 0
-          ? '<div class="p-4 text-center text-xs text-slate-400">Nessuna nuova notifica da leggere.</div>'
+          ? '<div class="p-5 text-center text-xs text-slate-400">Nessuna nuova notifica da leggere.</div>'
           : items.map((item) => {
-              const isMail = item.sourceType === 'mail_delivery' || item.sourceType === 'mail_bill';
-              const isUrgent = item.attentionTier === 'urgent' || item.attentionTier === 'actionable';
+              const badge = this._getBadgeMeta(item);
+              const isUrgent = item.attentionTier === 'urgent';
+              const isActionable = item.attentionTier === 'actionable';
               const canReceive = item.sourceType === 'mail_delivery' && item.metadata?.deliveryStatus !== 'delivered';
               const canTrustGuest = this._canTrustGuest(item);
               const calMeta = item.meta?.calendarAction || item.metadata?.calendarAction;
               const calAdded = Boolean(item.meta?.calendarAdded || item.metadata?.calendarAdded);
               const canCalendar = Boolean(calMeta && calMeta.type && calMeta.itemId && !calAdded);
+              const shortDate = this._formatPopoverDate(item);
               return `
-                <div class="p-3 hover:bg-slate-800/40 transition-colors space-y-1.5">
-                  <div class="flex items-start justify-between gap-2">
-                    <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${isMail ? 'bg-amber-500/20 text-amber-300' : 'bg-indigo-500/20 text-indigo-300'}">${isMail ? 'Mail' : 'Casa'}</span>
-                    ${isUrgent ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300">Attenzione</span>' : ''}
+                <div class="p-3 border-l-2 ${badge.accent} hover:bg-slate-800/35 transition-colors space-y-1.5">
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-1.5 flex-wrap min-w-0">
+                      <span class="px-1.5 py-0.5 rounded-md border text-[9px] font-bold ${badge.cls}">${this.escapeHtml(badge.label)}</span>
+                      ${isUrgent ? '<span class="px-1.5 py-0.5 rounded-md border border-rose-500/35 text-[9px] font-bold bg-rose-500/20 text-rose-300">Urgente</span>' : (isActionable ? '<span class="px-1.5 py-0.5 rounded-md border border-amber-500/35 text-[9px] font-bold bg-amber-500/20 text-amber-300">Attenzione</span>' : '')}
+                    </div>
+                    ${shortDate ? `<span class="text-[10px] font-mono tabular-nums text-slate-400 shrink-0">${this.escapeHtml(shortDate)}</span>` : ''}
                   </div>
-                  <div class="text-xs font-bold text-white">${this.escapeHtml(item.title)}</div>
-                  <div class="text-[11px] text-slate-300 line-clamp-2">${this.escapeHtml(item.message)}</div>
+                  <div onclick="window.notificationsManager.openDetails('${this.escapeHtml(item.id)}')" class="cursor-pointer text-xs font-bold text-white hover:text-cyan-300 truncate">${this.escapeHtml(item.title)}</div>
+                  <div class="text-[11px] text-slate-300/90 line-clamp-2">${this.escapeHtml(item.message)}</div>
                   <div class="flex items-center gap-1.5 pt-1 flex-wrap">
-                    <button type="button" onclick="window.notificationsManager.openDetails('${this.escapeHtml(item.id)}')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-200">Dettagli</button>
-                    ${canCalendar ? `<button type="button" onclick="window.notificationsManager.addToCalendarFromNotification('${this.escapeHtml(calMeta.type)}', '${this.escapeHtml(calMeta.itemId)}', '${this.escapeHtml(item.id)}', this)" class="px-2 py-0.5 rounded bg-sky-600/20 hover:bg-sky-600/30 text-[10px] text-sky-300">📅 Aggiungi al Calendario</button>` : ''}
-                    ${canTrustGuest ? `<button type="button" onclick="window.notificationsManager.trustGuestFromNotification('${this.escapeHtml(item.id)}')" class="px-2 py-0.5 rounded bg-amber-600/20 hover:bg-amber-600/30 text-[10px] text-amber-300">🤝 Persona Fidata</button>` : ''}
-                    ${canReceive ? `<button type="button" onclick="window.notificationsManager.markPackageReceived('${this.escapeHtml(item.id)}')" class="px-2 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-[10px] text-emerald-300">📦 Pacco ricevuto</button>` : ''}
-                    <button type="button" onclick="window.notificationsManager.markAsRead('${this.escapeHtml(item.id)}')" class="px-2 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-[10px] text-indigo-300">✓ Letta</button>
+                    <button type="button" onclick="window.notificationsManager.openDetails('${this.escapeHtml(item.id)}')" class="px-2 py-0.5 rounded-md bg-slate-800/90 hover:bg-slate-700 text-[10px] text-slate-200 border border-slate-700/60">Dettagli</button>
+                    ${canCalendar ? `<button type="button" onclick="window.notificationsManager.addToCalendarFromNotification('${this.escapeHtml(calMeta.type)}', '${this.escapeHtml(calMeta.itemId)}', '${this.escapeHtml(item.id)}', this)" class="px-2 py-0.5 rounded-md bg-cyan-600/85 hover:bg-cyan-500 text-[10px] text-white">📅 Calendario</button>` : ''}
+                    ${canTrustGuest ? `<button type="button" onclick="window.notificationsManager.trustGuestFromNotification('${this.escapeHtml(item.id)}')" class="px-2 py-0.5 rounded-md bg-amber-600/85 hover:bg-amber-500 text-[10px] text-white">🤝 Fidata</button>` : ''}
+                    ${canReceive ? `<button type="button" onclick="window.notificationsManager.markPackageReceived('${this.escapeHtml(item.id)}')" class="px-2 py-0.5 rounded-md bg-indigo-600/85 hover:bg-indigo-500 text-[10px] text-white">📦 Ricevuto</button>` : ''}
+                    <button type="button" onclick="window.notificationsManager.markAsRead('${this.escapeHtml(item.id)}')" class="ml-auto px-2 py-0.5 rounded-md bg-slate-800/90 hover:bg-slate-700 text-[10px] text-slate-300 border border-slate-700/70">✓ Letta</button>
                   </div>
                 </div>
               `;
             }).join('')
         }
       </div>
-      <div class="p-2.5 border-t border-slate-800 bg-slate-950/60 text-center">
-        <button type="button" onclick="window.notificationsManager.toggleHeaderPopover(false); window.switchArea('notifications');" class="text-xs font-bold text-indigo-400 hover:text-indigo-300">
+      <div class="p-2.5 border-t border-slate-800/90 bg-slate-950/75 text-center">
+        <button type="button" onclick="window.notificationsManager.toggleHeaderPopover(false); window.switchArea('notifications');" class="text-xs font-bold text-cyan-300 hover:text-cyan-200">
           Apri Centro Notifiche &rarr;
         </button>
       </div>
@@ -236,7 +290,7 @@ class NotificationsManager {
             <div class="flex items-center gap-2 flex-wrap">
               ${isRich ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${isUrgent ? 'bg-rose-500/20 text-rose-300' : 'bg-amber-500/20 text-amber-300'}">Richiede attenzione</span>` : ''}
               <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-300">${this.escapeHtml(item.sourceType || 'system')}</span>
-              <span class="text-[11px] text-slate-500 font-mono">${this.escapeHtml(new Date(item.updatedAt || item.createdAt).toLocaleString('it-IT'))}</span>
+              <span class="text-[11px] text-slate-500 font-mono">${this.escapeHtml(new Date(item.createdAt || item.timestamp || item.updatedAt).toLocaleString('it-IT'))}</span>
             </div>
             <h3 class="text-sm font-bold text-white cursor-pointer hover:text-indigo-300" onclick="window.notificationsManager.openDetails('${this.escapeHtml(item.id)}')">${this.escapeHtml(item.title)}</h3>
             <p class="text-xs text-slate-300">${this.escapeHtml(item.message)}</p>

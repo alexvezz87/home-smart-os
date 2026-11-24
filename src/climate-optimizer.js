@@ -230,6 +230,15 @@ class ClimateOptimizer {
     const evalResult = await this.evaluateNow({ reason }).catch((err) => ({ error: err.message }));
     const reply = 'Ho disattivato la modalità comfort e ripristinato il bilanciamento automatico dei termosifoni.';
     eventLogger.log('bosch_thermo', reply, { source, reason, clearedCount });
+    eventBus?.publish?.('climate:comfort_changed', {
+      action: 'deactivated',
+      intent: 'reset',
+      reason,
+      source,
+      clearedCount,
+      reply,
+      ts: Date.now()
+    });
     return { success: true, clearedCount, reason, reply, evaluation: evalResult };
   }
 
