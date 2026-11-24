@@ -5568,3 +5568,219 @@ test('TEST 68: Restyling popover notifiche (data/ora ricezione) e notifiche azio
     notifier._persistFeed = prevPersist;
   }
 });
+
+
+test('TEST 68: Google Smart Home Volvo EX30 & Wallbox ABB Terra AC con guardrail anti-distacco (#164)', async () => {
+  const { GoogleSmartHomeManager } = require('../src/google-smarthome');
+
+  const volvoCalls = [];
+  const wallboxCalls = [];
+  const speakCalls = [];
+  const logEntries = [];
+
+  let mockUnified = {
+    bosch: { zones: [] },
+    volvo: {
+      connected: true,
+      climatizationActive: true,
+      batteryChargeLevel: 78,
+      electricRangeKm: 310,
+      estimatedChargingTimeMin: 45,
+      chargingStatus: 'CHARGING',
+      chargerConnectionStatus: 'CONNECTED'
+    },
+    wallbox: {
+      connected: true,
+      isCharging: true,
+      isConnected: true,
+      currentLimitA: 16
+    },
+    loadBalance: {
+      safeMaxAmps: 10,
+      maxBreakerWatts: 6000,
+      houseWatts: 3200,
+      overloadRisk: false
+    }
+  };
+
+  let nowTick = 100000;
+  const mgr = new GoogleSmartHomeManager({
+    nowFn: () => {
+      nowTick += 10000; // supera dedup 5s tra annunci diversi/ripetuti
+      return nowTick;
+    },
+    env: { GOOGLE_SMARTHOME_CLIENT_ID: 'c', GOOGLE_SMARTHOME_CLIENT_SECRET: 's' },
+    db: { get: async () => null, set: async () => true },
+    evClimateHub: {
+      getUnifiedStatus: () => mockUnified,
+      controlVolvo: async (action) => {
+        volvoCalls.push(action);
+        return { success: true };
+      },
+      controlWallbox: async (action, val) => {
+        wallboxCalls.push({ action, val });
+        return { success: true };
+      }
+    },
+    climateOptimizer: { config: { comfortVoiceAnnounce: true } },
+    aiGateway: {
+      validateHardwareAction: async () => ({ allowed: true })
+    },
+    sandboxManager: { config: { systemPaused: false } },
+    eventLogger: {
+      log: (cat, msg, meta) => {
+        logEntries.push({ cat, msg, meta });
+      }
+    },
+    nestCaster: {
+      config: { welcomeChimePreset: 'welcome_chime' },
+      isWelcomeWithinActiveHours: () => true,
+      speak: async (text, opts) => {
+        speakCalls.push({ text, opts });
+      }
+    }
+  });
+
+  // 1. SYNC: volvo-ex30 (no LockUnlock!) e wallbox-abb
+  const syncRes = await mgr.handleFulfillment({
+    requestId: 'ev-sync',
+    inputs: [{ intent: 'action.devices.SYNC' }]
+  });
+  const volvoDev = syncRes.payload.devices.find((d) => d.id === 'volvo-ex30');
+  const wbDev = syncRes.payload.devices.find((d) => d.id === 'wallbox-abb');
+  assert.ok(volvoDev, 'volvo-ex30 presente in SYNC');
+  assert.equal(volvoDev.type, 'action.devices.types.AC_UNIT');
+  assert.deepEqual(volvoDev.traits, ['action.devices.traits.OnOff', 'action.devices.traits.EnergyStorage']);
+  assert.ok(!volvoDev.traits.includes('action.devices.traits.LockUnlock'), 'Mai esporre LockUnlock su Volvo');
+  assert.equal(volvoDev.attributes.queryOnlyEnergyStorage, true);
+
+  assert.ok(wbDev, 'wallbox-abb presente in SYNC');
+  assert.equal(wbDev.type, 'action.devices.types.CHARGER');
+  assert.deepEqual(wbDev.traits, ['action.devices.traits.OnOff', 'action.devices.traits.EnergyStorage']);
+  assert.equal(wbDev.attributes.queryOnlyEnergyStorage, false);
+
+  // 2. QUERY: batteria, autonomia, tempo residuo, stato carica e cavo
+  const queryRes = await mgr.handleFulfillment({
+    requestId: 'ev-query',
+    inputs: [{ intent: 'action.devices.QUERY', payload: { devices: [{ id: 'volvo-ex30' }, { id: 'wallbox-abb' }] } }]
+  });
+  const qVolvo = queryRes.payload.devices['volvo-ex30'];
+  assert.equal(qVolvo.online, true);
+  assert.equal(qVolvo.on, true);
+  assert.equal(qVolvo.descriptiveCapacityRemaining, 'HIGH');
+  assert.deepEqual(qVolvo.capacityRemaining, [
+    { rawValue: 78, unit: 'PERCENTAGE' },
+    { rawValue: 310, unit: 'KILOMETERS' }
+  ]);
+  assert.deepEqual(qVolvo.capacityUntilFull, [{ rawValue: 2700, unit: 'SECONDS' }]);
+  assert.equal(qVolvo.isCharging, true);
+  assert.equal(qVolvo.isPluggedIn, true);
+
+  const qWb = queryRes.payload.devices['wallbox-abb'];
+  assert.equal(qWb.online, true);
+  assert.equal(qWb.on, true);
+  assert.equal(qWb.isCharging, true);
+  assert.equal(qWb.isPluggedIn, true);
+  assert.deepEqual(qWb.capacityRemaining, [
+    { rawValue: 78, unit: 'PERCENTAGE' },
+    { rawValue: 310, unit: 'KILOMETERS' }
+  ]);
+
+  // 3. EXECUTE OnOff su volvo-ex30 (true -> climatization_start, false -> climatization_stop)
+  const execVolvoOn = await mgr.handleFulfillment({
+    requestId: 'ev-volvo-on',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'volvo-ex30' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: true } }]
+        }]
+      }
+    }]
+  });
+  assert.deepEqual(execVolvoOn.payload.commands[0], {
+    ids: ['volvo-ex30'],
+    status: 'SUCCESS',
+    states: { online: true, on: true }
+  });
+  const execVolvoOff = await mgr.handleFulfillment({
+    requestId: 'ev-volvo-off',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'volvo-ex30' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: false } }]
+        }]
+      }
+    }]
+  });
+  assert.deepEqual(execVolvoOff.payload.commands[0], {
+    ids: ['volvo-ex30'],
+    status: 'SUCCESS',
+    states: { online: true, on: false }
+  });
+  assert.deepEqual(volvoCalls, ['climatization_start', 'climatization_stop']);
+  assert.equal(speakCalls.length, 2);
+
+  // 4. EXECUTE Charge (charge: true) su wallbox-abb:
+  // Caso 1: currentLimitA 16 > safeMaxAmps 10 -> prima set_current(10) poi start
+  const execWbStart = await mgr.handleFulfillment({
+    requestId: 'ev-wb-start',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'wallbox-abb' }],
+          execution: [{ command: 'action.devices.commands.Charge', params: { charge: true } }]
+        }]
+      }
+    }]
+  });
+  assert.equal(execWbStart.payload.commands[0].status, 'SUCCESS');
+  assert.deepEqual(wallboxCalls, [
+    { action: 'set_current', val: 10 },
+    { action: 'start', val: undefined }
+  ]);
+
+  // Caso 2: carico domestico alto (6000 - 5200 - 300 = 500 < 1380) -> blocca e non chiama start
+  wallboxCalls.length = 0;
+  mockUnified.loadBalance.houseWatts = 5200;
+  const execWbBlocked = await mgr.handleFulfillment({
+    requestId: 'ev-wb-block',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'wallbox-abb' }],
+          execution: [{ command: 'action.devices.commands.Charge', params: { charge: true } }]
+        }]
+      }
+    }]
+  });
+  assert.deepEqual(execWbBlocked.payload.commands[0], {
+    ids: ['wallbox-abb'],
+    status: 'ERROR',
+    errorCode: 'deviceNotReady'
+  });
+  assert.equal(wallboxCalls.length, 0);
+  assert.ok(speakCalls[speakCalls.length - 1].text.includes('Carico elettrico domestico troppo alto'));
+
+  // 5. EXECUTE OnOff (on: false) su wallbox-abb -> stop
+  const execWbStop = await mgr.handleFulfillment({
+    requestId: 'ev-wb-stop',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'wallbox-abb' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: false } }]
+        }]
+      }
+    }]
+  });
+  assert.equal(execWbStop.payload.commands[0].status, 'SUCCESS');
+  assert.deepEqual(wallboxCalls, [{ action: 'stop', val: undefined }]);
+  assert.ok(logEntries.some((l) => l.cat === 'google_smarthome' && l.meta?.source === 'Google Nest'));
+});

@@ -154,6 +154,120 @@ class GoogleSmartHomeManager {
     })).catch(() => {});
   }
 
+  _descriptiveCapacity(pct) {
+    if (!Number.isFinite(Number(pct))) return 'MEDIUM';
+    const val = Number(pct);
+    if (val >= 95) return 'FULL';
+    if (val >= 70) return 'HIGH';
+    if (val >= 35) return 'MEDIUM';
+    if (val >= 15) return 'LOW';
+    return 'CRITICALLY_LOW';
+  }
+
+  _buildVolvoEnergyState(volvo = {}) {
+    const soc = Number.isFinite(Number(volvo?.batteryChargeLevel))
+      ? Math.max(0, Math.min(100, Math.round(Number(volvo.batteryChargeLevel))))
+      : null;
+    const rangeKm = Number.isFinite(Number(volvo?.electricRangeKm))
+      ? Math.max(0, Math.round(Number(volvo.electricRangeKm)))
+      : null;
+    const estMin = Number.isFinite(Number(volvo?.estimatedChargingTimeMin)) && Number(volvo.estimatedChargingTimeMin) > 0
+      ? Math.round(Number(volvo.estimatedChargingTimeMin))
+      : null;
+    const chargingStatus = String(volvo?.chargingStatus || '').toUpperCase();
+    const connStatus = String(volvo?.chargerConnectionStatus || '').toUpperCase();
+    const isCharging = chargingStatus === 'CHARGING';
+    const isPluggedIn = connStatus.includes('CONNECTED') && !connStatus.includes('DISCONNECTED');
+
+    const capacityRemaining = [];
+    if (soc !== null) capacityRemaining.push({ rawValue: soc, unit: 'PERCENTAGE' });
+    if (rangeKm !== null) capacityRemaining.push({ rawValue: rangeKm, unit: 'KILOMETERS' });
+
+    return {
+      descriptiveCapacityRemaining: this._descriptiveCapacity(soc),
+      ...(capacityRemaining.length > 0 ? { capacityRemaining } : {}),
+      ...(isCharging && estMin !== null ? { capacityUntilFull: [{ rawValue: estMin * 60, unit: 'SECONDS' }] } : {}),
+      isCharging,
+      isPluggedIn
+    };
+  }
+
+  async _executeWallboxCharge(shouldCharge) {
+    const devId = 'wallbox-abb';
+    const unified = typeof this.evClimateHub?.getUnifiedStatus === 'function'
+      ? this.evClimateHub.getUnifiedStatus()
+      : {};
+    const wb = unified?.wallbox || {};
+    const lb = unified?.loadBalance || {};
+
+    if (shouldCharge === true) {
+      const guard = await this.aiGateway?.validateHardwareAction?.({
+        action: 'ev:start_charge',
+        actor: 'google-smarthome'
+      });
+      if (guard && guard.allowed === false) {
+        return { ids: [devId], status: 'ERROR', errorCode: 'deviceNotReady' };
+      }
+
+      const availableWattsForEv = (Number.isFinite(Number(lb.maxBreakerWatts)) && Number.isFinite(Number(lb.houseWatts)))
+        ? Math.max(0, Number(lb.maxBreakerWatts) - Number(lb.houseWatts) - 300)
+        : null;
+
+      if (lb.overloadRisk === true || (availableWattsForEv !== null && availableWattsForEv < 1380)) {
+        this.eventLogger?.log?.('google_smarthome', 'Wallbox ABB start bloccato: carico domestico elevato', {
+          source: 'Google Nest',
+          deviceId: devId,
+          availableWattsForEv
+        });
+        this._announceComfortAsync({ reply: 'Carico elettrico domestico troppo alto, non ho avviato la Wallbox.' });
+        return { ids: [devId], status: 'ERROR', errorCode: 'deviceNotReady' };
+      }
+
+      try {
+        if (
+          Number.isFinite(Number(lb.safeMaxAmps)) &&
+          Number.isFinite(Number(wb.currentLimitA)) &&
+          Number(wb.currentLimitA) > Number(lb.safeMaxAmps)
+        ) {
+          await this.evClimateHub.controlWallbox('set_current', Math.max(6, Math.floor(Number(lb.safeMaxAmps))));
+        }
+        await this.evClimateHub.controlWallbox('start');
+      } catch (err) {
+        return { ids: [devId], status: 'ERROR', errorCode: 'deviceOffline', debugString: err.message };
+      }
+
+      this.eventLogger?.log?.('google_smarthome', 'Wallbox ABB ricarica avviata', {
+        source: 'Google Nest',
+        deviceId: devId,
+        action: 'start'
+      });
+      this._announceComfortAsync({ reply: 'Ho avviato la ricarica sulla Wallbox ABB.' });
+      return {
+        ids: [devId],
+        status: 'SUCCESS',
+        states: { online: true, on: true, isCharging: true, isPluggedIn: true }
+      };
+    }
+
+    try {
+      await this.evClimateHub.controlWallbox('stop');
+    } catch (err) {
+      return { ids: [devId], status: 'ERROR', errorCode: 'deviceOffline', debugString: err.message };
+    }
+
+    this.eventLogger?.log?.('google_smarthome', 'Wallbox ABB ricarica fermata', {
+      source: 'Google Nest',
+      deviceId: devId,
+      action: 'stop'
+    });
+    this._announceComfortAsync({ reply: 'Ho fermato la ricarica sulla Wallbox ABB.' });
+    return {
+      ids: [devId],
+      status: 'SUCCESS',
+      states: { online: true, on: false, isCharging: false, isPluggedIn: Boolean(wb?.isConnected ?? true) }
+    };
+  }
+
   _nowFn() {
     return typeof this._deps.nowFn === 'function' ? this._deps.nowFn() : Date.now();
   }
@@ -482,14 +596,53 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
         requestId,
         payload: {
           agentUserId: 'home-smart-os-family',
-          devices
+          devices: [
+            ...devices,
+            {
+              id: 'volvo-ex30',
+              type: 'action.devices.types.AC_UNIT',
+              traits: ['action.devices.traits.OnOff', 'action.devices.traits.EnergyStorage'],
+              name: {
+                defaultNames: ['Volvo EX30'],
+                name: 'Volvo EX30',
+                nicknames: ['Volvo', 'Clima Volvo', 'Auto Elettrica']
+              },
+              willReportState: false,
+              roomHint: 'Garage',
+              attributes: {
+                isRechargeable: true,
+                queryOnlyEnergyStorage: true,
+                energyStorageDistanceUnitForUX: 'KILOMETERS'
+              }
+            },
+            {
+              id: 'wallbox-abb',
+              type: 'action.devices.types.CHARGER',
+              traits: ['action.devices.traits.OnOff', 'action.devices.traits.EnergyStorage'],
+              name: {
+                defaultNames: ['Wallbox ABB'],
+                name: 'Wallbox ABB',
+                nicknames: ['Wallbox', 'Colonnina', 'Caricatore Auto']
+              },
+              willReportState: false,
+              roomHint: 'Garage',
+              attributes: {
+                isRechargeable: true,
+                queryOnlyEnergyStorage: false,
+                energyStorageDistanceUnitForUX: 'KILOMETERS'
+              }
+            }
+          ]
         }
       };
     }
 
     if (intent === 'action.devices.QUERY') {
-      const zones = Array.isArray(this.evClimateHub?.getUnifiedStatus?.()?.bosch?.zones)
-        ? this.evClimateHub.getUnifiedStatus().bosch.zones
+      const unified = typeof this.evClimateHub?.getUnifiedStatus === 'function'
+        ? this.evClimateHub.getUnifiedStatus()
+        : {};
+      const zones = Array.isArray(unified?.bosch?.zones)
+        ? unified.bosch.zones
         : [];
       const reqDevices = Array.isArray(firstInput?.payload?.devices) ? firstInput.payload.devices : [];
       const devicesMap = {};
@@ -502,6 +655,32 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
         }
         if (SWITCH_MAP.has(id)) {
           devicesMap[id] = { online: true, status: 'SUCCESS', on: false };
+          continue;
+        }
+        if (id === 'volvo-ex30') {
+          const v = unified?.volvo || {};
+          devicesMap[id] = {
+            online: Boolean(v.connected),
+            status: 'SUCCESS',
+            on: Boolean(v.climatizationActive),
+            ...this._buildVolvoEnergyState(v)
+          };
+          continue;
+        }
+        if (id === 'wallbox-abb') {
+          const wb = unified?.wallbox || {};
+          const v = unified?.volvo || {};
+          const volvoEnergy = this._buildVolvoEnergyState(v);
+          devicesMap[id] = {
+            online: Boolean(wb.connected),
+            status: 'SUCCESS',
+            on: Boolean(wb.isCharging),
+            descriptiveCapacityRemaining: volvoEnergy.descriptiveCapacityRemaining,
+            ...(volvoEnergy.capacityRemaining ? { capacityRemaining: volvoEnergy.capacityRemaining } : {}),
+            ...(wb.isCharging && volvoEnergy.capacityUntilFull ? { capacityUntilFull: volvoEnergy.capacityUntilFull } : {}),
+            isCharging: Boolean(wb.isCharging),
+            isPluggedIn: Boolean(wb.isConnected)
+          };
           continue;
         }
         if (id.startsWith('bosch-zone-')) {
@@ -584,6 +763,42 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
             }
 
             if (cmd === 'action.devices.commands.OnOff') {
+              if (devId === 'volvo-ex30') {
+                const turnOn = Boolean(exec?.params?.on);
+                const actionName = turnOn ? 'climatization_start' : 'climatization_stop';
+                const guard = await this.aiGateway?.validateHardwareAction?.({
+                  action: `volvo:${actionName}`,
+                  actor: 'google-smarthome'
+                });
+                if (guard && guard.allowed === false) {
+                  commandResults.push({ ids: [devId], status: 'ERROR', errorCode: 'functionNotSupported' });
+                  continue;
+                }
+                try {
+                  await this.evClimateHub.controlVolvo(actionName);
+                } catch (err) {
+                  commandResults.push({ ids: [devId], status: 'ERROR', errorCode: 'deviceOffline', debugString: err.message });
+                  continue;
+                }
+                this.eventLogger?.log?.('google_smarthome', `Volvo EX30 ${actionName}`, {
+                  source: 'Google Nest',
+                  deviceId: devId,
+                  action: actionName
+                });
+                this._announceComfortAsync({
+                  reply: turnOn
+                    ? 'Ho avviato la climatizzazione della Volvo EX30.'
+                    : 'Ho spento la climatizzazione della Volvo EX30.'
+                });
+                commandResults.push({ ids: [devId], status: 'SUCCESS', states: { online: true, on: turnOn } });
+                continue;
+              }
+
+              if (devId === 'wallbox-abb') {
+                commandResults.push(await this._executeWallboxCharge(Boolean(exec?.params?.on)));
+                continue;
+              }
+
               const sw = SWITCH_MAP.get(devId);
               if (!sw) {
                 commandResults.push({ ids: [devId], status: 'ERROR', errorCode: 'deviceNotFound' });
@@ -626,6 +841,15 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
                 });
                 this._announceComfortAsync(resetRes);
                 commandResults.push({ ids: [devId], status: 'SUCCESS', states: { online: true, on: false } });
+              }
+              continue;
+            }
+
+            if (cmd === 'action.devices.commands.Charge') {
+              if (devId === 'wallbox-abb') {
+                commandResults.push(await this._executeWallboxCharge(Boolean(exec?.params?.charge)));
+              } else {
+                commandResults.push({ ids: [devId], status: 'ERROR', errorCode: 'deviceNotFound' });
               }
               continue;
             }
