@@ -211,6 +211,28 @@ class ClimateOptimizer {
     return true;
   }
 
+  clearManualOverrides(zoneIds = null) {
+    if (Array.isArray(zoneIds) && zoneIds.length > 0) {
+      let clearedCount = 0;
+      for (const id of zoneIds) {
+        const key = String(id);
+        if (this.manualOverrideByZone.delete(key)) clearedCount += 1;
+      }
+      return clearedCount;
+    }
+    const clearedCount = this.manualOverrideByZone.size;
+    this.manualOverrideByZone.clear();
+    return clearedCount;
+  }
+
+  async resetComfortAndRebalance({ zoneIds = null, reason = 'comfort_reset', source = 'google_smarthome' } = {}) {
+    const clearedCount = this.clearManualOverrides(zoneIds);
+    const evalResult = await this.evaluateNow({ reason }).catch((err) => ({ error: err.message }));
+    const reply = 'Ho disattivato la modalità comfort e ripristinato il bilanciamento automatico dei termosifoni.';
+    eventLogger.log('bosch_thermo', reply, { source, reason, clearedCount });
+    return { success: true, clearedCount, reason, reply, evaluation: evalResult };
+  }
+
   /**
    * Strategia 3: Rampa graduale a gradini di +0.5°C per mantenere la caldaia in condensazione.
    * Puro e testabile offline.

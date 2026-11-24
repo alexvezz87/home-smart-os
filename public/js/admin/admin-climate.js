@@ -946,6 +946,10 @@ AdminManager.prototype.renderClimateOptimizerPanel = function() {
           <input type="checkbox" ${cfg.comfortVoiceAnnounce !== false ? 'checked' : ''} onchange="window.toggleClimateOptimizer({ comfortVoiceAnnounce: this.checked })" />
           <span>🔊 Annuncio Vocale Nest</span>
         </label>
+        <button onclick="window.resetComfortBalancing()"
+                class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10px] font-bold border border-amber-500/30">
+          🔄 Ripristina Bilanciamento
+        </button>
       </div>
     </div>
     ${met.lastForecastMotivation ? `<div class="text-[11px] text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 rounded-lg p-2">🤖 ${this.escapeHtml(met.lastForecastMotivation)}</div>` : ''}
@@ -983,5 +987,27 @@ window.evaluateClimateOptimizerNow = async function() {
     }
   } catch (err) {
     if (typeof showToast === 'function') showToast('Errore valutazione: ' + err.message, 'error');
+  }
+};
+
+window.resetComfortBalancing = async function() {
+  try {
+    const res = await fetch('/api/climate/optimizer/reset-comfort', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    }).then((r) => r.json());
+    if (res.success && window.adminManager) {
+      window.adminManager.climateOptStatus = res.data;
+      window.adminManager.renderClimateOptimizerPanel();
+      if (typeof window.adminManager.refreshValvesGrid === 'function') window.adminManager.refreshValvesGrid();
+      if (typeof showToast === 'function') {
+        showToast('✅ Modalità comfort disattivata, bilanciamento standard ripristinato', 'success');
+      }
+    } else if (!res.success && typeof showToast === 'function') {
+      showToast('Errore reset comfort: ' + (res.error || 'Errore sconosciuto'), 'error');
+    }
+  } catch (err) {
+    if (typeof showToast === 'function') showToast('Errore reset comfort: ' + err.message, 'error');
   }
 };
