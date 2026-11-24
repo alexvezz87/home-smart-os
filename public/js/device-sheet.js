@@ -103,7 +103,6 @@ class DeviceSheetManager {
         break;
 
       case 'thermostat':
-      case 'climate':
         categoryIcon = 'fa-temperature-half';
         categoryLabel = 'Caldaia Bosch CT200';
         badgeColor = 'bg-rose-500/20 text-rose-300 border border-rose-500/40';
