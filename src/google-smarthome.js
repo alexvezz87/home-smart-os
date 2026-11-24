@@ -192,6 +192,103 @@ class GoogleSmartHomeManager {
     };
   }
 
+  _buildVolvoDiagnosticBriefing(volvo = {}) {
+    if (!volvo || volvo.connected === false) {
+      return 'La Volvo EX30 risulta al momento non connessa.';
+    }
+
+    const soc = Number.isFinite(Number(volvo.batteryChargeLevel)) ? Math.round(Number(volvo.batteryChargeLevel)) : null;
+    const range = Number.isFinite(Number(volvo.electricRangeKm)) ? Math.round(Number(volvo.electricRangeKm)) : null;
+    const isCharging = String(volvo.chargingStatus || '').toUpperCase() === 'CHARGING';
+    const estMin = Number.isFinite(Number(volvo.estimatedChargingTimeMin)) && Number(volvo.estimatedChargingTimeMin) > 0
+      ? Math.round(Number(volvo.estimatedChargingTimeMin))
+      : null;
+
+    let part1 = 'La Volvo';
+    if (soc !== null && range !== null) {
+      part1 = `La Volvo è al ${soc}% con ${range} chilometri di autonomia`;
+    } else if (soc !== null) {
+      part1 = `La Volvo è al ${soc}% di batteria`;
+    } else if (range !== null) {
+      part1 = `La Volvo ha ${range} chilometri di autonomia`;
+    }
+    if (isCharging) {
+      part1 += estMin !== null ? `, in carica, mancano ${estMin} minuti` : ', in carica';
+    }
+
+    const isLocked = volvo.carLocked === true || String(volvo.doors?.centralLock || '').toUpperCase() === 'LOCKED';
+    const isUnlocked = volvo.carLocked === false || String(volvo.doors?.centralLock || '').toUpperCase() === 'UNLOCKED';
+    const doors = volvo.doors || {};
+    const windows = volvo.windows || {};
+    const openDoorKeys = ['frontLeftDoor', 'frontRightDoor', 'rearLeftDoor', 'rearRightDoor', 'hood', 'tailgate'];
+    const openWindowKeys = ['frontLeftWindow', 'frontRightWindow', 'rearLeftWindow', 'rearRightWindow', 'sunroof'];
+    const hasOpenDoor = openDoorKeys.some((k) => {
+      const val = String(doors[k] || '').toUpperCase();
+      return val === 'OPEN' || val === 'AJAR';
+    });
+    const hasOpenWindow = openWindowKeys.some((k) => {
+      const val = String(windows[k] || '').toUpperCase();
+      return val === 'OPEN' || val === 'AJAR';
+    });
+
+    let part2 = '';
+    if (hasOpenDoor || hasOpenWindow) {
+      part2 = !isLocked && isUnlocked
+        ? 'attenzione, auto sbloccata e porte o finestrini aperti'
+        : 'attenzione, porte o finestrini aperti';
+    } else if (isLocked) {
+      part2 = 'chiusa a chiave';
+    } else if (isUnlocked) {
+      part2 = 'sbloccata';
+    }
+
+    const okValues = new Set(['NO_WARNING', 'UNSPECIFIED', 'OK', 'NONE', '']);
+    const tyres = volvo.tyres || {};
+    const tyreIssue = ['frontLeft', 'frontRight', 'rearLeft', 'rearRight'].some((k) => {
+      const raw = tyres[k];
+      const val = String(typeof raw === 'object' && raw !== null ? raw.value : (raw ?? '')).trim().toUpperCase();
+      return val && !okValues.has(val);
+    });
+    const diagnostics = volvo.diagnostics || {};
+    const diagIssue = ['serviceWarning', 'washerFluidLevelWarning'].some((k) => {
+      const raw = diagnostics[k];
+      const val = String(typeof raw === 'object' && raw !== null ? raw.value : (raw ?? '')).trim().toUpperCase();
+      return val && !okValues.has(val);
+    });
+    const warningsIssue = Array.isArray(volvo.warnings?.activeWarnings) && volvo.warnings.activeWarnings.length > 0;
+
+    const issues = [];
+    if (tyreIssue) issues.push('controllare pressione gomme');
+    if (diagIssue) issues.push('avviso tagliando o liquidi');
+    if (warningsIssue) issues.push('avvisi diagnostici attivi');
+
+    let part3 = '';
+    if (issues.length === 0) {
+      part3 = volvo.climatizationActive === true ? 'clima attivo e nessuna anomalia' : 'nessuna anomalia';
+    } else {
+      part3 = volvo.climatizationActive === true
+        ? `clima attivo, ${issues.join(', ')}`
+        : issues.join(', ');
+    }
+
+    let sentence = '';
+    if (part2 && issues.length === 0 && volvo.climatizationActive !== true) {
+      sentence = `${part1}, ${part2} e ${part3}.`;
+    } else if (part2) {
+      sentence = `${part1}, ${part2}, ${part3}.`;
+    } else {
+      sentence = `${part1}, ${part3}.`;
+    }
+
+    if (sentence.length > 195) {
+      const sliced = sentence.slice(0, 194);
+      const lastSpace = sliced.lastIndexOf(' ');
+      const cleanCut = lastSpace > 80 ? sliced.slice(0, lastSpace) : sliced;
+      sentence = `${cleanCut.replace(/[,;\s]+$/, '')}.`;
+    }
+    return sentence;
+  }
+
   async _executeWallboxCharge(shouldCharge) {
     const devId = 'wallbox-abb';
     const unified = typeof this.evClimateHub?.getUnifiedStatus === 'function'
@@ -631,6 +728,18 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
                 queryOnlyEnergyStorage: false,
                 energyStorageDistanceUnitForUX: 'KILOMETERS'
               }
+            },
+            {
+              id: 'switch-volvo-status',
+              type: 'action.devices.types.SWITCH',
+              traits: ['action.devices.traits.OnOff'],
+              name: {
+                defaultNames: ['Stato Volvo EX30'],
+                name: 'Stato Volvo EX30',
+                nicknames: ['Diagnostica Volvo', 'Report Volvo', 'Come sta la Volvo']
+              },
+              willReportState: false,
+              attributes: { commandOnlyOnOff: true }
             }
           ]
         }
@@ -654,6 +763,10 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
           continue;
         }
         if (SWITCH_MAP.has(id)) {
+          devicesMap[id] = { online: true, status: 'SUCCESS', on: false };
+          continue;
+        }
+        if (id === 'switch-volvo-status') {
           devicesMap[id] = { online: true, status: 'SUCCESS', on: false };
           continue;
         }
@@ -806,6 +919,22 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
 
               if (devId === 'wallbox-abb') {
                 commandResults.push(await this._executeWallboxCharge(Boolean(exec?.params?.on)));
+                continue;
+              }
+
+              if (devId === 'switch-volvo-status') {
+                if (exec?.params?.on === true) {
+                  const volvo = typeof this.evClimateHub?.getUnifiedStatus === 'function'
+                    ? this.evClimateHub.getUnifiedStatus()?.volvo
+                    : null;
+                  const briefing = this._buildVolvoDiagnosticBriefing(volvo);
+                  this.eventLogger?.log?.('google_smarthome', `Volvo EX30 briefing vocale: ${briefing}`, {
+                    source: 'Google Nest',
+                    deviceId: devId
+                  });
+                  this._announceComfortAsync({ reply: briefing }, { bypassQuietHours: true });
+                }
+                commandResults.push({ ids: [devId], status: 'SUCCESS', states: { online: true, on: false } });
                 continue;
               }
 

@@ -5850,3 +5850,171 @@ test('TEST 69: Volvo EX30 EXECUTE asincrono (<100ms) & risposta Leda anche dopo 
   assert.equal(resOff.payload.commands[0].status, 'ERROR');
   assert.equal(resOff.payload.commands[0].errorCode, 'deviceOffline');
 });
+
+
+test('TEST 70: Interruttore virtuale Stato Volvo EX30 & Briefing diagnostico vocale Leda (#168)', async () => {
+  const { GoogleSmartHomeManager } = require('../src/google-smarthome');
+
+  let mockVolvo = {
+    connected: true,
+    batteryChargeLevel: 78,
+    electricRangeKm: 310,
+    chargingStatus: 'IDLE',
+    carLocked: true,
+    climatizationActive: false,
+    doors: {
+      centralLock: 'LOCKED',
+      frontLeftDoor: 'CLOSED',
+      frontRightDoor: 'CLOSED',
+      rearLeftDoor: 'CLOSED',
+      rearRightDoor: 'CLOSED',
+      hood: 'CLOSED',
+      tailgate: 'CLOSED'
+    },
+    windows: {
+      frontLeftWindow: 'CLOSED',
+      frontRightWindow: 'CLOSED',
+      rearLeftWindow: 'CLOSED',
+      rearRightWindow: 'CLOSED',
+      sunroof: 'CLOSED'
+    },
+    tyres: {
+      frontLeft: { value: 'NO_WARNING' },
+      frontRight: { value: 'NO_WARNING' },
+      rearLeft: { value: 'NO_WARNING' },
+      rearRight: { value: 'NO_WARNING' }
+    },
+    diagnostics: {
+      serviceWarning: 'NO_WARNING',
+      washerFluidLevelWarning: 'NO_WARNING'
+    },
+    warnings: { activeWarnings: [] }
+  };
+
+  const speakCalls = [];
+  const logEntries = [];
+  let nowTick = 500000;
+
+  const mgr = new GoogleSmartHomeManager({
+    nowFn: () => {
+      nowTick += 10000;
+      return nowTick;
+    },
+    env: { GOOGLE_SMARTHOME_CLIENT_ID: 'c', GOOGLE_SMARTHOME_CLIENT_SECRET: 's' },
+    db: { get: async () => null, set: async () => true },
+    evClimateHub: {
+      getUnifiedStatus: () => ({ bosch: { zones: [] }, volvo: mockVolvo })
+    },
+    climateOptimizer: { config: { comfortVoiceAnnounce: true } },
+    sandboxManager: { config: { systemPaused: false } },
+    eventLogger: {
+      log: (cat, msg, meta) => {
+        logEntries.push({ cat, msg, meta });
+      }
+    },
+    nestCaster: {
+      config: { welcomeChimePreset: 'welcome_chime' },
+      isWelcomeWithinActiveHours: () => false, // verifica bypassQuietHours: true
+      speak: async (text, opts) => {
+        speakCalls.push({ text, opts });
+      }
+    }
+  });
+
+  // 1. SYNC: switch-volvo-status senza roomHint
+  const syncRes = await mgr.handleFulfillment({
+    requestId: 'vs-sync',
+    inputs: [{ intent: 'action.devices.SYNC' }]
+  });
+  const sw = syncRes.payload.devices.find((d) => d.id === 'switch-volvo-status');
+  assert.ok(sw, 'switch-volvo-status presente in SYNC');
+  assert.equal(sw.type, 'action.devices.types.SWITCH');
+  assert.deepEqual(sw.traits, ['action.devices.traits.OnOff']);
+  assert.equal(sw.attributes.commandOnlyOnOff, true);
+  assert.equal(sw.roomHint, undefined, 'Nessun roomHint per evitare annunci cross-stanza Google');
+
+  // 2. QUERY: { online: true, status: 'SUCCESS', on: false }
+  const queryRes = await mgr.handleFulfillment({
+    requestId: 'vs-query',
+    inputs: [{ intent: 'action.devices.QUERY', payload: { devices: [{ id: 'switch-volvo-status' }] } }]
+  });
+  assert.deepEqual(queryRes.payload.devices['switch-volvo-status'], {
+    online: true,
+    status: 'SUCCESS',
+    on: false
+  });
+
+  // 3. EXECUTE OnOff (on: true) -> Caso OK (anche in fascia silenziosa notturna)
+  const execOk = await mgr.handleFulfillment({
+    requestId: 'vs-exec-ok',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'switch-volvo-status' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: true } }]
+        }]
+      }
+    }]
+  });
+  assert.deepEqual(execOk.payload.commands[0], {
+    ids: ['switch-volvo-status'],
+    status: 'SUCCESS',
+    states: { online: true, on: false }
+  });
+  assert.equal(speakCalls.length, 1);
+  assert.equal(speakCalls[0].opts.playChime, true);
+  assert.equal(speakCalls[0].opts.chimePreset, 'welcome_chime');
+  assert.ok(speakCalls[0].text.length <= 195, `Frase troppo lunga (${speakCalls[0].text.length})`);
+  assert.ok(speakCalls[0].text.includes('78%'));
+  assert.ok(speakCalls[0].text.includes('310'));
+  assert.ok(speakCalls[0].text.includes('chiusa'));
+  assert.ok(speakCalls[0].text.includes('nessuna anomalia'));
+  assert.ok(logEntries.some((l) => l.cat === 'google_smarthome' && l.meta?.deviceId === 'switch-volvo-status'));
+
+  // 4. Caso Anomalie: porta aperta, pressione gomme bassa, avvisi attivi
+  mockVolvo = {
+    ...mockVolvo,
+    chargingStatus: 'CHARGING',
+    estimatedChargingTimeMin: 45,
+    carLocked: false,
+    doors: { ...mockVolvo.doors, centralLock: 'UNLOCKED', frontLeftDoor: 'OPEN' },
+    tyres: { ...mockVolvo.tyres, frontLeft: { value: 'LOW_PRESSURE' } },
+    diagnostics: { serviceWarning: 'TIME_FOR_SERVICE', washerFluidLevelWarning: 'NO_WARNING' },
+    warnings: { activeWarnings: ['bulbFailure: WARNING'] }
+  };
+  await mgr.handleFulfillment({
+    requestId: 'vs-exec-warn',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'switch-volvo-status' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: true } }]
+        }]
+      }
+    }]
+  });
+  assert.equal(speakCalls.length, 2);
+  const warnText = speakCalls[1].text;
+  assert.ok(warnText.length <= 195, `Frase anomalie troppo lunga (${warnText.length}): ${warnText}`);
+  assert.ok(warnText.includes('porte o finestrini aperti'));
+  assert.ok(warnText.includes('gomme'));
+
+  // 5. Caso Disconnessa
+  mockVolvo = { connected: false };
+  await mgr.handleFulfillment({
+    requestId: 'vs-exec-off',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'switch-volvo-status' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: true } }]
+        }]
+      }
+    }]
+  });
+  assert.equal(speakCalls.length, 3);
+  assert.ok(speakCalls[2].text.includes('non connessa'));
+});
