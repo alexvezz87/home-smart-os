@@ -5982,6 +5982,8 @@ test('TEST 70: Interruttore virtuale Stato Volvo EX30 & Briefing diagnostico voc
     states: { online: true, on: false }
   });
   assert.equal(speakCalls.length, 1);
+  assert.equal(speakCalls[0].opts.roomName, 'Salone');
+  assert.equal(speakCalls[0].opts.followMe, false);
   assert.equal(speakCalls[0].opts.playChime, true);
   assert.equal(speakCalls[0].opts.chimePreset, 'welcome_chime');
   assert.ok(speakCalls[0].text.length <= 195, `Frase troppo lunga (${speakCalls[0].text.length})`);
@@ -6036,4 +6038,38 @@ test('TEST 70: Interruttore virtuale Stato Volvo EX30 & Briefing diagnostico voc
   });
   assert.equal(speakCalls.length, 3);
   assert.ok(speakCalls[2].text.includes('non connessa'));
+});
+
+test('TEST 71: Routing fisso su Nest Salone per annunci vocali Google Smart Home (#171)', async () => {
+  const { GoogleSmartHomeManager } = require('../src/google-smarthome');
+  const speakCalls = [];
+  let nowTick = 900000;
+
+  const mgr = new GoogleSmartHomeManager({
+    nowFn: () => {
+      nowTick += 10000;
+      return nowTick;
+    },
+    climateOptimizer: { config: { comfortVoiceAnnounce: true } },
+    nestCaster: {
+      config: { welcomeChimePreset: 'welcome_chime' },
+      isWelcomeWithinActiveHours: () => true,
+      speak: async (text, opts) => {
+        speakCalls.push({ text, opts });
+        return { success: true };
+      }
+    }
+  });
+
+  mgr._announceComfortAsync({ reply: 'Test annuncio comfort Salone.' });
+  mgr._announceComfortAsync({ reply: 'Test briefing Volvo Salone.' }, { bypassQuietHours: true });
+  await new Promise((r) => setImmediate(r));
+
+  assert.equal(speakCalls.length, 2);
+  for (const call of speakCalls) {
+    assert.equal(call.opts.roomName, 'Salone');
+    assert.equal(call.opts.followMe, false);
+    assert.equal(call.opts.playChime, true);
+    assert.equal(call.opts.chimePreset, 'welcome_chime');
+  }
 });
