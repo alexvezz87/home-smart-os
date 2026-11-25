@@ -59,10 +59,10 @@ class DragEditorEngine {
   }
 
   detectRoomFromSvgCoords(sx, sy) {
+    if (sx >= 492 && sx <= 735 && sy >= 252 && sy <= 455) return 'Cameretta';
     if (sx >= 240 && sx <= 530 && sy >= 55 && sy <= 320) return 'Camera da letto';
     if (sx > 530 && sx <= 735 && sy >= 55 && sy < 252) return 'Balcone Nord';
     if (sx >= 240 && sx <= 390 && sy > 320 && sy <= 492) return 'Bagno Alex';
-    if (sx >= 492 && sx <= 735 && sy >= 252 && sy <= 455) return 'Cameretta';
     if (sx >= 600 && sx <= 815 && sy > 455 && sy <= 592) return 'Bagno Cinzia';
     if (sx >= 452 && sx <= 538 && sy >= 518 && sy <= 665) return 'Ripostiglio';
     if (sx >= 538 && sx <= 815 && sy > 592 && sy <= 758) return 'Cabina armadio';
