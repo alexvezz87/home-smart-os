@@ -6466,3 +6466,200 @@ test('Realtime SSE & App (#183): haier:state_changed su SSE, refresh drawer aper
 });
 
 
+
+
+test('TEST 75: Climatizzazione Ibrida Bosch + Haier, Interlock, Guardrail Quadro 3kW & ThermalAnalytics (#182)', async () => {
+  const haierAcMod = require('../src/haier-ac');
+  const { buildSetStateCommand } = haierAcMod;
+  const { ClimateOptimizer } = require('../src/climate-optimizer');
+  const { ThermalAnalytics } = require('../src/thermal-analytics');
+  const aiGateway = require('../src/ai-gateway');
+
+  // 1. Verifica buildSetStateCommand con eco & quiet + checksum valido
+  const frame = buildSetStateCommand('000000000000', {
+    mode: 'heat',
+    targetTemperature: 22,
+    fanSpeed: 'min',
+    swing: 'vertical',
+    eco: true,
+    quiet: true
+  }, 1);
+  // Inner payload parte dopo 80 byte di envelope header
+  const inner = frame.subarray(80);
+  assert.equal(inner.length, 37, 'Inner frame deve essere 36 byte body + 1 byte checksum');
+  assert.equal(inner[28] & 0x04, 0x04, 'Byte 28 bit eco (0x04)');
+  assert.equal(inner[31] & 0x04, 0x04, 'Byte 31 bit quiet (0x04)');
+  let sum = 0;
+  for (let i = 2; i < 36; i++) sum = (sum + inner[i]) & 0xff;
+  assert.equal(inner[36], sum, 'Checksum Haier valido su 36 byte');
+
+  // Stub aiGateway & fetchWeatherForecast per test deterministici offline
+  const origValidate = aiGateway.validateHardwareAction;
+  aiGateway.validateHardwareAction = ({ value }) => ({ allowed: true, finalValue: value });
+
+  try {
+    const dayMs = new Date('2026-11-25T16:00:00+01:00').getTime();
+    const nightMs = new Date('2026-11-25T22:00:00+01:00').getTime();
+
+    let haierUnits = [
+      { id: 'salone', room: 'Salone', online: true, isOn: true, mode: 'cool', temperature: 24, targetTemperature: 24, outdoorTemperature: 40 },
+      { id: 'cameretta', room: 'Cameretta', online: true, isOn: false, mode: 'heat', temperature: 20, targetTemperature: 20, outdoorTemperature: 40 }
+    ];
+    let boschZones = [
+      { id: 'zn10', name: 'Salone', tempActual: 23.5, tempSetpoint: 20.0, valvePosition: 0 },
+      { id: 'zn3', name: 'Cameretta', tempActual: 20.2, tempSetpoint: 20.0, valvePosition: 0 }
+    ];
+    let outdoorTemp = 8.0;
+    let merossPowerW = 900;
+    let wallboxPowerW = 0;
+    const boschCalls = [];
+    const haierCalls = [];
+
+    const makeOptimizer = () => {
+      const opt = new ClimateOptimizer({
+        evClimateHub: {
+          getUnifiedStatus: () => ({
+            bosch: { connected: true, outdoorTemp, zones: boschZones, flameStatus: 0 },
+            wallbox: { connected: true, isCharging: wallboxPowerW > 0, powerW: wallboxPowerW },
+            loadBalance: { maxBreakerWatts: 6000, houseWatts: merossPowerW, wallboxWatts: wallboxPowerW }
+          }),
+          setBoschZoneSetpoint: async (zoneId, temp) => {
+            boschCalls.push({ zoneId, temp });
+            const z = boschZones.find((item) => item.id === zoneId);
+            if (z) z.tempSetpoint = temp;
+          }
+        },
+        haierAc: {
+          getStatus: () => ({ units: haierUnits }),
+          controlUnit: async (unitId, params) => {
+            haierCalls.push({ unitId, params });
+            const u = haierUnits.find((item) => item.id === unitId);
+            if (u) {
+              if (typeof params.power === 'boolean') u.isOn = params.power;
+              if (params.mode) u.mode = params.mode;
+              if (params.targetTemperature !== undefined) u.targetTemperature = params.targetTemperature;
+            }
+            return { success: true };
+          }
+        },
+        merossEnergy: { getStatus: () => ({ totalPowerW: merossPowerW }) },
+        dysonPurifier: { getStatus: () => ({ humidityPercent: 50 }) }
+      });
+      opt.fetchWeatherForecast = async () => ({ outdoorTemp, sunny: false });
+      opt.persistState = async () => {};
+      return opt;
+    };
+
+    // 2. Interlock cool/dry -> 15.0°C (bypassa 19.0°C) e ripristino diretto a 20.0°C allo spegnimento
+    const opt1 = makeOptimizer();
+    await opt1.evaluateNow({ reason: 'test', nowMs: dayMs });
+    assert.equal(opt1.zoneStates.zn10.setpoint, 15.0);
+    assert.equal(opt1.zoneStates.zn10.badge, 'hybrid_interlock');
+    assert.ok(boschCalls.some((c) => c.zoneId === 'zn10' && c.temp === 15.0));
+
+    // Spegne Haier Salone -> ripristino diretto a 20.0°C senza rampa +0.5°C
+    boschCalls.length = 0;
+    haierUnits[0].isOn = false;
+    boschZones[0].tempActual = 20.5;
+    await opt1.evaluateNow({ reason: 'haier_state_changed', nowMs: dayMs + 5000 });
+    assert.equal(opt1.zoneStates.zn10.setpoint, 20.0, 'Ripristino diretto post-interlock senza gentle ramp');
+
+    // 3. Arbitraggio Salone: solo Salone sotto target (19.2 vs 20.0), outdoor=8°C (ignora 40), indoor=900W
+    boschCalls.length = 0;
+    haierCalls.length = 0;
+    haierUnits = [
+      { id: 'salone', room: 'Salone', online: true, isOn: false, mode: 'heat', temperature: 19.0, targetTemperature: 20, outdoorTemperature: 40 },
+      { id: 'cameretta', room: 'Cameretta', online: true, isOn: false, mode: 'heat', temperature: 20.3, targetTemperature: 20, outdoorTemperature: 40 }
+    ];
+    boschZones = [
+      { id: 'zn10', name: 'Salone', tempActual: 19.2, tempSetpoint: 20.0, valvePosition: 30 },
+      { id: 'zn3', name: 'Cameretta', tempActual: 20.3, tempSetpoint: 20.0, valvePosition: 0 }
+    ];
+    const opt2 = makeOptimizer();
+    await opt2.evaluateNow({ reason: 'test', nowMs: dayMs });
+    assert.equal(haierCalls.length, 1);
+    assert.equal(haierCalls[0].unitId, 'salone');
+    assert.equal(haierCalls[0].params.power, true);
+    assert.equal(haierCalls[0].params.mode, 'heat');
+    assert.equal(haierCalls[0].params.targetTemperature, 22);
+    assert.equal(haierCalls[0].params.swing, 'vertical');
+    assert.equal(haierCalls[0].params.fanSpeed, 'min');
+    assert.equal(opt2.zoneStates.zn10.setpoint, 18.5);
+    assert.equal(opt2.zoneStates.zn10.badge, 'hybrid_ac_heat');
+
+    // 4. Guardrail Quadro 3kW + Watchdog 30s + Separazione Wallbox 6kW
+    // 4a. indoorLoadW = 2300W -> NON accende Haier
+    haierCalls.length = 0;
+    haierUnits[0].isOn = false;
+    merossPowerW = 2300;
+    const opt3 = makeOptimizer();
+    await opt3.evaluateNow({ reason: 'test', nowMs: dayMs });
+    assert.equal(haierCalls.length, 0, 'Con indoorLoadW=2300W non deve accendere Haier');
+
+    // 4b. indoorLoadW = 800W + wallboxWatts = 3500W (tot 4300W < 5000W, quadro 800W < 2000W) -> avvio consentito
+    haierCalls.length = 0;
+    merossPowerW = 800;
+    wallboxPowerW = 3500;
+    boschZones[0].tempSetpoint = 20.0;
+    const opt4 = makeOptimizer();
+    await opt4.evaluateNow({ reason: 'test', nowMs: dayMs });
+    assert.equal(haierCalls.length, 1, 'Con quadro 800W e Wallbox 3500W avvio deve essere consentito');
+
+    // 4c. Watchdog 30s: indoorLoadW = 2700W -> spegne Haier gestito, NON spegne split manuale
+    haierCalls.length = 0;
+    haierUnits[1].isOn = true; // cameretta accesa manualmente (non in hybridManagedUnits)
+    merossPowerW = 2700;
+    wallboxPowerW = 0;
+    const shedRes = await opt4.checkHybridLoadSafety({ nowMs: dayMs + 30000 });
+    assert.equal(shedRes.shed, true);
+    assert.deepEqual(shedRes.units, ['salone']);
+    assert.equal(haierCalls.length, 1);
+    assert.equal(haierCalls[0].unitId, 'salone');
+    assert.equal(haierCalls[0].params.power, false);
+    assert.equal(haierUnits[1].isOn, true, 'Split manuale in Cameretta non deve essere spento');
+
+    // 5. Regola Notte Francesco (Cameretta): ore 22:00 non accende mai Haier Cameretta in automatico
+    haierCalls.length = 0;
+    merossPowerW = 500;
+    haierUnits = [
+      { id: 'salone', room: 'Salone', online: true, isOn: false, mode: 'heat', temperature: 20.5, targetTemperature: 20, outdoorTemperature: 40 },
+      { id: 'cameretta', room: 'Cameretta', online: true, isOn: false, mode: 'heat', temperature: 18.8, targetTemperature: 20, outdoorTemperature: 40 }
+    ];
+    boschZones = [
+      { id: 'zn10', name: 'Salone', tempActual: 20.5, tempSetpoint: 20.0, valvePosition: 0 },
+      { id: 'zn3', name: 'Cameretta', tempActual: 18.8, tempSetpoint: 20.0, valvePosition: 40 }
+    ];
+    const opt5 = makeOptimizer();
+    await opt5.evaluateNow({ reason: 'test', nowMs: nightMs });
+    assert.equal(haierCalls.length, 0, 'Alle 22:00 Cameretta non deve accendere Haier in automatico');
+
+    // 6. resetComfortAndRebalance() spegne eventuali split in hybridManagedUnits e pulisce i timer
+    haierCalls.length = 0;
+    await opt5.startHybridComfortBoost('salone', { room: 'Salone', zoneId: 'zn10', durationMinutes: 20, nowMs: dayMs });
+    assert.equal(opt5.hybridManagedUnits.has('salone'), true);
+    haierCalls.length = 0;
+    await opt5.resetComfortAndRebalance({ reason: 'test_reset', source: 'test' });
+    assert.equal(opt5.hybridManagedUnits.size, 0);
+    assert.ok(haierCalls.some((c) => c.unitId === 'salone' && c.params.power === false));
+
+    // 7. ThermalAnalytics.recordSample() include haierAc senza outdoorTemperature fittizio
+    const ta = new ThermalAnalytics({
+      evClimateHub: {
+        getUnifiedStatus: () => ({
+          bosch: { outdoorTemp: 8.0, zones: [{ id: 'zn10', name: 'Salone', tempActual: 20.1, tempSetpoint: 20.0, valvePosition: 10 }] }
+        })
+      },
+      haierAc: {
+        getStatus: () => ({
+          units: [{ id: 'salone', online: true, isOn: true, mode: 'heat', temperature: 21, targetTemperature: 22, outdoorTemperature: 40 }]
+        })
+      }
+    });
+    const sample = await ta.recordSample({ nowMs: dayMs, persist: false });
+    assert.ok(sample.haierAc && sample.haierAc.salone);
+    assert.equal(sample.haierAc.salone.isOn, true);
+    assert.equal(sample.haierAc.salone.outdoorTemperature, undefined, 'outdoorTemperature fittizio U-AC deve essere escluso');
+  } finally {
+    aiGateway.validateHardwareAction = origValidate;
+  }
+});

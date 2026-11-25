@@ -952,6 +952,54 @@ AdminManager.prototype.renderClimateOptimizerPanel = function() {
         </button>
       </div>
     </div>
+    ${(() => {
+      const hyb = this.climateOptStatus?.hybridStatus || {};
+      const managed = Array.isArray(hyb.managedUnits) ? hyb.managedUnits : [];
+      const managedText = managed.length > 0
+        ? `Attivo su: ${managed.map((u) => this.escapeHtml(u.room || u.unitId)).join(', ')}`
+        : 'Nessuno split in gestione automatica';
+      return `
+      <div class="flex flex-col gap-2 text-xs pt-2 border-t border-slate-800/70">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div class="text-[11px] font-semibold text-cyan-300">❄️🔥 Climatizzazione Ibrida (Bosch + Haier · Quadro 3 kW)</div>
+          <div class="text-[10px] font-mono ${managed.length > 0 ? 'text-emerald-300' : 'text-slate-400'}">
+            ${managedText} · Carico casa: ${hyb.indoorLoadW ?? 0}W
+          </div>
+        </div>
+        <div class="flex items-center gap-3 flex-wrap">
+          <label class="flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer">
+            <input type="checkbox" ${cfg.enableHybridAc !== false ? 'checked' : ''} onchange="window.toggleClimateOptimizer({ enableHybridAc: this.checked })" />
+            <span>Pompa di Calore Ibrida</span>
+          </label>
+          <div class="flex items-center gap-1.5">
+            <span class="text-slate-400 text-[11px]">Soglia T_ext °C:</span>
+            <input id="opt-hybrid-switchover" type="number" step="0.5" min="0" max="15" value="${cfg.hybridSwitchoverTempC ?? 4.0}"
+                   class="w-16 px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-cyan-300 font-mono text-[11px]" />
+            <button onclick="window.toggleClimateOptimizer({ hybridSwitchoverTempC: Number(document.getElementById('opt-hybrid-switchover').value || 4.0) })"
+                    class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-bold border border-slate-700">OK</button>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="text-slate-400 text-[11px]">Max Avvio W:</span>
+            <input id="opt-hybrid-max-load" type="number" step="100" min="800" max="5500" value="${cfg.maxHouseLoadForAutoAcW ?? 2000}"
+                   class="w-20 px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-emerald-300 font-mono text-[11px]" />
+            <button onclick="window.toggleClimateOptimizer({ maxHouseLoadForAutoAcW: Number(document.getElementById('opt-hybrid-max-load').value || 2000) })"
+                    class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-bold border border-slate-700">OK</button>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="text-slate-400 text-[11px]">Stacco Salva-3kW W:</span>
+            <input id="opt-hybrid-shed-load" type="number" step="100" min="1200" max="5800" value="${cfg.shedHouseLoadAcW ?? 2600}"
+                   class="w-20 px-2 py-0.5 rounded bg-slate-950 border border-slate-700 text-rose-300 font-mono text-[11px]" />
+            <button onclick="window.toggleClimateOptimizer({ shedHouseLoadAcW: Number(document.getElementById('opt-hybrid-shed-load').value || 2600) })"
+                    class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-bold border border-slate-700">OK</button>
+          </div>
+          <label class="flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer">
+            <input type="checkbox" ${cfg.allowCamerettaNightAc ? 'checked' : ''} onchange="window.toggleClimateOptimizer({ allowCamerettaNightAc: this.checked })" />
+            <span>Consenti Cameretta Notte 20–08</span>
+          </label>
+        </div>
+      </div>
+      `;
+    })()}
     ${met.lastForecastMotivation ? `<div class="text-[11px] text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 rounded-lg p-2">🤖 ${this.escapeHtml(met.lastForecastMotivation)}</div>` : ''}
   `;
 };

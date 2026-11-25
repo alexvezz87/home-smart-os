@@ -13,6 +13,7 @@ const calendarHub = require('./calendar-hub');
 const eventBus = require('./event-bus');
 const climateOptimizer = require('./climate-optimizer');
 const thermalAnalytics = require('./thermal-analytics');
+const haierAc = require('./haier-ac');
 
 function roundHalf(v) {
   return +(Math.round(Number(v) * 2) / 2).toFixed(1);
@@ -353,6 +354,58 @@ async function handleComfortBoost({ intent, deltaC = null, text = '', options = 
     const zn = String(z.name || '').toLowerCase();
     return zn === roomLower || zn.includes(roomLower) || roomLower.includes(zn);
   }) || { id: resolved.room, name: resolved.room, tempActual: null, tempSetpoint: 20.0 };
+
+  if (cleanIntent === 'cold' && !deltaC && (resolved.room === 'Salone' || resolved.room === 'Cameretta')) {
+    const unitId = resolved.room === 'Salone' ? 'salone' : 'cameretta';
+    const romeHour = Number(new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Rome',
+      hour: '2-digit',
+      hour12: false
+    }).format(new Date()));
+    const camerettaAllowed = unitId !== 'cameretta'
+      || (romeHour >= 8 && romeHour < 20)
+      || climateOptimizer?.config?.allowCamerettaNightAc === true;
+    const unitSt = typeof haierAc?.getUnitStatus === 'function' ? haierAc.getUnitStatus(unitId) : null;
+    const hybridEnabled = climateOptimizer?.config?.enableHybridAc !== false;
+    const outdoorTemp = status?.bosch?.outdoorTemp ?? climateOptimizer?.metrics?.weatherSummary?.outdoorTemp ?? null;
+    const switchoverC = Number(climateOptimizer?.config?.hybridSwitchoverTempC ?? 4.0);
+    const outdoorOk = outdoorTemp !== null && Number.isFinite(Number(outdoorTemp)) && Number(outdoorTemp) >= switchoverC;
+    const loads = typeof climateOptimizer?.getElectricalLoads === 'function'
+      ? climateOptimizer.getElectricalLoads()
+      : { indoorLoadW: 0 };
+    const loadOk = loads.indoorLoadW < Number(climateOptimizer?.config?.maxHouseLoadForAutoAcW ?? 2000);
+    const isManagedOrOff = !unitSt?.isOn || climateOptimizer?.hybridManagedUnits?.has?.(unitId);
+
+    if (camerettaAllowed && hybridEnabled && unitSt && unitSt.online === true && isManagedOrOff && outdoorOk && loadOk) {
+      await climateOptimizer.startHybridComfortBoost(unitId, {
+        room: resolved.room,
+        zoneId: zone.id || resolved.room,
+        durationMinutes: 20,
+        targetBoschC: 20.5
+      });
+      const hybridReply = `Ho avviato un boost rapido sul condizionatore di ${resolved.room} per 20 minuti, senza accendere la caldaia a gas.`;
+      eventBus.publish('climate:comfort_changed', {
+        action: 'activated',
+        intent: 'cold',
+        mode: 'hybrid_ac_boost',
+        room: resolved.room,
+        updatedRooms: [resolved.room],
+        source: options?.source || 'voice_comfort_boost',
+        reply: hybridReply,
+        ts: Date.now()
+      });
+      return {
+        success: true,
+        action: 'comfort_boost_hybrid_ac',
+        intent: cleanIntent,
+        room: resolved.room,
+        roomResolution: resolved,
+        unitId,
+        durationMinutes: 20,
+        reply: hybridReply
+      };
+    }
+  }
 
   const T_actual = Number.isFinite(Number(zone.tempActual)) ? Number(zone.tempActual) : null;
   const tempSetpoint = Number.isFinite(Number(zone.tempSetpoint))
