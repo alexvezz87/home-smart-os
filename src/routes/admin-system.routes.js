@@ -21,7 +21,8 @@ module.exports = function registerAdminSystemRoutes(app, services) {
       'sensor:lux',
       'presence:changed',
       'ai:guardrail_blocked',
-      'notifications:updated'
+      'notifications:updated',
+      'haier:state_changed'
     ]);
 
     const onEvent = (evt) => {
