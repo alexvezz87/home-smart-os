@@ -98,7 +98,7 @@ const ARCHITECTURAL_ROOMS = [
     subLabel: 'Zona Notte Padronale · 16.5 m²',
     icon: 'fa-bed',
     floorType: 'parquet',
-    path: 'M 240 55 L 530 55 L 530 320 L 240 320 Z',
+    path: 'M 240 55 L 530 55 L 530 252 L 492 252 L 492 320 L 240 320 Z',
     labelX: 392,
     labelY: 112,
     viewBoxZoom: '175 0 420 375',
@@ -1206,7 +1206,7 @@ class FloorplanEngine {
           <path d="M 240 55 L 735 55 L 735 455" />
           <path d="M 240 55 L 240 492" />
           <path d="M 530 55 L 530 252" />
-          <path d="M 240 320 L 405 320 M 462 320 L 530 320" />
+          <path d="M 240 320 L 405 320 M 462 320 L 492 320" />
           <path d="M 492 252 L 605 252 M 685 252 L 735 252" />
           <path d="M 492 252 L 492 455" />
           <path d="M 492 455 L 510 455 M 558 455 L 750 455 M 800 455 L 815 455" />
