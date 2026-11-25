@@ -471,7 +471,24 @@ class GoogleHomeMcpClient {
     if (!dev) {
       dev = resources.find(r => (r.displayName || '').toLowerCase().includes(String(deviceId).toLowerCase()));
     }
-    if (!dev) throw new Error(`Dispositivo ${deviceId} non trovato.`);
+    if (!dev) {
+      const stateBool = Boolean(targetState);
+      try {
+        const mRes = await merossEnergy.togglePlugByName(deviceId, stateBool);
+        if (mRes && mRes.success) {
+          this.localStates[deviceId] = { ...(this.localStates[deviceId] || {}), isOn: stateBool };
+          this.saveLocalStates();
+          eventLogger.log('power_toggle', `${mRes.name} è stato ${stateBool ? 'acceso' : 'spento'} [Meross Direct MQTT]`, {
+            device: mRes.name,
+            value: stateBool
+          });
+          return { success: true, mode: 'meross_direct', name: mRes.name };
+        }
+      } catch (merossErr) {
+        throw new Error(`Errore comando presa Meross (${deviceId}): ${merossErr.message}`);
+      }
+      throw new Error(`Dispositivo ${deviceId} non trovato.`);
+    }
 
     const stateBool = Boolean(targetState);
     const isPlug = dev.type.includes('Plugin') || dev.type.includes('Outlet') || dev.resourceInfo?.deviceInfo?.vendorName === 'Meross';
@@ -528,7 +545,24 @@ class GoogleHomeMcpClient {
     if (!dev) {
       dev = resources.find(r => (r.displayName || '').toLowerCase().includes(String(deviceId).toLowerCase()));
     }
-    if (!dev) throw new Error(`Dispositivo ${deviceId} non trovato.`);
+    if (!dev) {
+      const stateBool = Boolean(targetState);
+      try {
+        const mRes = await merossEnergy.togglePlugByName(deviceId, stateBool);
+        if (mRes && mRes.success) {
+          this.localStates[deviceId] = { ...(this.localStates[deviceId] || {}), isOn: stateBool };
+          this.saveLocalStates();
+          eventLogger.log('power_toggle', `${mRes.name} è stato ${stateBool ? 'acceso' : 'spento'} [Meross Direct MQTT]`, {
+            device: mRes.name,
+            value: stateBool
+          });
+          return { success: true, mode: 'meross_direct', name: mRes.name };
+        }
+      } catch (merossErr) {
+        throw new Error(`Errore comando presa Meross (${deviceId}): ${merossErr.message}`);
+      }
+      throw new Error(`Dispositivo ${deviceId} non trovato.`);
+    }
 
     const pct = Math.max(0, Math.min(100, Math.round(brightnessPercent)));
     let hueExecuted = false;

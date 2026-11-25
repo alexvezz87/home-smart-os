@@ -887,13 +887,16 @@ class MerossEnergyService {
       'angolo lettura': 'angolo bar',
       'angolo lettura (presa)': 'angolo bar'
     };
-    const rawTerm = (deviceName || '').trim().toLowerCase();
+    const rawTrimmed = String(deviceName || '').trim();
+    const rawTerm = rawTrimmed.toLowerCase();
     const candidates = [rawTerm];
     if (MEROSS_PLUG_ALIASES[rawTerm]) candidates.push(MEROSS_PLUG_ALIASES[rawTerm]);
 
+    // Pass 0: Match diretto per UUID (es. prese Meross non ancora in cache Google Home MCP)
+    const uuidMatch = this.devicesMap.get(rawTrimmed) || this.devicesMap.get(rawTerm);
     const entries = Array.from(this.devicesMap.values());
     const sortByOnline = (arr) => [...arr].sort((a, b) => ((b.def?.onlineStatus === 1 ? 1 : 0) - (a.def?.onlineStatus === 1 ? 1 : 0)));
-    const exactMatch = sortByOnline(entries.filter((item) => {
+    const exactMatch = uuidMatch || sortByOnline(entries.filter((item) => {
       const devName = (item.def?.devName || '').trim().toLowerCase();
       return candidates.some((term) => devName === term);
     }))[0];
