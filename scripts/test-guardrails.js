@@ -6329,6 +6329,13 @@ test('TEST 73: Condizionatori Haier SmartAir2 locali TCP :56800 (parser 6d01, co
     assert.equal(discovered.length, 1);
     assert.equal(discovered[0].configured, true);
     assert.equal(discovered[0].unitId, 'salone');
+
+    // Pin #45 (Salone) e #46 (Cameretta) presenti in SpatialEngine
+    const spatialEngine = require('../src/spatial-engine');
+    const pin45 = spatialEngine.pins.find((p) => p.pin === 45);
+    const pin46 = spatialEngine.pins.find((p) => p.pin === 46);
+    assert.ok(pin45 && pin45.isHaierAc && pin45.haierUnitId === 'salone', 'Pin #45 Condizionatore Salone presente');
+    assert.ok(pin46 && pin46.isHaierAc && pin46.haierUnitId === 'cameretta' && pin46.room === 'Cameretta', 'Pin #46 Condizionatore Cameretta presente');
   } finally {
     mgr.stop();
   }

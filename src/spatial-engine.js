@@ -657,6 +657,19 @@ class SpatialEngine {
         x: 34.0,
         y: 78.0,
         nearbyPins: [33, 21, 20, 26]
+      },
+      {
+        pin: 46,
+        name: 'Condizionatore Cameretta',
+        room: 'Cameretta',
+        microZone: 'studio_focus',
+        category: 'climate',
+        isHaierAc: true,
+        haierUnitId: 'cameretta',
+        vendor: 'Haier SmartAir2',
+        x: 64.0,
+        y: 26.5,
+        nearbyPins: [36, 10, 11, 12]
       }
     ];
 
