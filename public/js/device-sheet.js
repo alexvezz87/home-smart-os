@@ -161,10 +161,16 @@ class DeviceSheetManager {
         break;
 
       case 'climate':
-        categoryIcon = 'fa-fan';
-        categoryLabel = p.isDyson ? 'Purificatore Dyson HP11' : 'Clima';
-        badgeColor = p.isOn ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-slate-800 text-slate-400';
-        bodyHtml = this.renderDysonControls(p);
+        categoryIcon = p.isHaierAc ? 'fa-snowflake' : 'fa-fan';
+        categoryLabel = p.isHaierAc
+          ? 'Condizionatore Haier SmartAir2'
+          : (p.isDyson ? 'Purificatore Dyson HP11' : 'Clima');
+        badgeColor = p.isOn
+          ? (p.isHaierAc && p.mode === 'heat'
+            ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40'
+            : 'bg-sky-500/20 text-sky-300 border border-sky-500/40')
+          : 'bg-slate-800 text-slate-400';
+        bodyHtml = p.isHaierAc ? this.renderHaierAcControls(p) : this.renderDysonControls(p);
         break;
 
       default:
@@ -2035,6 +2041,140 @@ async function controlDysonUi(pinNum, payload) {
 
 window.refreshDysonUi = refreshDysonUi;
 window.controlDysonUi = controlDysonUi;
+
+DeviceSheetManager.prototype.renderHaierAcControls = function (p) {
+  const unitId = p.haierUnitId || 'salone';
+  const isOn = Boolean(p.isOn);
+  const online = Boolean(p.online);
+  const currTemp = p.temperature != null ? `${p.temperature}°C` : '--';
+  const targetTemp = Number.isFinite(Number(p.targetTemperature)) ? Number(p.targetTemperature) : 22;
+  const mode = p.mode || 'cool';
+  const fan = p.fanSpeed || 'auto';
+  const swingOn = p.swing === 'vertical';
+
+  const modes = [
+    { id: 'cool', label: 'Freddo', icon: 'fa-snowflake', cls: 'bg-sky-500/20 text-sky-300 border-sky-500/40' },
+    { id: 'heat', label: 'Caldo', icon: 'fa-sun', cls: 'bg-orange-500/20 text-orange-300 border-orange-500/40' },
+    { id: 'dry', label: 'Deum.', icon: 'fa-droplet', cls: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40' },
+    { id: 'fan', label: 'Ventola', icon: 'fa-fan', cls: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' },
+    { id: 'smart', label: 'Auto', icon: 'fa-wand-magic-sparkles', cls: 'bg-violet-500/20 text-violet-300 border-violet-500/40' }
+  ];
+  const fans = [
+    { id: 'auto', label: 'Auto' },
+    { id: 'min', label: 'Min' },
+    { id: 'mid', label: 'Med' },
+    { id: 'max', label: 'Max' }
+  ];
+
+  return `
+    <div class="space-y-4">
+      <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between">
+        <div>
+          <div class="text-[10px] uppercase tracking-wider text-slate-400">Ambiente · TCP :56800</div>
+          <div class="text-2xl font-bold text-slate-100 mt-0.5">${currTemp}</div>
+          <div class="text-[11px] ${online ? 'text-emerald-400' : 'text-amber-400'} mt-0.5">
+            ${online ? '● Keep-Alive LAN attivo' : '○ Offline / in riconnessione'}
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="refreshHaierAcUi(${p.pin}, '${unitId}')" class="px-2.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs" title="Aggiorna stato">
+            <i class="fa-solid fa-rotate"></i>
+          </button>
+          <button onclick="controlHaierAcUi(${p.pin}, '${unitId}', { power: ${!isOn} })"
+            class="px-4 py-2 rounded-xl font-semibold text-xs border transition ${isOn ? 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border-rose-500/40' : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/40'}">
+            <i class="fa-solid fa-power-off mr-1"></i> ${isOn ? 'Spegni' : 'Accendi'}
+          </button>
+        </div>
+      </div>
+
+      <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between">
+        <div>
+          <div class="text-[10px] uppercase tracking-wider text-slate-400">Temperatura Target</div>
+          <div class="text-xl font-bold text-sky-300 mt-0.5">${targetTemp}°C</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="controlHaierAcUi(${p.pin}, '${unitId}', { targetTemperature: ${Math.max(16, targetTemp - 1)} })"
+            class="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold text-base border border-slate-700">−</button>
+          <button onclick="controlHaierAcUi(${p.pin}, '${unitId}', { targetTemperature: ${Math.min(30, targetTemp + 1)} })"
+            class="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold text-base border border-slate-700">+</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="text-[10px] uppercase tracking-wider text-slate-400 mb-2">Modalità</div>
+        <div class="grid grid-cols-5 gap-1.5">
+          ${modes.map((m) => `
+            <button onclick="controlHaierAcUi(${p.pin}, '${unitId}', { mode: '${m.id}' })"
+              class="py-2 px-1 rounded-lg border text-[11px] font-medium flex flex-col items-center gap-1 transition ${mode === m.id && isOn ? m.cls : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:text-slate-200'}">
+              <i class="fa-solid ${m.icon}"></i>
+              <span>${m.label}</span>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex-1">
+          <div class="text-[10px] uppercase tracking-wider text-slate-400 mb-1.5">Ventola</div>
+          <div class="grid grid-cols-4 gap-1.5">
+            ${fans.map((f) => `
+              <button onclick="controlHaierAcUi(${p.pin}, '${unitId}', { fanSpeed: '${f.id}' })"
+                class="py-1.5 rounded-lg border text-[11px] font-medium transition ${fan === f.id ? 'bg-sky-500/20 text-sky-300 border-sky-500/40' : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:text-slate-200'}">
+                ${f.label}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+        <div>
+          <div class="text-[10px] uppercase tracking-wider text-slate-400 mb-1.5">Swing</div>
+          <button onclick="controlHaierAcUi(${p.pin}, '${unitId}', { swing: ${!swingOn} })"
+            class="px-3 py-1.5 rounded-lg border text-[11px] font-medium transition ${swingOn ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:text-slate-200'}">
+            ${swingOn ? 'Attivo' : 'Off'}
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+};
+
+async function refreshHaierAcUi(pinNum, unitId) {
+  try {
+    await fetch('/api/haier/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unitId })
+    });
+    if (typeof loadDashboardData === 'function') await loadDashboardData(true);
+    if (window.deviceSheet && window.homeData?.spatial?.pins) {
+      const updated = window.homeData.spatial.pins.find((item) => item.pin === Number(pinNum));
+      if (updated) window.deviceSheet.open(updated);
+    }
+  } catch (e) {
+    console.error('Errore refreshHaierAcUi:', e);
+  }
+}
+
+async function controlHaierAcUi(pinNum, unitId, payload) {
+  try {
+    const res = await fetch('/api/haier/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unitId, ...payload })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      if (window.showToast) window.showToast(data.error || 'Comando Haier rifiutato', 'error');
+      return;
+    }
+    if (window.showToast) window.showToast('Comando inviato al condizionatore', 'success');
+    setTimeout(() => refreshHaierAcUi(pinNum, unitId), 700);
+  } catch (e) {
+    console.error('Errore controlHaierAcUi:', e);
+  }
+}
+
+window.refreshHaierAcUi = refreshHaierAcUi;
+window.controlHaierAcUi = controlHaierAcUi;
 window.refreshThinqUi = refreshThinqUi;
 window.controlThinqDryerUi = controlThinqDryerUi;
 window.refreshPantumPrinterUi = refreshPantumPrinterUi;

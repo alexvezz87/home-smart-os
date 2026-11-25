@@ -79,6 +79,7 @@ const services = {
   pantumPrinter: null,
   lgThinq: null,
   dysonPurifier: null,
+  haierAc: null,
   volvoTripsSync: null,
   wallboxSync: null,
   webPushManager: null,
@@ -236,6 +237,7 @@ async function bootstrap() {
   services.pantumPrinter = require('./src/pantum-printer');
   services.lgThinq = require('./src/lg-thinq');
   services.dysonPurifier = require('./src/dyson-purifier');
+  services.haierAc = require('./src/haier-ac');
   services.volvoTripsSync = require('./src/volvo-trips-sync');
   services.wallboxSync = require('./src/wallbox-sync');
   services.dolomitiBillsSync = require('./src/dolomiti-bills-sync');
@@ -278,6 +280,7 @@ async function bootstrap() {
   // Inizializza servizi hardware e telemetria
   services.aiGateway.init().catch((err) => console.warn('⚠️ [AIGateway] Init background:', err.message));
   services.iliadboxClient.init().catch((err) => console.warn('⚠️ [Iliadbox] Init background:', err.message));
+  services.haierAc.init().catch((err) => console.warn('⚠️ [Haier AC] Init background:', err.message));
   services.serviceStatus.init({
     db,
     aiGateway: services.aiGateway,
@@ -288,6 +291,7 @@ async function bootstrap() {
     evClimateHub: services.evClimateHub,
     securitySystem: services.securitySystem,
     dysonPurifier: services.dysonPurifier,
+    haierAc: services.haierAc,
     lgThinq: services.lgThinq,
     pantumPrinter: services.pantumPrinter,
     volvoTripsSync: services.volvoTripsSync,

@@ -249,12 +249,69 @@ module.exports = function registerHueAppliancesSpatialRoutes(app, services) {
     }
   });
 
+  // 0i. Condizionatori Haier SmartAir2 (Protocollo Locale TCP :56800, Multi-Unit & Keep-Alive)
+  app.get('/api/haier/status', (req, res) => {
+    if (!services.haierAc) return res.status(503).json({ success: false, error: 'Modulo Haier AC non inizializzato' });
+    res.json({ success: true, data: services.haierAc.getStatus() });
+  });
+
+  app.post('/api/haier/control', async (req, res) => {
+    try {
+      if (!services.haierAc) return res.status(503).json({ success: false, error: 'Modulo Haier AC non inizializzato' });
+      const { unitId, ...params } = req.body || {};
+      const result = await services.haierAc.controlUnit(unitId || 'salone', params);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post('/api/haier/units', async (req, res) => {
+    try {
+      if (!services.haierAc) return res.status(503).json({ success: false, error: 'Modulo Haier AC non inizializzato' });
+      const unit = await services.haierAc.upsertUnit(req.body || {});
+      res.json({ success: true, data: unit, status: services.haierAc.getStatus() });
+    } catch (error) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  app.delete('/api/haier/units/:id', async (req, res) => {
+    try {
+      if (!services.haierAc) return res.status(503).json({ success: false, error: 'Modulo Haier AC non inizializzato' });
+      const removed = await services.haierAc.removeUnit(req.params.id);
+      res.json({ success: true, removed, status: services.haierAc.getStatus() });
+    } catch (error) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post('/api/haier/refresh', async (req, res) => {
+    try {
+      if (!services.haierAc) return res.status(503).json({ success: false, error: 'Modulo Haier AC non inizializzato' });
+      const status = await services.haierAc.refreshUnit(req.body?.unitId);
+      res.json({ success: true, data: status });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post('/api/haier/discover', async (req, res) => {
+    try {
+      if (!services.haierAc) return res.status(503).json({ success: false, error: 'Modulo Haier AC non inizializzato' });
+      const found = await services.haierAc.discoverFromIliadbox();
+      res.json({ success: true, data: found });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   // 1. Snapshot completo casa con arricchimento telemetria Meross, Sicurezza e Mappa Spaziale 32 Pin
   app.get(['/api/home', '/api/dashboard'], async (req, res) => {
     try {
       const {
         mcp, merossEnergy, securitySystem, pantumPrinter,
-        lgThinq, dysonPurifier, spatialEngine, evClimateHub,
+        lgThinq, dysonPurifier, haierAc, spatialEngine, evClimateHub,
         iliadboxClient, getHomeAvatars
       } = services;
       const snapshot = await mcp.getHomeSnapshot();
@@ -265,6 +322,7 @@ module.exports = function registerHueAppliancesSpatialRoutes(app, services) {
       snapshot.printer = pantumPrinter ? pantumPrinter.getStatus() : null;
       snapshot.thinq = lgThinq ? lgThinq.getStatus() : null;
       snapshot.dyson = dysonPurifier ? dysonPurifier.getStatus() : null;
+      snapshot.haierAc = haierAc ? haierAc.getStatus() : null;
       snapshot.evClimate = evClimateHub.getUnifiedStatus(snapshot);
       snapshot.spatial = spatialEngine.getEnrichedMapState(snapshot);
       snapshot.presence = iliadboxClient ? iliadboxClient.getPresenceState() : null;
