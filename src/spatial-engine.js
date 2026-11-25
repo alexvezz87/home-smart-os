@@ -121,15 +121,15 @@ class SpatialEngine {
       // === BAGNO ALEX (Centro-Ovest) ===
       {
         pin: 7,
-        name: 'Lavatrice',
+        name: 'Spina lavatrice',
         room: 'Bagno Alex',
         microZone: 'lavanderia',
         category: 'plug',
         vendor: 'Meross Smart Plug',
-        merossName: 'Lavatrice',
+        merossName: 'Spina lavatrice',
         x: 34.6,
         y: 34.0,
-        nearbyPins: [9, 8]
+        nearbyPins: [47, 44, 37, 9, 8]
       },
 
       // === CORRIDOIO (Spina Dorsale Centrale) ===
@@ -670,6 +670,18 @@ class SpatialEngine {
         x: 64.0,
         y: 26.5,
         nearbyPins: [36, 10, 11, 12]
+      },
+      {
+        pin: 47,
+        name: 'Spina asciugatrice',
+        room: 'Bagno Alex',
+        microZone: 'lavanderia',
+        category: 'plug',
+        vendor: 'Meross Smart Plug',
+        merossName: 'Spina asciugatrice',
+        x: 30.8,
+        y: 34.0,
+        nearbyPins: [7, 44, 37, 9, 8]
       }
     ];
 
