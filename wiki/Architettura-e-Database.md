@@ -106,7 +106,8 @@ CREATE TABLE IF NOT EXISTS activity_logs (
 | `energy_history_store` | `historical-energy-analytics` | `data/historical-energy-analytics.json` | 🔓 No | Analisi consumi mensili/annuali (Volvo EX30, Wallbox ABB, Dolomiti) |
 | `energy_history_store` | `appliance-cycles` | `appliance-cycles.json` | 🔓 No | Cicli lavatrice rilevati da presa smart Meross |
 | `activity_logs` | *(record cronologici)* | `activity-log.json` | 🔓 No | Eventi di sistema, cambi stato, comandi vocali e audit |
-| `room_temp_history` | *(serie temporale 15m)* | *(solo TiDB)* | 🔓 No | Snapshot termici per le 10 zone Bosch, sensore Corridoio Hue e caldaia (retention 60g) |
+| `room_temp_history` | *(serie temporale 15m)* | *(solo TiDB)* | 🔓 No | Snapshot termici per le 10 zone Bosch, sensore Corridoio Hue, caldaia e telemetria `haierAc` (`online`, `isOn`, `mode`, `currentTemp`, `targetTemp`, `powerW`, `energyWh` da `acPowerProvider` Shelly 1PM Gen3, escluso `outdoorTemperature` `U-AC`; retention 60g) |
+| `kv_store` | `climate-optimization-metrics` | *(solo TiDB)* | 🔓 No | Configurazione `ClimateOptimizer` (inclusi parametri ibridi `enableHybridAc`, `hybridSwitchoverTempC`, `maxHouseLoadForAutoAcW`, `shedHouseLoadAcW`, `allowCamerettaNightAc`, `acStratificationOffsetC`, `acMinRunMinutes`, `acMinOffMinutes`), `baselineByZone` e metriche risparmio gas (`#182`) |
 | `kv_store` | `thermal-manual-overrides` | *(solo TiDB)* | 🔓 No | Storico override manuali utente per apprendimento comfort (`#60`) |
 | `kv_store` | `thermal-analytics-report` | *(solo TiDB)* | 🔓 No | Ultimo report di analisi inerzia termica e raccomandazioni (`#60`) |
 | `kv_store` | `gmail_token_alex` | *(solo TiDB)* | 🔒 **Sì** | Token OAuth2 Gmail sola lettura per account Alex (`#36`) |

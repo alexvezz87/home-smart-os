@@ -358,8 +358,20 @@ async function bootstrap() {
   services.volvoTripsSync.init().catch((err) => console.warn('⚠️ [Volvo Drive] Init background:', err.message));
   services.wallboxSync.init().catch((err) => console.warn('⚠️ [Wallbox Drive] Init background:', err.message));
   services.evClimateHub.startPolling();
-  services.climateOptimizer.init({ evClimateHub: services.evClimateHub, securitySystem: services.securitySystem, thermalAnalytics: services.thermalAnalytics }).catch((err) => console.warn('⚠️ [ClimateOptimizer] Init background:', err.message));
-  services.thermalAnalytics.init({ evClimateHub: services.evClimateHub, climateOptimizer: services.climateOptimizer }).catch((err) => console.warn('⚠️ [ThermalAnalytics] Init background:', err.message));
+  services.climateOptimizer.init({
+    evClimateHub: services.evClimateHub,
+    securitySystem: services.securitySystem,
+    thermalAnalytics: services.thermalAnalytics,
+    haierAc: services.haierAc,
+    merossEnergy: services.merossEnergy,
+    dysonPurifier: services.dysonPurifier,
+    dolomitiBillsSync: services.dolomitiBillsSync
+  }).catch((err) => console.warn('⚠️ [ClimateOptimizer] Init background:', err.message));
+  services.thermalAnalytics.init({
+    evClimateHub: services.evClimateHub,
+    climateOptimizer: services.climateOptimizer,
+    haierAc: services.haierAc
+  }).catch((err) => console.warn('⚠️ [ThermalAnalytics] Init background:', err.message));
 
   // Avvia il server TCP solo a bootstrap completato con successo
   tcpServer.listen(PORT, () => {

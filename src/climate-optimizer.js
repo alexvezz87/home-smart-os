@@ -73,6 +73,11 @@ class ClimateOptimizer {
     this.evClimateHub = options.evClimateHub || null;
     this.securitySystem = options.securitySystem || null;
     this.thermalAnalytics = options.thermalAnalytics || null;
+    this.haierAc = options.haierAc || null;
+    this.merossEnergy = options.merossEnergy || null;
+    this.dysonPurifier = options.dysonPurifier || null;
+    this.dolomitiBillsSync = options.dolomitiBillsSync || null;
+    this.acPowerProvider = options.acPowerProvider || null;
 
     this.config = {
       enabled: true,
@@ -85,7 +90,15 @@ class ClimateOptimizer {
       comfortColdTempC: 21.5,
       comfortHotTempC: 19.0,
       comfortOverrideMinutes: 60,
-      comfortVoiceAnnounce: true
+      comfortVoiceAnnounce: true,
+      enableHybridAc: true,
+      hybridSwitchoverTempC: 4.0,
+      maxHouseLoadForAutoAcW: 2000,
+      shedHouseLoadAcW: 2600,
+      allowCamerettaNightAc: false,
+      acStratificationOffsetC: 2,
+      acMinRunMinutes: 10,
+      acMinOffMinutes: 20
     };
 
     this.tempHistoryByZone = new Map(); // zoneId -> [{ ts, temp }]
@@ -96,6 +109,11 @@ class ClimateOptimizer {
     this.coalesceDeferCountByZone = new Map(); // zoneId -> consecutive defers
     this.lastGasTickAt = 0;
     this.zoneStates = {}; // zoneId -> { id, name, currentTemp, setpoint, originalSetpoint, badge, reason, updatedAt }
+
+    this.hybridManagedUnits = new Map(); // unitId -> { unitId, zoneId, room, startedAt, mode, source, targetBoschC, boostTimer }
+    this.lastHybridStopAtByUnit = new Map(); // unitId -> stoppedAtMs
+    this._internalHaierStopAt = new Map(); // unitId -> tsMs
+    this._lastHumidityAdviceAt = 0;
 
     this.metrics = {
       monthKey: getRomeClock().monthKey,
@@ -108,14 +126,31 @@ class ClimateOptimizer {
 
     this.evaluateTimer = null;
     this.forecastTimer = null;
+    this.loadWatchdogTimer = null;
     this.lastForecastSlot = null;
     this._presenceSubscribed = false;
+    this._haierSubscribed = false;
+    this._haierEvalTimer = null;
   }
 
-  async init({ evClimateHub, securitySystem, thermalAnalytics } = {}) {
+  _resolveDep(field, modPath) {
+    if (this[field]) return this[field];
+    try {
+      return require(modPath);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async init({ evClimateHub, securitySystem, thermalAnalytics, haierAc, merossEnergy, dysonPurifier, dolomitiBillsSync, acPowerProvider } = {}) {
     if (evClimateHub) this.evClimateHub = evClimateHub;
     if (securitySystem) this.securitySystem = securitySystem;
     if (thermalAnalytics) this.thermalAnalytics = thermalAnalytics;
+    if (haierAc) this.haierAc = haierAc;
+    if (merossEnergy) this.merossEnergy = merossEnergy;
+    if (dysonPurifier) this.dysonPurifier = dysonPurifier;
+    if (dolomitiBillsSync) this.dolomitiBillsSync = dolomitiBillsSync;
+    if (acPowerProvider) this.acPowerProvider = acPowerProvider;
 
     try {
       const saved = await db.get(METRICS_DB_KEY);
@@ -165,6 +200,29 @@ class ClimateOptimizer {
       });
     }
 
+    if (!this._haierSubscribed && typeof eventBus.on === 'function') {
+      this._haierSubscribed = true;
+      eventBus.on('haier:state_changed', (evt) => {
+        const unitId = String(evt?.data?.unitId || evt?.data?.id || '').toLowerCase();
+        if (evt?.data?.power === false && unitId && this.hybridManagedUnits.has(unitId)) {
+          const internalAt = this._internalHaierStopAt.get(unitId) || 0;
+          if (Date.now() - internalAt > 5000) {
+            const meta = this.hybridManagedUnits.get(unitId);
+            if (meta?.boostTimer) clearTimeout(meta.boostTimer);
+            this.hybridManagedUnits.delete(unitId);
+            this.lastHybridStopAtByUnit.set(unitId, Date.now());
+          }
+        }
+        if (this.config.enabled && this.config.enableHybridAc !== false) {
+          if (this._haierEvalTimer) clearTimeout(this._haierEvalTimer);
+          this._haierEvalTimer = setTimeout(() => {
+            this.evaluateNow({ reason: 'haier_state_changed' }).catch(() => {});
+          }, 1500);
+          if (typeof this._haierEvalTimer.unref === 'function') this._haierEvalTimer.unref();
+        }
+      });
+    }
+
     if (this.evaluateTimer) clearInterval(this.evaluateTimer);
     this.evaluateTimer = setInterval(() => {
       if (this.config.enabled) {
@@ -172,6 +230,13 @@ class ClimateOptimizer {
       }
     }, EVALUATE_INTERVAL_MS);
     if (typeof this.evaluateTimer.unref === 'function') this.evaluateTimer.unref();
+
+    // Watchdog Salva-Quadro 30s
+    if (this.loadWatchdogTimer) clearInterval(this.loadWatchdogTimer);
+    this.loadWatchdogTimer = setInterval(() => {
+      this.checkHybridLoadSafety().catch(() => {});
+    }, 30 * 1000);
+    if (typeof this.loadWatchdogTimer.unref === 'function') this.loadWatchdogTimer.unref();
 
     // Controllo orario per Gemini Thermal Forecaster (06:00 e 13:00 Europe/Rome)
     if (this.forecastTimer) clearInterval(this.forecastTimer);
@@ -189,8 +254,12 @@ class ClimateOptimizer {
   stop() {
     if (this.evaluateTimer) clearInterval(this.evaluateTimer);
     if (this.forecastTimer) clearInterval(this.forecastTimer);
+    if (this.loadWatchdogTimer) clearInterval(this.loadWatchdogTimer);
+    if (this._haierEvalTimer) clearTimeout(this._haierEvalTimer);
     this.evaluateTimer = null;
     this.forecastTimer = null;
+    this.loadWatchdogTimer = null;
+    this._haierEvalTimer = null;
   }
 
   recordManualOverride(zoneId, ttlMs = MANUAL_OVERRIDE_TTL_MS, nowMs = Date.now()) {
@@ -227,6 +296,19 @@ class ClimateOptimizer {
 
   async resetComfortAndRebalance({ zoneIds = null, reason = 'comfort_reset', source = 'google_smarthome' } = {}) {
     const clearedCount = this.clearManualOverrides(zoneIds);
+    if (this.hybridManagedUnits.size > 0) {
+      const haierAc = this._resolveDep('haierAc', './haier-ac');
+      const nowMs = Date.now();
+      for (const [unitId, meta] of Array.from(this.hybridManagedUnits.entries())) {
+        if (meta?.boostTimer) clearTimeout(meta.boostTimer);
+        this._internalHaierStopAt.set(unitId, nowMs);
+        try {
+          await haierAc?.controlUnit?.(unitId, { power: false });
+        } catch (_) {}
+        this.lastHybridStopAtByUnit.set(unitId, nowMs);
+        this.hybridManagedUnits.delete(unitId);
+      }
+    }
     const evalResult = await this.evaluateNow({ reason }).catch((err) => ({ error: err.message }));
     const reply = 'Ho disattivato la modalità comfort e ripristinato il bilanciamento automatico dei termosifoni.';
     eventLogger.log('bosch_thermo', reply, { source, reason, clearedCount });
@@ -240,6 +322,135 @@ class ClimateOptimizer {
       ts: Date.now()
     });
     return { success: true, clearedCount, reason, reply, evaluation: evalResult };
+  }
+
+  _resolveHybridUnitForZone(zone, units = []) {
+    if (!Array.isArray(units) || units.length === 0) return null;
+    const zId = String(zone?.id || '').toLowerCase();
+    const zName = String(zone?.name || '').toLowerCase();
+    let targetRoom = null;
+    if (zId === 'zn10' || zName.includes('salone')) targetRoom = 'salone';
+    else if (zId === 'zn3' || zName.includes('cameretta')) targetRoom = 'cameretta';
+    if (!targetRoom) return null;
+    return units.find((u) => {
+      const uId = String(u?.id || '').toLowerCase();
+      const uRoom = String(u?.room || '').toLowerCase();
+      return uId === targetRoom || uRoom.includes(targetRoom);
+    }) || null;
+  }
+
+  getElectricalLoads() {
+    const unified = this.evClimateHub && typeof this.evClimateHub.getUnifiedStatus === 'function'
+      ? this.evClimateHub.getUnifiedStatus()
+      : null;
+    const meross = this._resolveDep('merossEnergy', './meross-energy');
+    const merossRaw = meross?.getStatus?.()?.totalPowerW ?? unified?.loadBalance?.houseWatts ?? 0;
+    const merossPlugsW = Number.isFinite(Number(merossRaw)) ? Math.max(0, Number(merossRaw)) : 0;
+
+    let shellyMeasuredAcW = 0;
+    if (typeof this.acPowerProvider?.getUnitPower === 'function') {
+      const pSalone = Number(this.acPowerProvider.getUnitPower('salone')?.powerW || 0);
+      const pCameretta = Number(this.acPowerProvider.getUnitPower('cameretta')?.powerW || 0);
+      shellyMeasuredAcW = (Number.isFinite(pSalone) ? Math.max(0, pSalone) : 0)
+        + (Number.isFinite(pCameretta) ? Math.max(0, pCameretta) : 0);
+    }
+
+    const wallboxRaw = unified?.loadBalance?.wallboxWatts
+      ?? (unified?.wallbox?.connected && unified?.wallbox?.isCharging ? unified?.wallbox?.powerW : 0)
+      ?? 0;
+    const wallboxWatts = Number.isFinite(Number(wallboxRaw)) ? Math.max(0, Number(wallboxRaw)) : 0;
+    const maxBreakerRaw = unified?.loadBalance?.maxBreakerWatts ?? 6000;
+    const maxBreakerWatts = Number.isFinite(Number(maxBreakerRaw)) ? Number(maxBreakerRaw) : 6000;
+
+    const indoorLoadW = Math.round(merossPlugsW + shellyMeasuredAcW);
+    const mainMeterTotalW = Math.round(indoorLoadW + wallboxWatts);
+    return { merossPlugsW, shellyMeasuredAcW, wallboxWatts, maxBreakerWatts, indoorLoadW, mainMeterTotalW };
+  }
+
+  async checkHybridLoadSafety({ nowMs = Date.now() } = {}) {
+    if (this.hybridManagedUnits.size === 0) return { shed: false, units: [] };
+    const { indoorLoadW, mainMeterTotalW, maxBreakerWatts } = this.getElectricalLoads();
+    const shedThresholdW = Number(this.config.shedHouseLoadAcW || 2600);
+    if (indoorLoadW <= shedThresholdW && mainMeterTotalW <= (maxBreakerWatts - 400)) {
+      return { shed: false, indoorLoadW, mainMeterTotalW, units: [] };
+    }
+
+    const haierAc = this._resolveDep('haierAc', './haier-ac');
+    const stoppedUnits = [];
+    for (const [unitId, meta] of Array.from(this.hybridManagedUnits.entries())) {
+      if (meta?.boostTimer) clearTimeout(meta.boostTimer);
+      this._internalHaierStopAt.set(unitId, nowMs);
+      try {
+        await haierAc?.controlUnit?.(unitId, { power: false });
+      } catch (_) {}
+      this.lastHybridStopAtByUnit.set(unitId, nowMs);
+      this.hybridManagedUnits.delete(unitId);
+      stoppedUnits.push(unitId);
+    }
+
+    eventLogger.log('haier_ac', `Stacco salva-quadro 3kW: spenti split Haier (${stoppedUnits.join(', ')}) [indoor=${indoorLoadW}W, contatore=${mainMeterTotalW}W]`, {
+      source: 'ClimateOptimizer',
+      indoorLoadW,
+      mainMeterTotalW,
+      units: stoppedUnits
+    });
+    eventBus.publish('climate:hybrid_load_shed', {
+      ts: nowMs,
+      indoorLoadW,
+      mainMeterTotalW,
+      units: stoppedUnits
+    });
+    return { shed: true, indoorLoadW, mainMeterTotalW, units: stoppedUnits };
+  }
+
+  async startHybridComfortBoost(unitId, { room, zoneId, durationMinutes = 20, targetBoschC = 20.5, nowMs = Date.now() } = {}) {
+    const cleanId = String(unitId || '').toLowerCase();
+    const haierAc = this._resolveDep('haierAc', './haier-ac');
+    if (!haierAc || typeof haierAc.controlUnit !== 'function') {
+      return { success: false, error: 'haierAc non disponibile' };
+    }
+    const prev = this.hybridManagedUnits.get(cleanId);
+    if (prev?.boostTimer) clearTimeout(prev.boostTimer);
+
+    await haierAc.controlUnit(cleanId, {
+      power: true,
+      mode: 'heat',
+      targetTemperature: 23,
+      fanSpeed: cleanId === 'cameretta' ? 'min' : 'mid',
+      swing: 'vertical'
+    });
+
+    const boostTimer = setTimeout(async () => {
+      const cur = this.hybridManagedUnits.get(cleanId);
+      if (cur && cur.source === 'comfort_boost') {
+        this._internalHaierStopAt.set(cleanId, Date.now());
+        try {
+          await haierAc.controlUnit(cleanId, { power: false });
+        } catch (_) {}
+        this.lastHybridStopAtByUnit.set(cleanId, Date.now());
+        this.hybridManagedUnits.delete(cleanId);
+      }
+    }, Math.max(1, Number(durationMinutes || 20)) * 60 * 1000);
+    if (typeof boostTimer.unref === 'function') boostTimer.unref();
+
+    this.hybridManagedUnits.set(cleanId, {
+      unitId: cleanId,
+      zoneId: zoneId || (cleanId === 'salone' ? 'zn10' : 'zn3'),
+      room: room || (cleanId === 'salone' ? 'Salone' : 'Cameretta'),
+      startedAt: nowMs,
+      mode: 'heat',
+      source: 'comfort_boost',
+      targetBoschC,
+      boostTimer
+    });
+
+    eventLogger.log('haier_ac', `Boost rapido ibrido Haier ${cleanId} (${durationMinutes}m)`, {
+      source: 'voice_comfort_boost',
+      unitId: cleanId,
+      durationMinutes
+    });
+
+    return { success: true, unitId: cleanId, durationMinutes };
   }
 
   /**
@@ -463,7 +674,7 @@ class ClimateOptimizer {
     }
 
     // Strategia 3: Rampa graduale caldaia a condensazione (anche in ripartenza post-aerazione)
-    const ramped = this.applyGentleRamp(currentSetpoint, proposed);
+    const ramped = context.skipGentleRamp ? proposed : this.applyGentleRamp(currentSetpoint, proposed);
     void windowRestored;
 
     // Guardrail Deterministico Hardware Obbligatorio (15.0°C - 23.5°C) + tetto comfort
@@ -503,7 +714,7 @@ class ClimateOptimizer {
 
     for (const item of pendingProposals) {
       const { z, prop } = item;
-      if (!prop || prop.badge === 'window_pause') continue;
+      if (!prop || prop.badge === 'window_pause' || prop.badge === 'hybrid_interlock' || prop.badge === 'hybrid_ac_heat') continue;
       const rawValvePos = typeof z.valvePosition === 'number'
         ? Number(z.valvePosition)
         : (typeof z.valve?.position === 'number' ? Number(z.valve.position) : 0);
@@ -586,6 +797,10 @@ class ClimateOptimizer {
     const weather = await this.fetchWeatherForecast();
     const corridorTemp = hueLocal.motionSensor?.temperature ?? null;
     const shouldAccumulateGas = !dryRun && (reason === 'scheduled' || (nowMs - this.lastGasTickAt >= 10 * 60 * 1000));
+    const haierAc = this._resolveDep('haierAc', './haier-ac');
+    const haierUnits = Array.isArray(haierAc?.getStatus?.()?.units) ? haierAc.getStatus().units : [];
+    const outdoorTemp = unified?.bosch?.outdoorTemp ?? weather?.outdoorTemp ?? null;
+    const loads = this.getElectricalLoads();
 
     const zoneThermalStats = {};
     const reportZones = this.thermalAnalytics?.latestReport?.zones;
@@ -643,8 +858,173 @@ class ClimateOptimizer {
         continue;
       }
 
-      const prop = this.evaluateZoneProposal(z, { nowMs, allAway, weather, corridorTemp, zoneThermalStats });
-      pendingProposals.push({ z, prop });
+      const haierUnit = this._resolveHybridUnitForZone(z, haierUnits);
+      const prevZoneBadge = this.zoneStates[z.id]?.badge;
+      const skipGentleRamp = Boolean(
+        (prevZoneBadge === 'hybrid_interlock' || prevZoneBadge === 'hybrid_ac_heat') &&
+        (!haierUnit || !haierUnit.isOn)
+      );
+
+      const prop = this.evaluateZoneProposal(z, { nowMs, allAway, weather, corridorTemp, zoneThermalStats, skipGentleRamp });
+
+      // Regola 1: Interlock Obbligatorio Haier <-> Bosch
+      if (haierUnit && haierUnit.online && haierUnit.isOn) {
+        const modeLower = String(haierUnit.mode || '').toLowerCase();
+        if (modeLower === 'cool' || modeLower === 'dry') {
+          prop.targetSetpoint = 15.0;
+          prop.badge = 'hybrid_interlock';
+          prop.reason = 'Interlock Haier (Freddo/Deum.): valvola chiusa a 15.0°C';
+          prop.changed = Math.abs(15.0 - prop.currentSetpoint) >= 0.5;
+        } else if (modeLower === 'heat') {
+          prop.targetSetpoint = 18.5;
+          prop.badge = 'hybrid_ac_heat';
+          prop.reason = 'Pompa di Calore Haier attiva: valvola Bosch in attesa a 18.5°C';
+          prop.changed = Math.abs(18.5 - prop.currentSetpoint) >= 0.5;
+        }
+      }
+
+      pendingProposals.push({ z, prop, haierUnit });
+    }
+
+    // Regola 2: Arbitraggio Economico Pompa di Calore vs Gas
+    if (this.config.enableHybridAc === true && !dryRun) {
+      const otherStrongBoschRequests = (excludeZoneId) => {
+        let count = 0;
+        for (const item of pendingProposals) {
+          if (String(item.z.id) === String(excludeZoneId)) continue;
+          if (!item.prop || item.prop.badge === 'window_pause') continue;
+          const vPos = typeof item.z.valvePosition === 'number'
+            ? Number(item.z.valvePosition)
+            : (typeof item.z.valve?.position === 'number' ? Number(item.z.valve.position) : 0);
+          const delta = item.prop.currentTemp !== null ? (item.prop.targetSetpoint - item.prop.currentTemp) : 0;
+          if (delta >= 0.5 || vPos >= 25) count += 1;
+        }
+        return count;
+      };
+
+      const anyOtherFlameActive = (excludeZoneId) => {
+        if (Number(unified?.bosch?.flameStatus || unified?.bosch?.modulation || 0) > 0) {
+          return otherStrongBoschRequests(excludeZoneId) > 0;
+        }
+        return false;
+      };
+
+      const shedThresholdW = Number(this.config.shedHouseLoadAcW ?? 2600);
+      const maxAutoLoadW = Number(this.config.maxHouseLoadForAutoAcW ?? 2000);
+      const minRunMs = Number(this.config.acMinRunMinutes ?? 10) * 60 * 1000;
+      const minOffMs = Number(this.config.acMinOffMinutes ?? 20) * 60 * 1000;
+      const switchoverC = Number(this.config.hybridSwitchoverTempC ?? 4.0);
+
+      for (const item of pendingProposals) {
+        const { z, prop, haierUnit } = item;
+        if (!haierUnit) continue;
+        const unitId = String(haierUnit.id || '').toLowerCase();
+        const managed = this.hybridManagedUnits.get(unitId);
+
+        if (managed && managed.source === 'optimizer') {
+          const isOverload = loads.indoorLoadW > shedThresholdW || loads.mainMeterTotalW > (loads.maxBreakerWatts - 400);
+          const isNightCamerettaBlocked = unitId === 'cameretta' && (clk.hour >= 20 || clk.hour < 8) && !this.config.allowCamerettaNightAc;
+          const mustImmediateStop = isOverload || allAway || prop.badge === 'window_pause' || isNightCamerettaBlocked;
+          const targetReached = prop.currentTemp !== null
+            && prop.currentTemp >= (managed.targetBoschC + 0.1)
+            && (nowMs - managed.startedAt) >= minRunMs;
+
+          if (mustImmediateStop || targetReached) {
+            if (managed.boostTimer) clearTimeout(managed.boostTimer);
+            this._internalHaierStopAt.set(unitId, nowMs);
+            try {
+              await haierAc?.controlUnit?.(unitId, { power: false });
+            } catch (_) {}
+            this.lastHybridStopAtByUnit.set(unitId, nowMs);
+            this.hybridManagedUnits.delete(unitId);
+            eventLogger.log('haier_ac', `Stop automatico Haier ${unitId} (${mustImmediateStop ? 'condizione sicurezza/orario' : 'target raggiunto'})`, {
+              source: 'ClimateOptimizer',
+              unitId
+            });
+          }
+          continue;
+        }
+
+        if (haierUnit.online && !haierUnit.isOn && !this.hybridManagedUnits.has(unitId)) {
+          const saloneAllowed = unitId === 'salone' && clk.totalMinutes >= (7 * 60 + 30) && clk.totalMinutes <= (22 * 60 + 30);
+          const camerettaAllowed = unitId === 'cameretta' && ((clk.hour >= 8 && clk.hour < 20) || this.config.allowCamerettaNightAc === true);
+          const slotAllowed = saloneAllowed || camerettaAllowed;
+          const lastStop = this.lastHybridStopAtByUnit.get(unitId) || 0;
+          const cooldownOk = !lastStop || (nowMs - lastStop) >= minOffMs;
+          const needsHeat = prop.currentTemp !== null && (prop.targetSetpoint - prop.currentTemp) >= 0.4;
+          const noOtherHeat = otherStrongBoschRequests(z.id) === 0 && !anyOtherFlameActive(z.id);
+          const outdoorOk = outdoorTemp !== null && Number.isFinite(Number(outdoorTemp)) && Number(outdoorTemp) >= switchoverC;
+          const loadOk = loads.indoorLoadW < maxAutoLoadW && loads.mainMeterTotalW < (loads.maxBreakerWatts - 1000);
+
+          if (
+            slotAllowed
+            && !allAway
+            && prop.badge !== 'window_pause'
+            && !this.isManualOverrideActive(z.id, nowMs)
+            && cooldownOk
+            && needsHeat
+            && noOtherHeat
+            && outdoorOk
+            && loadOk
+          ) {
+            const acTarget = Math.min(23, Math.max(18, Math.round(prop.targetSetpoint + Number(this.config.acStratificationOffsetC ?? 2))));
+            try {
+              await haierAc.controlUnit(unitId, {
+                power: true,
+                mode: 'heat',
+                targetTemperature: acTarget,
+                fanSpeed: 'min',
+                quiet: true,
+                swing: 'vertical'
+              });
+              this.hybridManagedUnits.set(unitId, {
+                unitId,
+                zoneId: z.id,
+                room: z.name,
+                startedAt: nowMs,
+                mode: 'heat',
+                source: 'optimizer',
+                targetBoschC: prop.targetSetpoint,
+                boostTimer: null
+              });
+              prop.targetSetpoint = 18.5;
+              prop.badge = 'hybrid_ac_heat';
+              prop.reason = `Pompa di Calore Haier avviata (${acTarget}°C): valvola Bosch in attesa a 18.5°C`;
+              prop.changed = Math.abs(18.5 - prop.currentSetpoint) >= 0.5;
+              eventLogger.log('haier_ac', `Avvio ibrido Haier ${unitId} a ${acTarget}°C (T_ext=${outdoorTemp}°C, carico=${loads.indoorLoadW}W)`, {
+                source: 'ClimateOptimizer',
+                unitId,
+                acTarget,
+                outdoorTemp,
+                indoorLoadW: loads.indoorLoadW
+              });
+            } catch (err) {
+              console.warn(`⚠️ [ClimateOptimizer] Errore avvio ibrido Haier ${unitId}:`, err.message);
+            }
+          }
+        }
+      }
+    }
+
+    // Regola 3: Anti-Muffa & Umidità Sicura (Solo Dyson HP11, mai DRY con T < 21.5°C)
+    const dyson = this._resolveDep('dysonPurifier', './dyson-purifier');
+    const dysonHumidity = dyson?.getStatus?.()?.humidityPercent;
+    if (
+      Number.isFinite(Number(dysonHumidity))
+      && Number(dysonHumidity) >= 65
+      && !allAway
+      && (nowMs - this._lastHumidityAdviceAt) >= 6 * 3600 * 1000
+    ) {
+      const saloneZone = zones.find((z) => String(z?.name || '').toLowerCase().includes('salone'));
+      const saloneTemp = Number.isFinite(Number(saloneZone?.tempActual)) ? Number(saloneZone.tempActual) : null;
+      if (saloneTemp === null || saloneTemp < 21.5) {
+        this._lastHumidityAdviceAt = nowMs;
+        eventLogger.log('climate_humidity_advice', `Umidità elevata (${dysonHumidity}%) con T=${saloneTemp ?? '--'}°C: consigliato ricambio aria o purificatore (DRY disabilitato sotto 21.5°C)`, {
+          source: 'ClimateOptimizer',
+          humidityPercent: Number(dysonHumidity),
+          saloneTemp
+        });
+      }
     }
 
     this.applyBoilerCoalescing(pendingProposals);
@@ -819,6 +1199,31 @@ Restituisci JSON con schema: { "motivation": "frase breve in italiano", "adjustm
     if (patch.comfortVoiceAnnounce !== undefined) {
       this.config.comfortVoiceAnnounce = Boolean(patch.comfortVoiceAnnounce);
     }
+    if (patch.enableHybridAc !== undefined) {
+      this.config.enableHybridAc = Boolean(patch.enableHybridAc);
+    }
+    if (patch.hybridSwitchoverTempC !== undefined && Number.isFinite(Number(patch.hybridSwitchoverTempC))) {
+      const clamped = Math.max(0.0, Math.min(15.0, Number(patch.hybridSwitchoverTempC)));
+      this.config.hybridSwitchoverTempC = +(Math.round(clamped * 2) / 2).toFixed(1);
+    }
+    if (patch.maxHouseLoadForAutoAcW !== undefined && Number.isFinite(Number(patch.maxHouseLoadForAutoAcW))) {
+      this.config.maxHouseLoadForAutoAcW = Math.round(Math.max(800, Math.min(5500, Number(patch.maxHouseLoadForAutoAcW))));
+    }
+    if (patch.shedHouseLoadAcW !== undefined && Number.isFinite(Number(patch.shedHouseLoadAcW))) {
+      this.config.shedHouseLoadAcW = Math.round(Math.max(1200, Math.min(5800, Number(patch.shedHouseLoadAcW))));
+    }
+    if (patch.allowCamerettaNightAc !== undefined) {
+      this.config.allowCamerettaNightAc = Boolean(patch.allowCamerettaNightAc);
+    }
+    if (patch.acStratificationOffsetC !== undefined && Number.isFinite(Number(patch.acStratificationOffsetC))) {
+      this.config.acStratificationOffsetC = Math.round(Math.max(0, Math.min(4, Number(patch.acStratificationOffsetC))));
+    }
+    if (patch.acMinRunMinutes !== undefined && Number.isFinite(Number(patch.acMinRunMinutes))) {
+      this.config.acMinRunMinutes = Math.round(Math.max(5, Math.min(60, Number(patch.acMinRunMinutes))));
+    }
+    if (patch.acMinOffMinutes !== undefined && Number.isFinite(Number(patch.acMinOffMinutes))) {
+      this.config.acMinOffMinutes = Math.round(Math.max(5, Math.min(120, Number(patch.acMinOffMinutes))));
+    }
     await this.persistState();
     return this.getStatus();
   }
@@ -835,6 +1240,7 @@ Restituisci JSON con schema: { "motivation": "frase breve in italiano", "adjustm
   getStatus() {
     const savedGasM3 = Number(this.metrics.savedGasM3 || 0);
     const savedEuro = +(savedGasM3 * Number(this.config.gasPricePerSmc || 1.10)).toFixed(2);
+    const loads = this.getElectricalLoads();
     return {
       config: { ...this.config },
       buildingProfile: BUILDING_THERMAL_PROFILE,
@@ -843,7 +1249,13 @@ Restituisci JSON con schema: { "motivation": "frase breve in italiano", "adjustm
         savedGasM3,
         savedEuro
       },
-      zones: Object.values(this.zoneStates)
+      zones: Object.values(this.zoneStates),
+      hybridStatus: {
+        enabled: Boolean(this.config.enableHybridAc),
+        indoorLoadW: loads.indoorLoadW,
+        mainMeterTotalW: loads.mainMeterTotalW,
+        managedUnits: Array.from(this.hybridManagedUnits.values()).map(({ boostTimer, ...rest }) => rest)
+      }
     };
   }
 }

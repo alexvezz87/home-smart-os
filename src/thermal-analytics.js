@@ -15,6 +15,8 @@ class ThermalAnalytics {
   constructor(options = {}) {
     this.evClimateHub = options.evClimateHub || null;
     this.climateOptimizer = options.climateOptimizer || null;
+    this.haierAc = options.haierAc || null;
+    this.acPowerProvider = options.acPowerProvider || null;
     this.retentionDays = options.retentionDays || DEFAULT_RETENTION_DAYS;
 
     this.samples = []; // in-memory cache of snapshots
@@ -26,9 +28,11 @@ class ThermalAnalytics {
     this.busBound = false;
   }
 
-  async init({ evClimateHub = null, climateOptimizer = null } = {}) {
+  async init({ evClimateHub = null, climateOptimizer = null, haierAc = null, acPowerProvider = null } = {}) {
     if (evClimateHub) this.evClimateHub = evClimateHub;
     if (climateOptimizer) this.climateOptimizer = climateOptimizer;
+    if (haierAc) this.haierAc = haierAc;
+    if (acPowerProvider) this.acPowerProvider = acPowerProvider;
 
     const sinceTs = Date.now() - this.retentionDays * 24 * 60 * 60 * 1000;
     try {
@@ -154,6 +158,12 @@ class ThermalAnalytics {
         : (typeof bosch.currentModulation === 'number' ? bosch.currentModulation : bosch.boiler?.modulation));
     const modVal = typeof rawMod === 'number' ? Number(rawMod) : null;
 
+    let haierClient = this.haierAc;
+    if (!haierClient) {
+      try { haierClient = require('./haier-ac'); } catch (_) { haierClient = null; }
+    }
+    const haierUnits = Array.isArray(haierClient?.getStatus?.()?.units) ? haierClient.getStatus().units : [];
+
     const snapshot = {
       ts: nowMs,
       outdoorTemp: typeof bosch.outdoorTemp === 'number' ? Number(bosch.outdoorTemp) : null,
@@ -161,7 +171,21 @@ class ThermalAnalytics {
       modulationPct: modVal,
       anyHome,
       corridorTemp,
-      zones
+      zones,
+      ...(haierUnits.length > 0 ? {
+        haierAc: Object.fromEntries(haierUnits.map((u) => {
+          const p = typeof this.acPowerProvider?.getUnitPower === 'function' ? this.acPowerProvider.getUnitPower(u.id) : null;
+          return [u.id, {
+            online: Boolean(u.online),
+            isOn: Boolean(u.isOn),
+            mode: u.mode || null,
+            currentTemp: u.temperature ?? null,
+            targetTemp: u.targetTemperature ?? null,
+            powerW: p?.powerW ?? null,
+            energyWh: p?.totalWh ?? null
+          }];
+        }))
+      } : {})
     };
 
     this.samples.push(snapshot);
