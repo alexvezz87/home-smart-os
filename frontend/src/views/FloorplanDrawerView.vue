@@ -221,18 +221,34 @@ function sceneGradient(scene) {
               @click="store.handlePinClick(p.pin, $event)"
               class="flex items-center gap-2 min-w-0 flex-1 text-left"
             >
-              <!-- Icona lampadario 3 bracci o icona categoria -->
+              <!-- Icona lampadario / termosifone / condizionatore o icona categoria -->
               <svg v-if="p.category === 'chandelier'" viewBox="0 0 24 24" class="w-4 h-4 shrink-0" :class="p.isOn ? 'text-amber-300' : 'text-slate-500'" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M12 3v6M6 12h12M6 12v3M12 9v6M18 12v3" />
                 <circle cx="6" cy="17" r="1.5" />
                 <circle cx="12" cy="17" r="1.5" />
                 <circle cx="18" cy="17" r="1.5" />
               </svg>
+              <svg v-else-if="p.category === 'valve'" viewBox="-10 -10 20 20" class="w-4 h-4 shrink-0" :class="(p.isHeating || Number(p.valvePercent) > 15) ? 'text-orange-400' : 'text-slate-400'" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="-6.8" y1="-3.8" x2="5.6" y2="-3.8" />
+                <line x1="-6.8" y1="3.8" x2="5.6" y2="3.8" />
+                <rect x="-6.2" y="-5.4" width="2.2" height="10.8" rx="1" />
+                <rect x="-2.9" y="-5.4" width="2.2" height="10.8" rx="1" />
+                <rect x="0.4" y="-5.4" width="2.2" height="10.8" rx="1" />
+                <rect x="3.7" y="-5.4" width="2.2" height="10.8" rx="1" />
+                <circle cx="7.7" cy="-3.6" r="1.05" />
+              </svg>
+              <svg v-else-if="p.category === 'climate' && !p.isDyson" viewBox="-10 -10 20 20" class="w-4 h-4 shrink-0" :class="p.isOn ? 'text-sky-400' : 'text-slate-400'" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="-7.4" y="-6.2" width="14.8" height="6.8" rx="1.7" />
+                <line x1="-5.2" y1="-1.5" x2="5.2" y2="-1.5" />
+                <path d="M -4.2 2.4 Q -5 4.4 -3.8 6.2" />
+                <line x1="0" y1="2.3" x2="0" y2="6.4" />
+                <path d="M 4.2 2.4 Q 5 4.4 3.8 6.2" />
+              </svg>
               <i
                 v-else
                 class="fa-solid w-4 text-center shrink-0"
                 :class="[
-                  p.category === 'valve' ? 'fa-temperature-half text-rose-400' :
+                  p.category === 'climate' && p.isDyson ? 'fa-fan text-emerald-400' :
                   p.category === 'plug' ? 'fa-plug text-cyan-400' :
                   p.category === 'camera' ? 'fa-video text-purple-400' :
                   p.category === 'speaker' || p.category === 'tv' ? 'fa-volume-high text-indigo-400' :
