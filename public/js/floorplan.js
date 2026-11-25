@@ -1367,11 +1367,16 @@ class FloorplanEngine {
           subBadge = p.temperatureC !== null && p.temperatureC !== undefined ? `${p.temperatureC}°` : 'OFF';
         }
       } else {
-        iconGlyph = '&#xf769;';
-        iconColor = '#06b6d4';
-        fill = '#083344';
-        stroke = isSelected ? '#22d3ee' : '#0891b2';
-        subBadge = p.isOn ? 'ON' : '';
+        if (p.isOn) {
+          iconColor = '#38bdf8';
+          fill = '#082f49';
+          stroke = isSelected ? '#22d3ee' : '#0ea5e9';
+          subBadge = p.targetTemperature != null ? `${p.targetTemperature}°` : 'ON';
+        } else {
+          iconColor = '#64748b';
+          stroke = isSelected ? '#22d3ee' : '#334155';
+          subBadge = p.temperature != null ? `${p.temperature}°` : 'OFF';
+        }
       }
     } else if (p.category === 'appliance') {
       iconGlyph = p.thinqRole === 'dryer' ? '&#xf72e;' : '&#xf2e7;';
@@ -1405,6 +1410,58 @@ class FloorplanEngine {
     }
 
     return { fill, stroke, iconColor, iconGlyph, subBadge };
+  }
+
+  renderPinVectorIcon(p, iconColor, iconGlyph, isRoomFocused) {
+    const scaleAttr = isRoomFocused ? 'transform="scale(0.92)"' : '';
+    if (p.category === 'chandelier') {
+      return `
+        <g ${scaleAttr} fill="none" stroke="${iconColor}" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="0" y1="-7.5" x2="0" y2="-3.5" />
+          <path d="M -6.5 1.5 Q -6.5 -3.5 0 -3.5 Q 6.5 -3.5 6.5 1.5" />
+          <line x1="0" y1="-3.5" x2="0" y2="2" />
+          <circle cx="-6.5" cy="3.5" r="2" fill="${p.isOn ? iconColor : 'none'}" />
+          <circle cx="0" cy="4.2" r="2" fill="${p.isOn ? iconColor : 'none'}" />
+          <circle cx="6.5" cy="3.5" r="2" fill="${p.isOn ? iconColor : 'none'}" />
+        </g>
+      `;
+    }
+    if (p.category === 'valve') {
+      const isHeating = Boolean(p.isHeating || (Number(p.valvePercent) > 15));
+      const ribFill = isHeating ? iconColor : 'none';
+      const ribFillOpacity = isHeating ? '0.28' : '0';
+      return `
+        <g ${scaleAttr} fill="none" stroke="${iconColor}" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="-6.8" y1="-3.8" x2="5.6" y2="-3.8" />
+          <line x1="-6.8" y1="3.8" x2="5.6" y2="3.8" />
+          <rect x="-6.2" y="-5.4" width="2.2" height="10.8" rx="1" fill="${ribFill}" fill-opacity="${ribFillOpacity}" />
+          <rect x="-2.9" y="-5.4" width="2.2" height="10.8" rx="1" fill="${ribFill}" fill-opacity="${ribFillOpacity}" />
+          <rect x="0.4" y="-5.4" width="2.2" height="10.8" rx="1" fill="${ribFill}" fill-opacity="${ribFillOpacity}" />
+          <rect x="3.7" y="-5.4" width="2.2" height="10.8" rx="1" fill="${ribFill}" fill-opacity="${ribFillOpacity}" />
+          <line x1="5.9" y1="-3.6" x2="7.1" y2="-3.6" />
+          <circle cx="7.7" cy="-3.6" r="1.05" fill="${isHeating ? iconColor : 'none'}" />
+        </g>
+      `;
+    }
+    if (p.category === 'climate' && !p.isDyson) {
+      return `
+        <g ${scaleAttr} fill="none" stroke="${iconColor}" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="-7.4" y="-6.2" width="14.8" height="6.8" rx="1.7" fill="${p.isOn ? iconColor : 'none'}" fill-opacity="${p.isOn ? '0.16' : '0'}" />
+          <line x1="-5.2" y1="-1.5" x2="5.2" y2="-1.5" />
+          <circle cx="4.8" cy="-4.1" r="0.75" fill="${p.isOn ? iconColor : 'none'}" stroke="none" />
+          <path d="M -4.2 2.4 Q -5 4.4 -3.8 6.2" />
+          <line x1="0" y1="2.3" x2="0" y2="6.4" />
+          <path d="M 4.2 2.4 Q 5 4.4 3.8 6.2" />
+        </g>
+      `;
+    }
+    return `
+      <text x="0" y="1" text-anchor="middle" dominant-baseline="central"
+            fill="${iconColor}"
+            font-family="'Font Awesome 6 Free', 'FontAwesome', sans-serif"
+            font-weight="900"
+            font-size="${isRoomFocused ? '12' : '12.5'}">${iconGlyph}</text>
+    `;
   }
 
   resolveLightGlowHex(p) {
@@ -1766,22 +1823,7 @@ class FloorplanEngine {
                   class="fp-pin-card transition-all duration-200" />
 
             <!-- Icona Vettoriale Specifica -->
-            ${p.category === 'chandelier' ? `
-              <g ${isRoomFocused ? 'transform="scale(0.92)"' : ''} fill="none" stroke="${iconColor}" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="0" y1="-7.5" x2="0" y2="-3.5" />
-                <path d="M -6.5 1.5 Q -6.5 -3.5 0 -3.5 Q 6.5 -3.5 6.5 1.5" />
-                <line x1="0" y1="-3.5" x2="0" y2="2" />
-                <circle cx="-6.5" cy="3.5" r="2" fill="${p.isOn ? iconColor : 'none'}" />
-                <circle cx="0" cy="4.2" r="2" fill="${p.isOn ? iconColor : 'none'}" />
-                <circle cx="6.5" cy="3.5" r="2" fill="${p.isOn ? iconColor : 'none'}" />
-              </g>
-            ` : `
-              <text x="0" y="1" text-anchor="middle" dominant-baseline="central"
-                    fill="${iconColor}"
-                    font-family="'Font Awesome 6 Free', 'FontAwesome', sans-serif"
-                    font-weight="900"
-                    font-size="${isRoomFocused ? '12' : '12.5'}">${iconGlyph}</text>
-            `}
+            ${this.renderPinVectorIcon(p, iconColor, iconGlyph, isRoomFocused)}
 
             <!-- Micro-Badge Numero Pin in alto a destra -->
             <g transform="translate(9.5, -9.5)">
@@ -2122,7 +2164,15 @@ class FloorplanEngine {
               <div class="flex items-center justify-between gap-2">
                 <div class="flex items-center gap-2.5 overflow-hidden">
                   <div class="w-8 h-8 rounded-lg ${isHeating ? 'bg-orange-500/20 text-orange-400' : 'bg-slate-800 text-slate-400'} flex items-center justify-center shrink-0">
-                    <i class="fa-solid fa-temperature-arrow-up text-xs"></i>
+                    <svg class="w-4 h-4" viewBox="-10 -10 20 20" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="-6.8" y1="-3.8" x2="5.6" y2="-3.8" />
+                      <line x1="-6.8" y1="3.8" x2="5.6" y2="3.8" />
+                      <rect x="-6.2" y="-5.4" width="2.2" height="10.8" rx="1" />
+                      <rect x="-2.9" y="-5.4" width="2.2" height="10.8" rx="1" />
+                      <rect x="0.4" y="-5.4" width="2.2" height="10.8" rx="1" />
+                      <rect x="3.7" y="-5.4" width="2.2" height="10.8" rx="1" />
+                      <circle cx="7.7" cy="-3.6" r="1.05" />
+                    </svg>
                   </div>
                   <div class="truncate">
                     <div class="text-xs font-bold text-white truncate">${p.name}</div>
@@ -2211,16 +2261,26 @@ class FloorplanEngine {
           `;
         }
 
+        const isAc = p.category === 'climate' && !p.isDyson;
         const icon = p.category === 'speaker' ? 'fa-volume-high text-yellow-400' :
                      p.category === 'tv' ? 'fa-tv text-purple-400' :
+                     p.category === 'climate' && p.isDyson ? 'fa-fan text-emerald-400' :
                      p.category === 'sensor' ? 'fa-temperature-half text-sky-400' : 'fa-microchip text-slate-400';
 
         return `
           <div class="p-3 rounded-xl bg-slate-900/70 border border-slate-800 hover:border-indigo-500/50 transition-all flex items-center justify-between gap-2 cursor-pointer shadow-sm"
                onclick="window.floorplan.handlePinClick(${p.pin}, event)">
             <div class="flex items-center gap-2.5 overflow-hidden">
-              <div class="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center shrink-0">
-                <i class="fa-solid ${icon} text-xs"></i>
+              <div class="w-8 h-8 rounded-lg ${isAc ? (p.isOn ? 'bg-sky-500/20 text-sky-300' : 'bg-slate-800 text-slate-400') : 'bg-slate-800'} flex items-center justify-center shrink-0">
+                ${isAc ? `
+                  <svg class="w-4 h-4" viewBox="-10 -10 20 20" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="-7.4" y="-6.2" width="14.8" height="6.8" rx="1.7" />
+                    <line x1="-5.2" y1="-1.5" x2="5.2" y2="-1.5" />
+                    <path d="M -4.2 2.4 Q -5 4.4 -3.8 6.2" />
+                    <line x1="0" y1="2.3" x2="0" y2="6.4" />
+                    <path d="M 4.2 2.4 Q 5 4.4 3.8 6.2" />
+                  </svg>
+                ` : `<i class="fa-solid ${icon} text-xs"></i>`}
               </div>
               <div class="truncate">
                 <div class="text-xs font-bold text-white truncate">${p.name}</div>
