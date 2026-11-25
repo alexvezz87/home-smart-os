@@ -287,6 +287,29 @@ class FloorplanEngine {
       es.addEventListener('notifications:updated', () => {
         window.notificationsManager?.refreshBadgeAndFeed(true);
       });
+      es.addEventListener('haier:state_changed', (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          const d = msg?.data;
+          if (!d) return;
+          const pins = window.homeData?.spatial?.pins;
+          if (!Array.isArray(pins)) return;
+          const pin = pins.find((p) => p.isHaierAc && (p.haierUnitId === d.unitId || p.room?.toLowerCase() === d.room?.toLowerCase()));
+          if (!pin) return;
+          if (typeof d.power === 'boolean') pin.isOn = d.power;
+          if (d.currentTemperature != null) pin.temperature = d.currentTemperature;
+          if (d.targetTemperature != null) pin.targetTemperature = d.targetTemperature;
+          if (d.mode) pin.mode = d.mode;
+          if (d.fanSpeed) pin.fanSpeed = d.fanSpeed;
+          if (d.swing) pin.swing = d.swing;
+          pin.online = true;
+          this.render();
+          const drawer = document.getElementById('device-drawer');
+          if (drawer && !drawer.classList.contains('hidden') && Number(window.deviceSheet?.currentPin?.pin) === Number(pin.pin)) {
+            window.deviceSheet.open(pin);
+          }
+        } catch (_) {}
+      });
     } catch (_) {}
   }
 

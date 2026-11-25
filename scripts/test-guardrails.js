@@ -6451,3 +6451,18 @@ test('DeviceSheet (#181): controlHaierAcUi aggiorna subito UI e refreshHaierAcUi
   assert.equal(loadDashboardCalls, 1, 'refreshHaierAcUi deve invocare loadDashboard()');
 });
 
+test('Realtime SSE & App (#183): haier:state_changed su SSE, refresh drawer aperto in loadDashboard e cache-busting', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const routesSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'admin-system.routes.js'), 'utf8');
+  const floorplanSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'floorplan.js'), 'utf8');
+  const appSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'app.js'), 'utf8');
+  const htmlSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+
+  assert.ok(routesSrc.includes("'haier:state_changed'"), 'admin-system.routes.js deve inoltrare haier:state_changed su SSE');
+  assert.ok(floorplanSrc.includes("addEventListener('haier:state_changed'"), 'floorplan.js deve ascoltare haier:state_changed');
+  assert.ok(appSrc.includes('window.deviceSheet?.currentPin') && appSrc.includes('window.deviceSheet.open(freshPin)'), 'loadDashboard deve aggiornare il drawer aperto');
+  assert.ok(htmlSrc.includes('/js/device-sheet.js?v=183') && htmlSrc.includes('/js/floorplan.js?v=183'), 'index.html deve includere cache-busting ?v=183');
+});
+
+
