@@ -25,6 +25,7 @@ function deviceVisual(p) {
     const temp = p.temperature != null ? `${p.temperature}°` : '--';
     const set = p.setpoint != null ? `${p.setpoint}°` : '--';
     return {
+      customIcon: 'radiator',
       icon: 'fa-temperature-arrow-up',
       iconCls: active ? 'bg-orange-500/20 text-orange-300 border-orange-400/40' : 'bg-slate-800 text-sky-300 border-slate-700/70',
       badge: `${temp}/${set}`,
@@ -66,6 +67,17 @@ function deviceVisual(p) {
     };
   }
   if (p.category === 'climate') {
+    if (!p.isDyson) {
+      return {
+        customIcon: 'aircon',
+        icon: 'fa-snowflake',
+        iconCls: active ? 'bg-sky-500/20 text-sky-300 border-sky-400/40' : 'bg-slate-800 text-slate-400 border-slate-700/70',
+        badge: active
+          ? (p.targetTemperature != null ? `${p.targetTemperature}°` : 'ON')
+          : (p.temperature != null ? `${p.temperature}°` : 'OFF'),
+        badgeCls: active ? 'text-sky-200 bg-sky-500/15 border-sky-500/30' : 'text-slate-400 bg-slate-800/80 border-slate-700/60'
+      };
+    }
     return {
       icon: 'fa-fan',
       iconCls: active ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40' : 'bg-slate-800 text-slate-400 border-slate-700/70',
@@ -179,7 +191,23 @@ function deviceVisual(p) {
                 class="w-7 h-7 rounded-lg border flex items-center justify-center shrink-0 text-[11px] transition-transform group-hover:scale-105"
                 :class="deviceVisual(p).iconCls"
               >
-                <i class="fa-solid" :class="deviceVisual(p).icon"></i>
+                <svg v-if="deviceVisual(p).customIcon === 'radiator'" viewBox="-10 -10 20 20" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="-6.8" y1="-3.8" x2="5.6" y2="-3.8" />
+                  <line x1="-6.8" y1="3.8" x2="5.6" y2="3.8" />
+                  <rect x="-6.2" y="-5.4" width="2.2" height="10.8" rx="1" />
+                  <rect x="-2.9" y="-5.4" width="2.2" height="10.8" rx="1" />
+                  <rect x="0.4" y="-5.4" width="2.2" height="10.8" rx="1" />
+                  <rect x="3.7" y="-5.4" width="2.2" height="10.8" rx="1" />
+                  <circle cx="7.7" cy="-3.6" r="1.05" />
+                </svg>
+                <svg v-else-if="deviceVisual(p).customIcon === 'aircon'" viewBox="-10 -10 20 20" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="-7.4" y="-6.2" width="14.8" height="6.8" rx="1.7" />
+                  <line x1="-5.2" y1="-1.5" x2="5.2" y2="-1.5" />
+                  <path d="M -4.2 2.4 Q -5 4.4 -3.8 6.2" />
+                  <line x1="0" y1="2.3" x2="0" y2="6.4" />
+                  <path d="M 4.2 2.4 Q 5 4.4 3.8 6.2" />
+                </svg>
+                <i v-else class="fa-solid" :class="deviceVisual(p).icon"></i>
               </span>
               <span class="text-xs font-semibold text-slate-100 truncate">{{ p.name }}</span>
             </div>

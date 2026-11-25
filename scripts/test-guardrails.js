@@ -6333,3 +6333,24 @@ test('TEST 73: Condizionatori Haier SmartAir2 locali TCP :56800 (parser 6d01, co
     mgr.stop();
   }
 });
+
+test('TEST 74: Icone vettoriali SVG differenziate per Termosifone (valve) e Condizionatore (climate !isDyson) (#177)', () => {
+  const fs = require('fs');
+  const path = require('path');
+
+  const floorplanJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'floorplan.js'), 'utf8');
+  const drawerVue = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'src', 'views', 'FloorplanDrawerView.vue'), 'utf8');
+  const focusVue = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'src', 'views', 'RoomFocusOverlay.vue'), 'utf8');
+
+  // floorplan.js: helper dedicato e differenziazione netta tra valve (termosifone) e climate !isDyson (condizionatore split)
+  assert.ok(floorplanJs.includes('renderPinVectorIcon('), 'floorplan.js deve definire renderPinVectorIcon()');
+  assert.ok(floorplanJs.includes('rect x="-6.2" y="-5.4" width="2.2" height="10.8"'), 'floorplan.js deve disegnare le colonne del termosifone');
+  assert.ok(floorplanJs.includes('rect x="-7.4" y="-6.2" width="14.8" height="6.8"'), 'floorplan.js deve disegnare lo split del condizionatore');
+
+  // Verifica che la vista Vue drawer e RoomFocusOverlay rendano SVG dedicati per valve e climate !isDyson
+  assert.ok(drawerVue.includes("p.category === 'valve'") && drawerVue.includes("p.category === 'climate' && !p.isDyson"));
+  assert.ok(drawerVue.includes('rect x="-6.2" y="-5.4"') && drawerVue.includes('rect x="-7.4" y="-6.2"'));
+
+  assert.ok(focusVue.includes("customIcon: 'radiator'") && focusVue.includes("customIcon: 'aircon'"));
+  assert.ok(focusVue.includes('rect x="-6.2" y="-5.4"') && focusVue.includes('rect x="-7.4" y="-6.2"'));
+});
