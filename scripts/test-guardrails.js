@@ -6382,3 +6382,72 @@ test('TEST 75: Fix angolo Cameretta (nessun muro sporgente L 492 320 e nessuna s
     'drag-editor.js deve valutare Cameretta prima di Camera da letto'
   );
 });
+
+test('DeviceSheet (#181): controlHaierAcUi aggiorna subito UI e refreshHaierAcUi chiama loadDashboard', async () => {
+  const fs = require('fs');
+  const path = require('path');
+  const vm = require('vm');
+  const sheetSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'device-sheet.js'), 'utf8');
+  assert.ok(!sheetSrc.includes('loadDashboardData'), 'Non deve più esistere il typo loadDashboardData');
+
+  const bodyEl = { innerHTML: '' };
+  const sheetEl = { classList: { remove() {}, add() {} } };
+  let floorplanRenders = 0;
+  let loadDashboardCalls = 0;
+  const pin46 = {
+    pin: 46,
+    name: 'Condizionatore Cameretta',
+    room: 'Cameretta',
+    category: 'climate',
+    isHaierAc: true,
+    haierUnitId: 'cameretta',
+    online: true,
+    isOn: true,
+    temperature: 21,
+    targetTemperature: 22,
+    mode: 'heat',
+    fanSpeed: 'auto',
+    swing: 'off'
+  };
+  const sandbox = {
+    console,
+    Math,
+    Number,
+    String,
+    Boolean,
+    Array,
+    Object,
+    JSON,
+    encodeURIComponent,
+    setTimeout: () => 0,
+    loadDashboard: async () => { loadDashboardCalls++; },
+    fetch: async () => ({
+      ok: true,
+      json: async () => ({ success: true, data: { unit: { isOn: false, statusLabel: 'Spento' } } })
+    }),
+    document: {
+      getElementById: (id) => (id === 'device-drawer-content' ? bodyEl : sheetEl)
+    },
+    window: {
+      homeData: { spatial: { pins: [pin46] } },
+      floorplan: { render: () => { floorplanRenders++; } },
+      showToast: () => {},
+      addEventListener() {}
+    }
+  };
+  sandbox.window.window = sandbox.window;
+  vm.createContext(sandbox);
+  vm.runInContext(sheetSrc, sandbox);
+
+  sandbox.window.deviceSheet.open(pin46);
+  assert.ok(bodyEl.innerHTML.includes('Spegni'), 'Stato iniziale deve mostrare Spegni');
+
+  await sandbox.window.controlHaierAcUi(46, 'cameretta', { power: false });
+  assert.equal(pin46.isOn, false, 'Pin deve passare subito a isOn=false');
+  assert.equal(floorplanRenders, 1, 'Planimetria deve ri-renderizzare subito');
+  assert.ok(bodyEl.innerHTML.includes('Accendi'), 'Drawer deve aggiornarsi subito a Accendi');
+
+  await sandbox.window.refreshHaierAcUi(46, 'cameretta');
+  assert.equal(loadDashboardCalls, 1, 'refreshHaierAcUi deve invocare loadDashboard()');
+});
+
