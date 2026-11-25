@@ -6361,3 +6361,24 @@ test('TEST 74: Icone vettoriali SVG differenziate per Termosifone (valve) e Cond
   assert.ok(focusVue.includes("customIcon: 'radiator'") && focusVue.includes("customIcon: 'aircon'"));
   assert.ok(focusVue.includes('rect x="-6.2" y="-5.4"') && focusVue.includes('rect x="-7.4" y="-6.2"'));
 });
+
+test('TEST 75: Fix angolo Cameretta (nessun muro sporgente L 492 320 e nessuna sovrapposizione Camera da letto) (#180)', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const spatialEngine = require('../src/spatial-engine');
+
+  // Angolo in alto a sinistra di Cameretta (sx ~ 510, sy ~ 290 -> x=51.0, y=21.7)
+  assert.equal(spatialEngine.detectRoomFromCoords(51.0, 21.7), 'Cameretta');
+  assert.equal(spatialEngine.normalizeRoomName('Camera da letto', 51.0, 21.7), 'Cameretta');
+  // Zona effettiva di Camera da letto (sx=450, sy=290 -> x=45.0, y=21.7)
+  assert.equal(spatialEngine.detectRoomFromCoords(45.0, 21.7), 'Camera da letto');
+
+  const floorplanJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'floorplan.js'), 'utf8');
+  const dragEditorJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'drag-editor.js'), 'utf8');
+  assert.ok(floorplanJs.includes('M 462 320 L 492 320'), 'Il muro inferiore di Camera da letto deve terminare a x=492');
+  assert.ok(!floorplanJs.includes('M 462 320 L 530 320'), 'Non deve più esistere il tratto sporgente fino a x=530 dentro Cameretta');
+  assert.ok(
+    dragEditorJs.indexOf("return 'Cameretta';") < dragEditorJs.indexOf("return 'Camera da letto';"),
+    'drag-editor.js deve valutare Cameretta prima di Camera da letto'
+  );
+});
