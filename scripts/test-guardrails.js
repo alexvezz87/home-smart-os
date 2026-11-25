@@ -6383,6 +6383,21 @@ test('TEST 75: Fix angolo Cameretta (nessun muro sporgente L 492 320 e nessuna s
   );
 });
 
+test('TEST 76: Effetti grafici e colori attivi su Termosifone (fp-heat-wave/fp-valve-heating) e Condizionatore (fp-ac-airflow/fp-ac-active) (#185)', () => {
+  const fs = require('fs');
+  const path = require('path');
+
+  const floorplanJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'floorplan.js'), 'utf8');
+  const drawerVue = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'src', 'views', 'FloorplanDrawerView.vue'), 'utf8');
+  const focusVue = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'src', 'views', 'RoomFocusOverlay.vue'), 'utf8');
+
+  for (const token of ['fpHeatRise', 'fpAcBreeze', 'fpRadiatorGlow', 'fpAcGlow', 'fp-heat-wave', 'fp-ac-airflow', 'fp-valve-heating', 'fp-ac-active', 'fp-ac-heat']) {
+    assert.ok(floorplanJs.includes(token), `floorplan.js deve includere ${token}`);
+  }
+  assert.ok(drawerVue.includes("animate-pulse") && drawerVue.includes("mode || '').toLowerCase() === 'heat'"));
+  assert.ok(focusVue.includes("activeEffect: active") && focusVue.includes("mode || '').toLowerCase() === 'heat'"));
+});
+
 test('DeviceSheet (#181): controlHaierAcUi aggiorna subito UI e refreshHaierAcUi chiama loadDashboard', async () => {
   const fs = require('fs');
   const path = require('path');
