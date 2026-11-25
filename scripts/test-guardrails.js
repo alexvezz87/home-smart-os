@@ -6723,6 +6723,29 @@ test('TEST 76: Separazione prese Meross Bagno Alex (Spina lavatrice #7 & Spina a
       { name: 'Spina lavatrice', state: true },
       { name: 'Spina asciugatrice', state: false }
     ]);
+
+    // 4. Match diretto via UUID su togglePlugByName e fallback mcp.toggleDevice per prese assenti da cache MCP
+    toggledCalls.length = 0;
+    const resUuid = await merossEnergy.togglePlugByName('new-washer-id', false);
+    assert.equal(resUuid.success, true);
+    assert.equal(resUuid.name, 'Spina lavatrice');
+
+    const mcp = require('../src/google-home-mcp');
+    const prevGetResources = mcp.getResources;
+    mcp.getResources = async () => [];
+    try {
+      const mcpFallbackRes = await mcp.toggleDevice('new-dryer-id', true);
+      assert.equal(mcpFallbackRes.success, true);
+      assert.equal(mcpFallbackRes.mode, 'meross_direct');
+      assert.equal(mcpFallbackRes.name, 'Spina asciugatrice');
+      assert.deepEqual(toggledCalls, [
+        { name: 'Spina lavatrice', state: false },
+        { name: 'Spina asciugatrice', state: true }
+      ]);
+    } finally {
+      mcp.getResources = prevGetResources;
+      delete mcp.localStates['new-dryer-id'];
+    }
   } finally {
     merossEnergy.devicesMap = prevDevicesMap;
     merossEnergy.relayStateByName.delete('spina lavatrice');
