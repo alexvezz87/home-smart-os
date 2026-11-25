@@ -228,7 +228,7 @@ function sceneGradient(scene) {
                 <circle cx="12" cy="17" r="1.5" />
                 <circle cx="18" cy="17" r="1.5" />
               </svg>
-              <svg v-else-if="p.category === 'valve'" viewBox="-10 -10 20 20" class="w-4 h-4 shrink-0" :class="(p.isHeating || Number(p.valvePercent) > 15) ? 'text-orange-400' : 'text-slate-400'" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <svg v-else-if="p.category === 'valve'" viewBox="-10 -10 20 20" class="w-4 h-4 shrink-0" :class="(p.isHeating || Number(p.valvePercent) > 15) ? 'text-orange-400 animate-pulse' : 'text-slate-400'" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="-6.8" y1="-3.8" x2="5.6" y2="-3.8" />
                 <line x1="-6.8" y1="3.8" x2="5.6" y2="3.8" />
                 <rect x="-6.2" y="-5.4" width="2.2" height="10.8" rx="1" />
@@ -237,7 +237,7 @@ function sceneGradient(scene) {
                 <rect x="3.7" y="-5.4" width="2.2" height="10.8" rx="1" />
                 <circle cx="7.7" cy="-3.6" r="1.05" />
               </svg>
-              <svg v-else-if="p.category === 'climate' && !p.isDyson" viewBox="-10 -10 20 20" class="w-4 h-4 shrink-0" :class="p.isOn ? 'text-sky-400' : 'text-slate-400'" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <svg v-else-if="p.category === 'climate' && !p.isDyson" viewBox="-10 -10 20 20" class="w-4 h-4 shrink-0" :class="p.isOn ? (String(p.mode || '').toLowerCase() === 'heat' ? 'text-orange-400 animate-pulse' : 'text-sky-400 animate-pulse') : 'text-slate-400'" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="-7.4" y="-6.2" width="14.8" height="6.8" rx="1.7" />
                 <line x1="-5.2" y1="-1.5" x2="5.2" y2="-1.5" />
                 <path d="M -4.2 2.4 Q -5 4.4 -3.8 6.2" />

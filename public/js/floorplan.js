@@ -410,6 +410,39 @@ class FloorplanEngine {
         opacity: 1;
         transform: translateY(0px);
       }
+      @keyframes fpHeatRise {
+        0% { opacity: 0.25; transform: translateY(1.2px); }
+        50% { opacity: 0.95; transform: translateY(-1.2px); }
+        100% { opacity: 0.25; transform: translateY(1.2px); }
+      }
+      @keyframes fpAcBreeze {
+        0% { opacity: 0.35; transform: translateY(-1px); }
+        50% { opacity: 1; transform: translateY(1.5px); }
+        100% { opacity: 0.35; transform: translateY(-1px); }
+      }
+      @keyframes fpRadiatorGlow {
+        0%, 100% { filter: drop-shadow(0 0 3px rgba(249, 115, 22, 0.5)); }
+        50% { filter: drop-shadow(0 0 7px rgba(251, 146, 60, 0.88)); }
+      }
+      @keyframes fpAcGlow {
+        0%, 100% { filter: drop-shadow(0 0 3px rgba(56, 189, 248, 0.5)); }
+        50% { filter: drop-shadow(0 0 7px rgba(56, 189, 248, 0.9)); }
+      }
+      .fp-heat-wave {
+        animation: fpHeatRise 1.9s ease-in-out infinite;
+      }
+      .fp-ac-airflow {
+        animation: fpAcBreeze 1.7s ease-in-out infinite;
+      }
+      .fp-valve-heating .fp-pin-card {
+        animation: fpRadiatorGlow 2.4s ease-in-out infinite;
+      }
+      .fp-ac-active .fp-pin-card {
+        animation: fpAcGlow 2.4s ease-in-out infinite;
+      }
+      .fp-ac-active.fp-ac-heat .fp-pin-card {
+        animation: fpRadiatorGlow 2.4s ease-in-out infinite;
+      }
     `;
     document.head?.appendChild(style);
   }
@@ -1324,7 +1357,7 @@ class FloorplanEngine {
       iconGlyph = '&#xf769;';
       const isHeating = Boolean(p.isHeating || (Number(p.valvePercent) > 15));
       if (isHeating) {
-        iconColor = '#ea580c';
+        iconColor = '#fb923c';
         fill = '#431407';
         stroke = isSelected ? '#22d3ee' : '#f97316';
       } else {
@@ -1391,9 +1424,10 @@ class FloorplanEngine {
         }
       } else {
         if (p.isOn) {
-          iconColor = '#38bdf8';
-          fill = '#082f49';
-          stroke = isSelected ? '#22d3ee' : '#0ea5e9';
+          const isHeatMode = String(p.mode || '').toLowerCase() === 'heat';
+          iconColor = isHeatMode ? '#fb923c' : '#38bdf8';
+          fill = isHeatMode ? '#431407' : '#082f49';
+          stroke = isSelected ? '#22d3ee' : (isHeatMode ? '#f97316' : '#0ea5e9');
           subBadge = p.targetTemperature != null ? `${p.targetTemperature}°` : 'ON';
         } else {
           iconColor = '#64748b';
@@ -1452,9 +1486,16 @@ class FloorplanEngine {
     if (p.category === 'valve') {
       const isHeating = Boolean(p.isHeating || (Number(p.valvePercent) > 15));
       const ribFill = isHeating ? iconColor : 'none';
-      const ribFillOpacity = isHeating ? '0.28' : '0';
+      const ribFillOpacity = isHeating ? '0.34' : '0';
       return `
         <g ${scaleAttr} fill="none" stroke="${iconColor}" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">
+          ${isHeating ? `
+            <g class="fp-heat-wave" stroke="#fdba74" stroke-width="1.05" opacity="0.9">
+              <path d="M -4.2 -6.5 Q -5 -7.8 -4.2 -9.1" />
+              <path d="M -0.2 -6.5 Q -1 -7.8 -0.2 -9.1" />
+              <path d="M 3.8 -6.5 Q 3 -7.8 3.8 -9.1" />
+            </g>
+          ` : ''}
           <line x1="-6.8" y1="-3.8" x2="5.6" y2="-3.8" />
           <line x1="-6.8" y1="3.8" x2="5.6" y2="3.8" />
           <rect x="-6.2" y="-5.4" width="2.2" height="10.8" rx="1" fill="${ribFill}" fill-opacity="${ribFillOpacity}" />
@@ -1469,12 +1510,14 @@ class FloorplanEngine {
     if (p.category === 'climate' && !p.isDyson) {
       return `
         <g ${scaleAttr} fill="none" stroke="${iconColor}" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="-7.4" y="-6.2" width="14.8" height="6.8" rx="1.7" fill="${p.isOn ? iconColor : 'none'}" fill-opacity="${p.isOn ? '0.16' : '0'}" />
+          <rect x="-7.4" y="-6.2" width="14.8" height="6.8" rx="1.7" fill="${p.isOn ? iconColor : 'none'}" fill-opacity="${p.isOn ? '0.2' : '0'}" />
           <line x1="-5.2" y1="-1.5" x2="5.2" y2="-1.5" />
-          <circle cx="4.8" cy="-4.1" r="0.75" fill="${p.isOn ? iconColor : 'none'}" stroke="none" />
-          <path d="M -4.2 2.4 Q -5 4.4 -3.8 6.2" />
-          <line x1="0" y1="2.3" x2="0" y2="6.4" />
-          <path d="M 4.2 2.4 Q 5 4.4 3.8 6.2" />
+          <circle cx="4.8" cy="-4.1" r="0.85" fill="${p.isOn ? iconColor : 'none'}" stroke="none" />
+          <g class="${p.isOn ? 'fp-ac-airflow' : ''}" stroke-width="${p.isOn ? '1.35' : '1.15'}" opacity="${p.isOn ? '1' : '0.65'}">
+            <path d="M -4.2 2.4 Q -5 4.4 -3.8 6.2" />
+            <line x1="0" y1="2.3" x2="0" y2="6.4" />
+            <path d="M 4.2 2.4 Q 5 4.4 3.8 6.2" />
+          </g>
         </g>
       `;
     }
@@ -1813,13 +1856,18 @@ class FloorplanEngine {
       const tipW = focusName ? Math.max(46, +(focusName.length * 4.8 + 12).toFixed(1)) : 0;
       const tipHalfW = +(tipW / 2).toFixed(1);
 
+      const isValveHeating = p.category === 'valve' && Boolean(p.isHeating || (Number(p.valvePercent) > 15));
+      const isAcActive = p.category === 'climate' && !p.isDyson && Boolean(p.isOn);
+      const isAcHeat = isAcActive && String(p.mode || '').toLowerCase() === 'heat';
+      const activeStateCls = `${isValveHeating ? 'fp-valve-heating' : ''} ${isAcActive ? (isAcHeat ? 'fp-ac-active fp-ac-heat' : 'fp-ac-active') : ''}`.trim();
+
       return `
         <g id="spatial-pin-group-${p.pin}"
            data-pin="${p.pin}"
            transform="translate(${cx}, ${cy})${pinScaleAttr}"
            opacity="${pinOpacity}"
            pointer-events="${pointerEvents}"
-           class="spatial-pin-item ${isRoomFocused ? 'fp-focused-pin' : ''} ${isHovered ? 'fp-pin-hovered' : ''} transition-opacity duration-300 ${isEditMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}"
+           class="spatial-pin-item ${activeStateCls} ${isRoomFocused ? 'fp-focused-pin' : ''} ${isHovered ? 'fp-pin-hovered' : ''} transition-opacity duration-300 ${isEditMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}"
            onmouseenter="${isRoomFocused ? `window.floorplan.setHoveredPin(${p.pin})` : ''}"
            onmouseleave="${isRoomFocused ? `window.floorplan.setHoveredPin(null)` : ''}"
            onmousedown="${isEditMode ? `window.dragEditor.startDrag(${p.pin}, event)` : ''}"
