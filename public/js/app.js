@@ -283,6 +283,11 @@ async function loadDashboard() {
 
     if (window.currentArea === 'home' && window.floorplan) {
       window.floorplan.render();
+      const drawer = document.getElementById('device-drawer');
+      if (drawer && !drawer.classList.contains('hidden') && window.deviceSheet?.currentPin && Array.isArray(data?.spatial?.pins)) {
+        const freshPin = data.spatial.pins.find((p) => Number(p.pin) === Number(window.deviceSheet.currentPin.pin));
+        if (freshPin) window.deviceSheet.open(freshPin);
+      }
     } else if (window.currentArea === 'calendar' && window.calendarManager) {
       window.calendarManager.renderView();
     } else if (window.currentArea === 'energy' && window.energyManager) {
