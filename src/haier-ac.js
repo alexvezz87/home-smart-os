@@ -98,6 +98,8 @@ function buildSetStateCommand(mac, state = {}, seq = 1) {
     : (state.swing === true || String(state.swing || '').toLowerCase() === 'vertical' ? HAIER_SWING.vertical : HAIER_SWING.off);
   const targetTemp = Math.max(MIN_TEMP_C, Math.min(MAX_TEMP_C, Math.round(Number(state.targetTemperature ?? 22))));
   const powerHealthByte = 0x01 | (state.health ? 0x08 : 0x00);
+  const ecoByte = state.eco ? 0x04 : 0x00;
+  const quietByte = state.quiet ? 0x04 : 0x00;
 
   const body = Buffer.from([
     0xff, 0xff, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x4d, 0x5f,
@@ -105,8 +107,8 @@ function buildSetStateCommand(mac, state = {}, seq = 1) {
     0x00, modeNum & 0xff,
     0x00, fanNum & 0xff,
     0x00, limitsNum & 0xff,
-    0x00, powerHealthByte & 0xff,
-    0x00, 0x00,
+    ecoByte & 0xff, powerHealthByte & 0xff,
+    0x00, quietByte & 0xff,
     0x00, 0x00,
     0x00, (targetTemp - MIN_TEMP_C) & 0xff
   ]);
@@ -527,7 +529,9 @@ class HaierAcManager extends EventEmitter {
       params.targetTemperature !== undefined ||
       params.fanSpeed !== undefined ||
       params.swing !== undefined ||
-      params.health !== undefined;
+      params.health !== undefined ||
+      params.eco !== undefined ||
+      params.quiet !== undefined;
 
     if (params.mode !== undefined) {
       const m = String(params.mode).toLowerCase();
@@ -551,6 +555,15 @@ class HaierAcManager extends EventEmitter {
     }
     if (params.health !== undefined) {
       nextState.health = Boolean(params.health);
+    }
+    if (params.eco !== undefined) {
+      nextState.eco = Boolean(params.eco);
+    }
+    if (params.quiet !== undefined) {
+      nextState.quiet = Boolean(params.quiet);
+      if (params.quiet === true && params.fanSpeed === undefined) {
+        nextState.fanSpeed = 'min';
+      }
     }
 
     const isDryRun = this.sandboxManager?.config?.mode === 'dry_run';
@@ -672,6 +685,8 @@ class HaierAcManager extends EventEmitter {
       fanSpeed: st.fanSpeed,
       swing: st.swing,
       health: Boolean(st.health),
+      eco: Boolean(st.eco),
+      quiet: Boolean(st.quiet),
       outdoorTemperature: st.outdoorTemperature ?? null,
       currentHumidity: st.currentHumidity ?? null,
       statusLabel,
