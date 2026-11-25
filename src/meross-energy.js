@@ -403,7 +403,7 @@ class MerossEnergyService {
 
     // Estrai stato elettrodomestici smart da Google Home (Lavastoviglie, Asciugatrice, Dyson) + Lavatrice Meross
     const smartAppliances = [];
-    const washerMetric = this.metricsByName.get('lavatrice');
+    const washerMetric = this.metricsByName.get('spina lavatrice') || this.metricsByName.get('lavatrice');
     smartAppliances.push({
       name: 'Lavatrice (Meross Smart)',
       room: 'Bagno Alex',
@@ -593,7 +593,7 @@ class MerossEnergyService {
 
   getPlugRoomName(deviceName) {
     const n = (deviceName || '').toLowerCase();
-    if (n.includes('lavatrice')) return 'Bagno Alex';
+    if (n.includes('lavatrice') || n.includes('asciugatrice')) return 'Bagno Alex';
     if (n.includes('cucina')) return 'Cucina';
     if (n.includes('computer')) return 'Cameretta';
     if (n.includes('monitor')) return 'Camera da letto';
@@ -890,22 +890,30 @@ class MerossEnergyService {
     const rawTerm = (deviceName || '').trim().toLowerCase();
     const candidates = [rawTerm];
     if (MEROSS_PLUG_ALIASES[rawTerm]) candidates.push(MEROSS_PLUG_ALIASES[rawTerm]);
-    for (const [deviceId, item] of this.devicesMap.entries()) {
+
+    const entries = Array.from(this.devicesMap.values());
+    const sortByOnline = (arr) => [...arr].sort((a, b) => ((b.def?.onlineStatus === 1 ? 1 : 0) - (a.def?.onlineStatus === 1 ? 1 : 0)));
+    const exactMatch = sortByOnline(entries.filter((item) => {
       const devName = (item.def?.devName || '').trim().toLowerCase();
-      if (candidates.some(term => devName === term || devName.includes(term) || term.includes(devName))) {
-        if (item.device && typeof item.device.controlToggleX === 'function') {
-          await new Promise((resolve, reject) => {
-            item.device.controlToggleX(0, Boolean(targetState), (err, res) => {
-              if (err) return reject(err);
-              resolve(res);
-            });
-          });
-          this.relayStateByName.set(devName, Boolean(targetState));
-          const m = this.metricsByName.get(devName);
-          if (m) m.isOn = Boolean(targetState);
-          return { success: true, name: item.def.devName, state: Boolean(targetState) };
-        }
-      }
+      return candidates.some((term) => devName === term);
+    }))[0];
+    const partialMatch = exactMatch || sortByOnline(entries.filter((item) => {
+      const devName = (item.def?.devName || '').trim().toLowerCase();
+      return candidates.some((term) => devName.includes(term) || term.includes(devName));
+    }))[0];
+
+    if (partialMatch?.device && typeof partialMatch.device.controlToggleX === 'function') {
+      const devName = (partialMatch.def?.devName || '').trim().toLowerCase();
+      await new Promise((resolve, reject) => {
+        partialMatch.device.controlToggleX(0, Boolean(targetState), (err, res) => {
+          if (err) return reject(err);
+          resolve(res);
+        });
+      });
+      this.relayStateByName.set(devName, Boolean(targetState));
+      const m = this.metricsByName.get(devName);
+      if (m) m.isOn = Boolean(targetState);
+      return { success: true, name: partialMatch.def.devName, state: Boolean(targetState) };
     }
     return null;
   }
