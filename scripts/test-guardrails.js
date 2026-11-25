@@ -6189,3 +6189,147 @@ test('TEST 72: Refresh live Volvo Cloud on-demand non-bloccante prima del briefi
   assert.equal(slowSpeak.length, 1, 'Fallback alla cache deve far parlare Leda allo scadere del timeout');
   assert.ok(slowSpeak[0].text.includes('chiusa a chiave'));
 });
+
+test('TEST 73: Condizionatori Haier SmartAir2 locali TCP :56800 (parser 6d01, comandi, keep-alive & multi-unit) (#175)', async () => {
+  const { EventEmitter } = require('events');
+  const {
+    HaierAcManager,
+    extractFrames,
+    parseStateFrame,
+    buildHelloCommand,
+    buildPowerCommand,
+    buildSetStateCommand,
+    computeHaierChecksum
+  } = require('../src/haier-ac');
+
+  // 1. Verifica framing e parsing del pacchetto reale 6d01 (anonimizzato MAC)
+  const sampleInner = Buffer.from(
+    'ffff22000000000001066d0100160026007f0000000000020002000000010000000000065d',
+    'hex'
+  );
+  const sampleFrame = Buffer.alloc(80 + sampleInner.length, 0);
+  sampleFrame[2] = 0x27;
+  sampleFrame[3] = 0x15;
+  sampleFrame.write('0007A8001122', 40, 12, 'ascii');
+  sampleFrame.writeUInt32BE(sampleInner.length, 76);
+  sampleInner.copy(sampleFrame, 80);
+
+  // Split su 2 chunk TCP per verificare riassemblaggio
+  const part1 = sampleFrame.subarray(0, 50);
+  const part2 = sampleFrame.subarray(50);
+  const r1 = extractFrames(part1);
+  assert.equal(r1.frames.length, 0);
+  const r2 = extractFrames(Buffer.concat([r1.rest, part2]));
+  assert.equal(r2.frames.length, 1);
+  assert.equal(r2.rest.length, 0);
+
+  const parsed = parseStateFrame(r2.frames[0]);
+  assert.ok(parsed, 'Frame 6d01 deve essere parsato');
+  assert.equal(parsed.mac, '00:07:A8:00:11:22');
+  assert.equal(parsed.state.power, true);
+  assert.equal(parsed.state.currentTemperature, 22);
+  assert.equal(parsed.state.targetTemperature, 22);
+  assert.equal(parsed.state.mode, 'heat');
+  assert.equal(parsed.state.fanSpeed, 'min');
+  assert.equal(parsed.state.swing, 'off');
+
+  // 2. Verifica builder comandi hello/power/setState e checksum
+  const helloBuf = buildHelloCommand('00:07:A8:00:11:22', 1);
+  assert.equal(helloBuf[2], 0x27);
+  assert.equal(helloBuf[3], 0x14);
+  assert.equal(helloBuf.subarray(80).toString('hex'), 'ffff0a000000000000014d0159');
+
+  const offBuf = buildPowerCommand('00:07:A8:00:11:22', false, 2);
+  assert.equal(offBuf.subarray(80).toString('hex'), 'ffff0a000000000000014d035b');
+
+  const setBuf = buildSetStateCommand('00:07:A8:00:11:22', {
+    mode: 'cool',
+    fanSpeed: 'mid',
+    swing: 'vertical',
+    targetTemperature: 24,
+    health: false
+  }, 3);
+  const setInner = setBuf.subarray(80);
+  assert.equal(setInner.length, 37);
+  assert.equal(setInner[23], 1); // cool
+  assert.equal(setInner[25], 1); // mid
+  assert.equal(setInner[27], 1); // swing vertical
+  assert.equal(setInner[29], 1); // power bit0
+  assert.equal(setInner[35], 8); // 24 - 16
+  assert.equal(setInner[36], computeHaierChecksum(setInner.subarray(0, 36)));
+
+  // 3. Verifica HaierAcManager multi-unit, keep-alive, controlUnit e discovery Iliadbox
+  const writtenFrames = [];
+  class FakeSocket extends EventEmitter {
+    constructor() {
+      super();
+      this.destroyed = false;
+    }
+    setNoDelay() {}
+    setKeepAlive() {}
+    setTimeout() {}
+    connect(_port, _ip) {
+      setImmediate(() => {
+        this.emit('connect');
+        this.emit('data', sampleFrame);
+      });
+    }
+    write(buf) {
+      writtenFrames.push(buf);
+      return true;
+    }
+    destroy() {
+      this.destroyed = true;
+    }
+  }
+
+  let savedDb = null;
+  const busEvents = [];
+  const mgr = new HaierAcManager({
+    heartbeatMs: 5000,
+    socketFactory: () => new FakeSocket(),
+    db: {
+      get: async () => savedDb,
+      set: async (_k, v) => { savedDb = v; return true; }
+    },
+    eventBus: { publish: (evt, data) => busEvents.push({ evt, data }) },
+    eventLogger: { log: () => {} },
+    sandboxManager: { config: { systemPaused: false, mode: 'live' } },
+    iliadboxClient: {
+      lastDevices: [
+        { primary_name: 'U-AC199e', vendor_name: 'Haier Group Technologies Ltd', l2ident: { id: '00:07:A8:00:11:22' }, l3connectivities: [{ af: 'ipv4', active: true, addr: '192.168.1.135' }], active: true }
+      ]
+    }
+  });
+
+  try {
+    await mgr.upsertUnit({ id: 'salone', room: 'Salone', ip: '192.168.1.135', mac: '00:07:A8:00:11:22' });
+    await new Promise((r) => setTimeout(r, 30));
+
+    const st = mgr.getUnitStatus('salone');
+    assert.equal(st.online, true);
+    assert.equal(st.isOn, true);
+    assert.equal(st.temperature, 22);
+    assert.equal(st.mode, 'heat');
+    assert.ok(writtenFrames.length >= 1, 'Deve aver inviato hello iniziale');
+
+    // Control: spegnimento
+    const ctrlOff = await mgr.controlUnit('salone', { power: false });
+    assert.equal(ctrlOff.success, true);
+    assert.equal(ctrlOff.unit.isOn, false);
+    assert.ok(writtenFrames.some((b) => b.subarray(80).toString('hex') === 'ffff0a000000000000014d035b'));
+
+    // Control: cambio temperatura con clamp (35 -> 30)
+    const ctrlCool = await mgr.controlUnit('salone', { mode: 'cool', targetTemperature: 35, fanSpeed: 'max' });
+    assert.equal(ctrlCool.unit.targetTemperature, 30);
+    assert.equal(ctrlCool.unit.mode, 'cool');
+
+    // Discovery Iliadbox
+    const discovered = await mgr.discoverFromIliadbox();
+    assert.equal(discovered.length, 1);
+    assert.equal(discovered[0].configured, true);
+    assert.equal(discovered[0].unitId, 'salone');
+  } finally {
+    mgr.stop();
+  }
+});

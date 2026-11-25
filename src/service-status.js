@@ -321,6 +321,21 @@ function evaluateServicesSnapshot(modules = {}) {
     actionArea: 'admin'
   });
 
+  const haierRef = modules.haierAc;
+  const haierObj = safeCall(() => haierRef?.getStatus?.(), null);
+  const haierUnits = Array.isArray(haierObj?.units) ? haierObj.units : [];
+  const haierOnline = haierUnits.filter((u) => u.online);
+  services.push({
+    id: 'haier_ac',
+    category: 'lan',
+    name: 'Condizionatori Haier SmartAir2',
+    status: haierOnline.length > 0 ? 'operational' : 'degraded',
+    detail: haierOnline.length > 0
+      ? `${haierOnline.length}/${haierUnits.length} online TCP :56800 (${haierOnline.map((u) => `${u.room}: ${u.statusLabel}`).join(' · ')})`
+      : (haierUnits.length > 0 ? `${haierUnits.length} unità configurate ma offline` : 'Nessuna unità configurata'),
+    actionArea: 'home'
+  });
+
   const thinqRef = modules.lgThinq;
   const thinqObj = safeCall(() => thinqRef?.getStatus?.(), null);
   const thinqAuthErr = Boolean(thinqObj?.authError || /401|403|auth|token|pat/i.test(String(thinqObj?.lastError || '')));
