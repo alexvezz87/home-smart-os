@@ -6678,3 +6678,54 @@ test('TEST 75: Climatizzazione Ibrida Bosch + Haier, Interlock, Guardrail Quadro
     aiGateway.validateHardwareAction = origValidate;
   }
 });
+
+test('TEST 76: Separazione prese Meross Bagno Alex (Spina lavatrice #7 & Spina asciugatrice #47) (#186)', async () => {
+  const spatialEngine = require('../src/spatial-engine');
+  const merossEnergy = require('../src/meross-energy');
+
+  // 1. Verifica Pin #7 (Spina lavatrice) e Pin #47 (Spina asciugatrice), nessun Pin "Lavatrice"
+  const pin7 = spatialEngine.pins.find((p) => p.pin === 7);
+  const pin47 = spatialEngine.pins.find((p) => p.pin === 47);
+  const oldWasherPin = spatialEngine.pins.find((p) => p.name === 'Lavatrice');
+  assert.ok(pin7 && pin7.name === 'Spina lavatrice' && pin7.merossName === 'Spina lavatrice' && pin7.room === 'Bagno Alex');
+  assert.ok(pin47 && pin47.name === 'Spina asciugatrice' && pin47.merossName === 'Spina asciugatrice' && pin47.room === 'Bagno Alex');
+  assert.equal(oldWasherPin, undefined, 'Il vecchio Pin Lavatrice non deve più esistere');
+
+  // 2. Verifica room mapping su MerossEnergy
+  assert.equal(merossEnergy.getPlugRoomName('Spina lavatrice'), 'Bagno Alex');
+  assert.equal(merossEnergy.getPlugRoomName('Spina asciugatrice'), 'Bagno Alex');
+
+  // 3. Verifica precedenza match esatto in togglePlugByName (non deve colpire la vecchia "Lavatrice" offline)
+  const prevDevicesMap = merossEnergy.devicesMap;
+  const toggledCalls = [];
+  merossEnergy.devicesMap = new Map([
+    ['old-id', {
+      def: { devName: 'Lavatrice', onlineStatus: 2 },
+      device: { controlToggleX: (_ch, state, cb) => { toggledCalls.push({ name: 'Lavatrice', state }); cb(null, {}); } }
+    }],
+    ['new-washer-id', {
+      def: { devName: 'Spina lavatrice', onlineStatus: 1 },
+      device: { controlToggleX: (_ch, state, cb) => { toggledCalls.push({ name: 'Spina lavatrice', state }); cb(null, {}); } }
+    }],
+    ['new-dryer-id', {
+      def: { devName: 'Spina asciugatrice', onlineStatus: 1 },
+      device: { controlToggleX: (_ch, state, cb) => { toggledCalls.push({ name: 'Spina asciugatrice', state }); cb(null, {}); } }
+    }]
+  ]);
+  try {
+    const resW = await merossEnergy.togglePlugByName('Spina lavatrice', true);
+    assert.equal(resW.success, true);
+    assert.equal(resW.name, 'Spina lavatrice');
+    const resD = await merossEnergy.togglePlugByName('Spina asciugatrice', false);
+    assert.equal(resD.success, true);
+    assert.equal(resD.name, 'Spina asciugatrice');
+    assert.deepEqual(toggledCalls, [
+      { name: 'Spina lavatrice', state: true },
+      { name: 'Spina asciugatrice', state: false }
+    ]);
+  } finally {
+    merossEnergy.devicesMap = prevDevicesMap;
+    merossEnergy.relayStateByName.delete('spina lavatrice');
+    merossEnergy.relayStateByName.delete('spina asciugatrice');
+  }
+});
