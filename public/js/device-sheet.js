@@ -2144,7 +2144,7 @@ async function refreshHaierAcUi(pinNum, unitId) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ unitId })
     });
-    if (typeof loadDashboardData === 'function') await loadDashboardData(true);
+    if (typeof loadDashboard === 'function') await loadDashboard();
     if (window.deviceSheet && window.homeData?.spatial?.pins) {
       const updated = window.homeData.spatial.pins.find((item) => item.pin === Number(pinNum));
       if (updated) window.deviceSheet.open(updated);
@@ -2165,6 +2165,32 @@ async function controlHaierAcUi(pinNum, unitId, payload) {
     if (!res.ok || !data.success) {
       if (window.showToast) window.showToast(data.error || 'Comando Haier rifiutato', 'error');
       return;
+    }
+    const unit = data.data?.unit;
+    const pins = window.homeData?.spatial?.pins || [];
+    const pinObj = pins.find((item) => item.pin === Number(pinNum));
+    if (pinObj) {
+      if (unit && typeof unit === 'object') {
+        if (typeof unit.isOn === 'boolean') pinObj.isOn = unit.isOn;
+        if (unit.targetTemperature != null) pinObj.targetTemperature = unit.targetTemperature;
+        if (unit.mode) pinObj.mode = unit.mode;
+        if (unit.fanSpeed) pinObj.fanSpeed = unit.fanSpeed;
+        if (unit.swing) pinObj.swing = unit.swing;
+        if (unit.statusLabel) pinObj.statusLabel = unit.statusLabel;
+      } else {
+        if (typeof payload.power === 'boolean') pinObj.isOn = payload.power;
+        else if (payload.mode || payload.targetTemperature != null || payload.fanSpeed) pinObj.isOn = true;
+        if (payload.targetTemperature != null) pinObj.targetTemperature = payload.targetTemperature;
+        if (payload.mode) pinObj.mode = payload.mode;
+        if (payload.fanSpeed) pinObj.fanSpeed = payload.fanSpeed;
+        if (typeof payload.swing === 'boolean') pinObj.swing = payload.swing ? 'vertical' : 'off';
+      }
+      if (window.floorplan && typeof window.floorplan.render === 'function') {
+        window.floorplan.render();
+      }
+      if (window.deviceSheet && window.deviceSheet.currentPin?.pin === Number(pinNum)) {
+        window.deviceSheet.open(pinObj);
+      }
     }
     if (window.showToast) window.showToast('Comando inviato al condizionatore', 'success');
     setTimeout(() => refreshHaierAcUi(pinNum, unitId), 700);
