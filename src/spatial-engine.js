@@ -644,6 +644,19 @@ class SpatialEngine {
         x: 34.5,
         y: 55.0,
         nearbyPins: [9, 10]
+      },
+      {
+        pin: 45,
+        name: 'Condizionatore Salone',
+        room: 'Salone',
+        microZone: 'salone_centro',
+        category: 'climate',
+        isHaierAc: true,
+        haierUnitId: 'salone',
+        vendor: 'Haier SmartAir2',
+        x: 34.0,
+        y: 78.0,
+        nearbyPins: [33, 21, 20, 26]
       }
     ];
 
@@ -1231,6 +1244,23 @@ class SpatialEngine {
           clone.isOn = false;
           clone.statusLabel = 'Non collegata';
         }
+      } else if (p.category === 'climate' && p.isHaierAc) {
+        const haierList = Array.isArray(homeSnapshot.haierAc?.units) ? homeSnapshot.haierAc.units : [];
+        const unit = haierList.find((u) => u.id === p.haierUnitId || u.room?.toLowerCase() === p.room?.toLowerCase()) || null;
+        clone.isHaierAc = true;
+        clone.haierUnitId = p.haierUnitId || unit?.id || 'salone';
+        clone.configured = Boolean(unit);
+        clone.online = Boolean(unit?.online);
+        clone.isOn = Boolean(unit?.isOn);
+        clone.temperature = unit?.temperature ?? null;
+        clone.targetTemperature = unit?.targetTemperature ?? 22;
+        clone.mode = unit?.mode || 'cool';
+        clone.fanSpeed = unit?.fanSpeed || 'auto';
+        clone.swing = unit?.swing || 'off';
+        clone.health = Boolean(unit?.health);
+        clone.ip = unit?.ip || null;
+        clone.lastSeen = unit?.lastSeen || null;
+        clone.statusLabel = unit ? unit.statusLabel : 'Non configurato';
       } else if (p.pin === 13 && p.vendor === 'Dyson HP11') {
         const dyson = homeSnapshot.dyson || {};
         const dMatch = devices.find(d =>
