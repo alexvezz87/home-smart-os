@@ -114,6 +114,11 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 ### Controllo Vocale Scene & Luci Philips Hue (`#39`)
 - **Endpoint**: `GET /api/hue/voice-catalog` (stanze, scene, luci, effetti live), `POST /api/hue/color` (colore `colorName`/`hex`, temperatura `kelvin` e `brightness`) e `POST /api/google/fulfillment` (Google Home Smart Home `SYNC` per `action.devices.types.SCENE` e `EXECUTE` `ActivateScene`).
 
+### Philips Hue Play HDMI Sync Box 8K (`src/hue-sync-box.js`, `#196`)
+- **Protocollo Locale HTTPS (`/api/v1`)**: connessione diretta su porta `443` (`rejectUnauthorized: false` per certificato locale Signify, Bearer Token e timeout `4000ms`), configurata tramite variabili d'ambiente `HUE_SYNC_BOX_IP` e `HUE_SYNC_BOX_TOKEN` (nessun segreto nel repo; stato graceful `configured: false` se assenti).
+- **Polling & Push SSE**: `HueSyncBoxManager` esegue polling ogni `30s` su `GET /api/v1` emettendo `hue_sync:state_changed` su `EventBus` (inoltrato su `/api/events`) a ogni cambio stato (`syncActive`, `mode`, `hdmiSource`, `brightness`, `intensity`, `online`).
+- **Endpoint API**: `GET /api/hue-sync/state` (`?refresh=1` per refresh live) e `POST /api/hue-sync/control` (`syncActive`, `mode` `video|music|game|powersave|passthrough`, `intensity` `subtle|moderate|high|intense`, `brightness` `0..200`, `hdmiSource` `input1..input4`) con validazione `400` / offline `503` e sanitizzazione token negli errori.
+
 ### Google Smart Home Actions & Nest Caster (`#14`)
 - **OAuth2 & Webhook**: `GET /api/google/oauth/authorize`, `POST /api/google/oauth/token` (Account Linking TiDB `google-home-oauth`) e `POST /api/google/fulfillment` (`SYNC`, `QUERY`, `EXECUTE`, `DISCONNECT` per Bosch, Volvo EX30, Wallbox ABB, Telecamere e Scene Hue).
 - **Nest Caster**: `GET/POST /api/nest/config` (IP statici, preset jingle, Follow-Me, protezione sonno) e `POST /api/nest/speak` (Pre-Roll + TTS).

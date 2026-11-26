@@ -27,6 +27,12 @@ function sceneGradient(scene) {
   }
   return {};
 }
+
+function toggleSyncBox(pin) {
+  if (typeof window !== 'undefined' && typeof window.controlHueSyncBoxUi === 'function') {
+    window.controlHueSyncBoxUi(pin.pin, { syncActive: !pin.isOn });
+  }
+}
 </script>
 
 <template>
@@ -264,12 +270,24 @@ function sceneGradient(scene) {
                   <span v-if="p.category === 'camera'" class="text-emerald-300"> · {{ (p.name || '').includes('Baby') || (p.name || '').includes('Francesco') ? '2K Live' : 'WebRTC Live' }}</span>
                   <span v-if="p.temperature != null"> · {{ p.temperature }}°C</span>
                   <span v-if="p.category === 'plug' && p.powerW != null" class="font-mono text-cyan-300"> · {{ Math.round(p.powerW) }}W</span>
+                  <span v-if="p.syncBoxId" class="text-purple-300"> · {{ p.isOn ? `Sync (${p.syncBox?.mode || 'video'})` : 'Standby' }}</span>
                 </div>
               </div>
             </button>
 
             <!-- Controlli rapidi per categoria -->
-            <div v-if="p.category === 'valve'" class="flex items-center gap-1 shrink-0">
+            <button
+              v-if="p.syncBoxId"
+              type="button"
+              @click="toggleSyncBox(p)"
+              class="px-2 py-1 rounded-lg text-[10px] font-bold border shrink-0 transition-all"
+              :class="p.isOn
+                ? 'bg-purple-500/25 text-purple-200 border-purple-400/50'
+                : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'"
+            >
+              {{ p.isOn ? 'Sync ON' : 'Sync OFF' }}
+            </button>
+            <div v-else-if="p.category === 'valve'" class="flex items-center gap-1 shrink-0">
               <button
                 type="button"
                 @click="store.adjustValve(p.pin, -0.5)"
