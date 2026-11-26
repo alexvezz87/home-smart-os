@@ -726,6 +726,26 @@ async function processAssistantCommand(input, options = {}) {
     return { success: true, action: 'stop_cast', reply: result.message };
   }
 
+  // 0b. Modalità Cinema Vocale (Attivazione & Disattivazione con Sync Box Area Cinema)
+  if (/\b(disattiva|spegni|esci(?:\s+da)?|ferma|stop)\b.*\b(modalit[aà]\s+cinema|cinema|sincronizzazione\s+tv|sync\s+tv)\b/i.test(text)) {
+    const spatialEngine = require('./spatial-engine');
+    await spatialEngine.deactivateCinemaMode();
+    const speech = 'Modalità cinema disattivata, sincronizzazione luci fermata.';
+    return { success: true, action: 'cinema_mode_off', speech, reply: speech };
+  }
+
+  if (
+    /^(?:attiva|accendi|metti|avvia)?\s*(?:la\s+)?(?:modalit[aà]\s+cinema|cinema|sync\s+tv)\b/i.test(text) ||
+    /\b(attiva|accendi|metti|avvia)\b.*\b(modalit[aà]\s+cinema|cinema|sync\s+tv)\b/i.test(text)
+  ) {
+    const spatialEngine = require('./spatial-engine');
+    const res = await spatialEngine.activateMicroZone('cinema_tv');
+    const speech = res?.syncStarted === true
+      ? 'Modalità cinema attiva: lampadario spento e luci sincronizzate con la TV.'
+      : 'Lampadario Giunone spento, avvia la sorgente TV per attivare la sincronizzazione luci.';
+    return { success: true, action: 'cinema_mode_on', syncStarted: Boolean(res?.syncStarted), speech, reply: speech };
+  }
+
   if ((text.includes('mostra') || text.includes('trasmetti') || text.includes('proietta') || text.includes('vedi')) && 
       (text.includes('telecamera') || text.includes('camera') || text.includes('tapo') || text.includes('monitor') || text.includes('video')) &&
       (text.includes('nest') || text.includes('hub') || text.includes('schermo') || text.includes('tv'))) {

@@ -21,7 +21,7 @@ const CUSTOM_LAYOUT_FILE = path.join(__dirname, '..', 'spatial-custom-layout.jso
  */
 class SpatialEngine {
   constructor() {
-    this.autoCinemaEnabled = true;
+    this.autoCinemaEnabled = false;
     this.lastTvState = false;
     this.reflexInterval = null;
     this.nightTrailEnabled = true;
@@ -1117,28 +1117,40 @@ class SpatialEngine {
   /**
    * Avvia il monitoraggio automatico di prossimità (es. Presa TV #22 -> Luci Ambilight #23/#25 vs Lampadario #21)
    */
-  startProximityReflexLoop() {
-    if (this.reflexInterval) clearInterval(this.reflexInterval);
-    this.reflexInterval = setInterval(async () => {
-      if (!this.autoCinemaEnabled) return;
-      try {
-        const status = merossEnergy.getStatus();
-        const tvPlug = (status.plugs || []).find(p => p.name.toLowerCase().includes('televisione'));
-        if (!tvPlug) return;
+  async checkProximityReflexTick() {
+    try {
+      const status = merossEnergy.getStatus();
+      const tvPlug = (status.plugs || []).find(p => p.name.toLowerCase().includes('televisione'));
+      if (!tvPlug) return;
 
-        const isTvDrawingPower = tvPlug.powerW >= 32;
-        if (isTvDrawingPower && !this.lastTvState) {
-          this.lastTvState = true;
+      const isTvDrawingPower = tvPlug.powerW >= 32;
+      if (isTvDrawingPower && !this.lastTvState) {
+        this.lastTvState = true;
+        if (this.autoCinemaEnabled === true) {
           eventLogger.log('proximity_reflex', `🎬 [Prossimità #22→#23/#25] Rilevata accensione TV (${tvPlug.powerW}W): attivazione automatica Bias Lighting TV 1 & TV 2 e anti-riflesso Giunone!`);
           await this.activateMicroZone('cinema_tv');
-        } else if (!isTvDrawingPower && this.lastTvState && tvPlug.powerW < 10) {
-          this.lastTvState = false;
+        }
+      } else if (!isTvDrawingPower && this.lastTvState && tvPlug.powerW < 10) {
+        this.lastTvState = false;
+        if (hueSyncBox.getState()?.syncActive === true) {
+          await hueSyncBox.stopSync().catch(() => {});
+          eventLogger.log('proximity_reflex', `📺 [Prossimità #22] TV spenta (${tvPlug.powerW}W): arresto automatico sincronizzazione Hue Sync Box.`);
+        }
+        if (this.autoCinemaEnabled === true) {
           eventLogger.log('proximity_reflex', `📺 [Prossimità #22→#23/#25] TV spenta (${tvPlug.powerW}W): spegnimento automatico retroilluminazione TV 1 (#23) e TV 2 (#25).`);
           await hueLocal.toggleLightByName('TV 1', false);
           await hueLocal.toggleLightByName('TV 2', false);
         }
-      } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  startProximityReflexLoop() {
+    if (this.reflexInterval) clearInterval(this.reflexInterval);
+    this.reflexInterval = setInterval(() => {
+      this.checkProximityReflexTick().catch(() => {});
     }, 10000);
+    if (typeof this.reflexInterval.unref === 'function') this.reflexInterval.unref();
   }
 
   /**
@@ -1425,24 +1437,34 @@ class SpatialEngine {
     };
   }
 
+  async deactivateCinemaMode() {
+    let stopped = false;
+    if (hueSyncBox.getState()?.configured) {
+      try {
+        await hueSyncBox.stopSync();
+        stopped = true;
+      } catch (_) {
+        stopped = false;
+      }
+    }
+    return { success: true, stopped };
+  }
+
   /**
    * Attiva una Micro-Zona Funzionale di Prossimità
    */
   async activateMicroZone(zoneId) {
     switch (zoneId) {
       case 'cinema_tv': {
-        // Spegne il riflesso del lampadario centrale #21 Giunone + Piantana ingresso e imposta luci soffuse divano (#20, #26)
+        // Spegne sempre il lampadario centrale #21 Giunone
         await this.setChandelierMode('giunone', 'off');
-        await hueLocal.setBrightnessByName('Piantana divano', 20);
-        await hueLocal.setBrightnessByName('Lampada Tiffany', 20);
-        await hueLocal.toggleLightByName('Piantana ingresso', false);
 
         let syncStarted = false;
-        const syncState = hueSyncBox.getState();
-        if (syncState?.configured) {
+        const curSyncState = hueSyncBox.getState();
+        if (curSyncState?.configured === true) {
           try {
-            await hueSyncBox.startSync({ mode: 'video' });
-            syncStarted = true;
+            const syncRes = await hueSyncBox.startSync({ mode: 'video' });
+            syncStarted = syncRes?.state ? Boolean(syncRes.state.syncActive) : true;
           } catch (_) {
             syncStarted = false;
           }
@@ -1450,8 +1472,17 @@ class SpatialEngine {
         if (!syncStarted) {
           await hueLocal.setBrightnessByName('TV 1', 35);
           await hueLocal.setBrightnessByName('TV 2', 35);
+          await hueLocal.setBrightnessByName('Piantana divano', 20);
+          await hueLocal.setBrightnessByName('Lampada Tiffany', 20);
+          await hueLocal.toggleLightByName('Piantana ingresso', false);
         }
-        break;
+        return {
+          success: true,
+          zoneId: 'cinema_tv',
+          syncStarted,
+          fallbackUsed: !syncStarted,
+          syncState: hueSyncBox.getState()
+        };
       }
 
       case 'angolo_lettura':
