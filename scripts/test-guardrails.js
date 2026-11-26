@@ -6755,3 +6755,31 @@ test('TEST 76: Separazione prese Meross Bagno Alex (Spina lavatrice #7 & Spina a
     merossEnergy.relayStateByName.delete('spina asciugatrice');
   }
 });
+
+test('TEST 77: Animazioni micro-stato estese a tutte le categorie icone attive sulla planimetria (#192)', () => {
+  const fs = require('fs');
+  const path = require('path');
+
+  const floorplanJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'floorplan.js'), 'utf8');
+  const drawerVue = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'src', 'views', 'FloorplanDrawerView.vue'), 'utf8');
+  const focusVue = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'src', 'views', 'RoomFocusOverlay.vue'), 'utf8');
+
+  for (const token of [
+    'fp-light-active',
+    'fp-plug-active',
+    'fp-plug-load',
+    'fp-dyson-active',
+    'fp-cam-live',
+    'fp-live-dot',
+    'fp-sensor-motion',
+    'fp-appliance-running',
+    'fp-tv-active',
+    'fp-printer-error',
+    'fpFanSpin',
+    'fpLightGlow'
+  ]) {
+    assert.ok(floorplanJs.includes(token), `floorplan.js deve includere ${token}`);
+  }
+  assert.ok(drawerVue.includes('animate-spin') && drawerVue.includes('animate-pulse'));
+  assert.ok(focusVue.includes('animate-spin') && focusVue.includes('animate-pulse'));
+});
