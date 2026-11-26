@@ -443,6 +443,85 @@ class FloorplanEngine {
       .fp-ac-active.fp-ac-heat .fp-pin-card {
         animation: fpRadiatorGlow 2.4s ease-in-out infinite;
       }
+      @keyframes fpLightGlow {
+        0%, 100% { filter: drop-shadow(0 0 3px rgba(250, 204, 21, 0.42)); }
+        50% { filter: drop-shadow(0 0 7px rgba(250, 204, 21, 0.85)); }
+      }
+      @keyframes fpPlugGlow {
+        0%, 100% { filter: drop-shadow(0 0 3px rgba(56, 189, 248, 0.35)); }
+        50% { filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.78)); }
+      }
+      @keyframes fpEmeraldGlow {
+        0%, 100% { filter: drop-shadow(0 0 3px rgba(16, 185, 129, 0.42)); }
+        50% { filter: drop-shadow(0 0 7px rgba(52, 211, 153, 0.88)); }
+      }
+      @keyframes fpCamGlow {
+        0%, 100% { filter: drop-shadow(0 0 2px rgba(217, 70, 239, 0.32)); }
+        50% { filter: drop-shadow(0 0 6px rgba(232, 121, 249, 0.72)); }
+      }
+      @keyframes fpPurpleGlow {
+        0%, 100% { filter: drop-shadow(0 0 3px rgba(168, 85, 247, 0.42)); }
+        50% { filter: drop-shadow(0 0 7px rgba(192, 132, 252, 0.85)); }
+      }
+      @keyframes fpAlertGlow {
+        0%, 100% { filter: drop-shadow(0 0 3px rgba(244, 63, 94, 0.45)); }
+        50% { filter: drop-shadow(0 0 8px rgba(251, 113, 133, 0.95)); }
+      }
+      @keyframes fpSoftPulse {
+        0%, 100% { opacity: 0.88; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.07); }
+      }
+      @keyframes fpFanSpin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      @keyframes fpLiveDotPulse {
+        0%, 100% { opacity: 0.35; transform: scale(0.85); }
+        50% { opacity: 1; transform: scale(1.18); }
+      }
+      .fp-pin-icon {
+        transform-box: fill-box;
+        transform-origin: center;
+      }
+      .fp-light-active .fp-pin-card {
+        animation: fpLightGlow 2.8s ease-in-out infinite;
+      }
+      .fp-light-active .fp-pin-icon {
+        animation: fpSoftPulse 2.8s ease-in-out infinite;
+      }
+      .fp-plug-active .fp-pin-card {
+        animation: fpPlugGlow 2.6s ease-in-out infinite;
+      }
+      .fp-plug-load .fp-pin-icon {
+        animation: fpSoftPulse 1.8s ease-in-out infinite;
+      }
+      .fp-dyson-active .fp-pin-card,
+      .fp-appliance-running .fp-pin-card,
+      .fp-sensor-motion .fp-pin-card {
+        animation: fpEmeraldGlow 2.3s ease-in-out infinite;
+      }
+      .fp-dyson-active .fp-pin-icon,
+      .fp-appliance-spin .fp-pin-icon {
+        animation: fpFanSpin 3.2s linear infinite;
+      }
+      .fp-appliance-running .fp-pin-icon,
+      .fp-sensor-motion .fp-pin-icon {
+        animation: fpSoftPulse 1.6s ease-in-out infinite;
+      }
+      .fp-cam-live .fp-pin-card {
+        animation: fpCamGlow 3.2s ease-in-out infinite;
+      }
+      .fp-live-dot {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: fpLiveDotPulse 1.6s ease-in-out infinite;
+      }
+      .fp-tv-active .fp-pin-card {
+        animation: fpPurpleGlow 2.8s ease-in-out infinite;
+      }
+      .fp-printer-error .fp-pin-card {
+        animation: fpAlertGlow 1.5s ease-in-out infinite;
+      }
     `;
     document.head?.appendChild(style);
   }
@@ -1473,7 +1552,7 @@ class FloorplanEngine {
     const scaleAttr = isRoomFocused ? 'transform="scale(0.92)"' : '';
     if (p.category === 'chandelier') {
       return `
-        <g ${scaleAttr} fill="none" stroke="${iconColor}" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
+        <g class="fp-pin-icon" ${scaleAttr} fill="none" stroke="${iconColor}" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
           <line x1="0" y1="-7.5" x2="0" y2="-3.5" />
           <path d="M -6.5 1.5 Q -6.5 -3.5 0 -3.5 Q 6.5 -3.5 6.5 1.5" />
           <line x1="0" y1="-3.5" x2="0" y2="2" />
@@ -1523,10 +1602,12 @@ class FloorplanEngine {
     }
     return `
       <text x="0" y="1" text-anchor="middle" dominant-baseline="central"
+            class="fp-pin-icon"
             fill="${iconColor}"
             font-family="'Font Awesome 6 Free', 'FontAwesome', sans-serif"
             font-weight="900"
             font-size="${isRoomFocused ? '12' : '12.5'}">${iconGlyph}</text>
+      ${p.category === 'camera' && !p.privacyMode ? '<circle cx="-8.5" cy="-8.5" r="2" fill="#f43f5e" class="fp-live-dot" />' : ''}
     `;
   }
 
@@ -1859,7 +1940,31 @@ class FloorplanEngine {
       const isValveHeating = p.category === 'valve' && Boolean(p.isHeating || (Number(p.valvePercent) > 15));
       const isAcActive = p.category === 'climate' && !p.isDyson && Boolean(p.isOn);
       const isAcHeat = isAcActive && String(p.mode || '').toLowerCase() === 'heat';
-      const activeStateCls = `${isValveHeating ? 'fp-valve-heating' : ''} ${isAcActive ? (isAcHeat ? 'fp-ac-active fp-ac-heat' : 'fp-ac-active') : ''}`.trim();
+      const isLightActive = (p.category === 'light' || p.category === 'chandelier') && Boolean(p.isOn);
+      const plugPower = Number(p.powerW) || 0;
+      const isPlugActive = p.category === 'plug' && (Boolean(p.isOn) || plugPower > 15);
+      const isPlugLoad = p.category === 'plug' && plugPower > 15;
+      const isDysonActive = p.category === 'climate' && Boolean(p.isDyson) && Boolean(p.isOn);
+      const isCamLive = p.category === 'camera' && !p.privacyMode;
+      const isSensorMotion = p.category === 'sensor' && Boolean(p.motion);
+      const isApplianceRunning = p.category === 'appliance' && Boolean(p.isRunning);
+      const isApplianceSpin = isApplianceRunning && p.thinqRole === 'dryer';
+      const isTvActive = p.category === 'tv' && Boolean(p.isOn);
+      const isPrinterErr = p.category === 'printer' && p.online && p.statusCode === 'error';
+      const activeStateCls = [
+        isValveHeating ? 'fp-valve-heating' : '',
+        isAcActive ? (isAcHeat ? 'fp-ac-active fp-ac-heat' : 'fp-ac-active') : '',
+        isLightActive ? 'fp-light-active' : '',
+        isPlugActive ? 'fp-plug-active' : '',
+        isPlugLoad ? 'fp-plug-load' : '',
+        isDysonActive ? 'fp-dyson-active' : '',
+        isCamLive ? 'fp-cam-live' : '',
+        isSensorMotion ? 'fp-sensor-motion' : '',
+        isApplianceRunning ? 'fp-appliance-running' : '',
+        isApplianceSpin ? 'fp-appliance-spin' : '',
+        isTvActive ? 'fp-tv-active' : '',
+        isPrinterErr ? 'fp-printer-error' : ''
+      ].filter(Boolean).join(' ');
 
       return `
         <g id="spatial-pin-group-${p.pin}"

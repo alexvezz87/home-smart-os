@@ -222,7 +222,7 @@ function sceneGradient(scene) {
               class="flex items-center gap-2 min-w-0 flex-1 text-left"
             >
               <!-- Icona lampadario / termosifone / condizionatore o icona categoria -->
-              <svg v-if="p.category === 'chandelier'" viewBox="0 0 24 24" class="w-4 h-4 shrink-0" :class="p.isOn ? 'text-amber-300' : 'text-slate-500'" fill="none" stroke="currentColor" stroke-width="2">
+              <svg v-if="p.category === 'chandelier'" viewBox="0 0 24 24" class="w-4 h-4 shrink-0" :class="p.isOn ? 'text-amber-300 animate-pulse' : 'text-slate-500'" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M12 3v6M6 12h12M6 12v3M12 9v6M18 12v3" />
                 <circle cx="6" cy="17" r="1.5" />
                 <circle cx="12" cy="17" r="1.5" />
@@ -248,12 +248,13 @@ function sceneGradient(scene) {
                 v-else
                 class="fa-solid w-4 text-center shrink-0"
                 :class="[
-                  p.category === 'climate' && p.isDyson ? 'fa-fan text-emerald-400' :
-                  p.category === 'plug' ? 'fa-plug text-cyan-400' :
-                  p.category === 'camera' ? 'fa-video text-purple-400' :
-                  p.category === 'speaker' || p.category === 'tv' ? 'fa-volume-high text-indigo-400' :
-                  'fa-lightbulb ' + (p.isOn ? 'text-amber-300' : 'text-slate-500')
+                  p.category === 'climate' && p.isDyson ? (p.isOn ? 'fa-fan text-emerald-400 animate-spin' : 'fa-fan text-slate-400') :
+                  p.category === 'plug' ? ('fa-plug ' + ((p.isOn || Number(p.powerW) > 15) ? 'text-cyan-400 animate-pulse' : 'text-slate-400')) :
+                  p.category === 'camera' ? ('fa-video ' + (!p.privacyMode ? 'text-purple-400 animate-pulse' : 'text-slate-500')) :
+                  p.category === 'speaker' || p.category === 'tv' ? ('fa-volume-high ' + (p.isOn ? 'text-indigo-400 animate-pulse' : 'text-indigo-400')) :
+                  'fa-lightbulb ' + (p.isOn ? 'text-amber-300 animate-pulse' : 'text-slate-500')
                 ]"
+                :style="(p.category === 'climate' && p.isDyson && p.isOn) ? { animationDuration: '3.2s' } : undefined"
               ></i>
               <div class="min-w-0">
                 <div class="font-bold text-white truncate">{{ p.name }}</div>
