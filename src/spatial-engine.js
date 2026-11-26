@@ -6,6 +6,7 @@ const securitySystem = require('./security-system');
 const eventLogger = require('./event-logger');
 const db = require('./db');
 const climateOptimizer = require('./climate-optimizer');
+const hueSyncBox = require('./hue-sync-box');
 
 let eventBus = null;
 try {
@@ -694,6 +695,18 @@ class SpatialEngine {
         x: 68.0,
         y: 61.8,
         nearbyPins: [31, 32, 29, 34]
+      },
+      {
+        pin: 49,
+        name: 'Hue Sync Box',
+        room: 'Salone',
+        microZone: 'cinema_tv',
+        category: 'tv',
+        vendor: 'Philips Hue Sync Box 8K',
+        syncBoxId: 'salone',
+        x: 47.4,
+        y: 71.0,
+        nearbyPins: [22, 23, 24, 25]
       }
     ];
 
@@ -702,7 +715,7 @@ class SpatialEngine {
         id: 'cinema_tv',
         name: '🎬 Cinema & Ambilight TV',
         room: 'Salone',
-        pins: [22, 23, 24, 25, 20, 26, 21],
+        pins: [22, 23, 24, 25, 20, 26, 21, 49],
         description: 'Accende TV 1 (#23) e TV 2 (#25) al 35%, spegne i riflessi del Lampadario Giunone (#21) e imposta Divano (#20) e Tiffany (#26) al 20%.'
       },
       {
@@ -1213,6 +1226,11 @@ class SpatialEngine {
         clone.pan = cam.ptz?.pan || 0;
         clone.tilt = cam.ptz?.tilt || 0;
         clone.patrolActive = Boolean(cam.patrolActive);
+      } else if (p.syncBoxId) {
+        const syncState = hueSyncBox.getState();
+        clone.syncBox = syncState;
+        clone.isOn = Boolean(syncState?.syncActive);
+        clone.online = Boolean(syncState?.online);
       } else if (p.category === 'valve') {
         const bosch = homeSnapshot.evClimate?.bosch || {};
         const rawZones = bosch.zones;
@@ -1412,15 +1430,29 @@ class SpatialEngine {
    */
   async activateMicroZone(zoneId) {
     switch (zoneId) {
-      case 'cinema_tv':
-        // Spegne il riflesso del lampadario centrale #21 Giunone e accende il Bias Lighting TV (#23, #25) + luci soffuse divano (#20, #26)
+      case 'cinema_tv': {
+        // Spegne il riflesso del lampadario centrale #21 Giunone + Piantana ingresso e imposta luci soffuse divano (#20, #26)
         await this.setChandelierMode('giunone', 'off');
-        await hueLocal.setBrightnessByName('TV 1', 35);
-        await hueLocal.setBrightnessByName('TV 2', 35);
         await hueLocal.setBrightnessByName('Piantana divano', 20);
         await hueLocal.setBrightnessByName('Lampada Tiffany', 20);
         await hueLocal.toggleLightByName('Piantana ingresso', false);
+
+        let syncStarted = false;
+        const syncState = hueSyncBox.getState();
+        if (syncState?.configured) {
+          try {
+            await hueSyncBox.startSync({ mode: 'video' });
+            syncStarted = true;
+          } catch (_) {
+            syncStarted = false;
+          }
+        }
+        if (!syncStarted) {
+          await hueLocal.setBrightnessByName('TV 1', 35);
+          await hueLocal.setBrightnessByName('TV 2', 35);
+        }
         break;
+      }
 
       case 'angolo_lettura':
         await merossEnergy.togglePlugByName('Angolo lettura', true).catch(() => {});

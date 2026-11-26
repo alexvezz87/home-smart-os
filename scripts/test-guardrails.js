@@ -6999,3 +6999,143 @@ test('TEST 77: Staffetta Ibrida Comfort (Haier -> Bosch), Occupazione Camera & C
   assert.equal(awayFinish.relayActivated, false);
   assert.equal(boschSetCalls.length, 0, 'Con allAway non deve attivare la Fase 2 Bosch');
 });
+
+
+test('TEST 78: Philips Hue Play HDMI Sync Box 8K, Pin #49 & Scena cinema_tv (#196)', async () => {
+  const hueSyncBoxSingleton = require('../src/hue-sync-box');
+  const { HueSyncBoxManager } = hueSyncBoxSingleton;
+  const spatialEngine = require('../src/spatial-engine');
+  const hueLocal = require('../src/hue-local');
+
+  // 1. Stato non configurato senza crash
+  const unconf = new HueSyncBoxManager({ ip: '', token: '' });
+  const unconfState = await unconf.refreshState();
+  assert.equal(unconfState.configured, false);
+  assert.equal(unconfState.online, false);
+
+  // 2. Lettura GET /api/v1, normalizzazione stato, control()/startSync()/stopSync(), evento hue_sync:state_changed & offline graceful
+  const emitted = [];
+  const putPayloads = [];
+  let failNetwork = false;
+  let mockApiState = {
+    device: { name: 'Hue Sync Box 8K Test' },
+    execution: {
+      syncActive: false,
+      mode: 'video',
+      brightness: 120,
+      hdmiSource: 'input1',
+      video: { intensity: 'moderate' }
+    },
+    hdmi: {
+      input1: { name: 'Apple TV 4K', type: 'streaming', status: 'linked' },
+      input2: { name: 'PS5', type: 'console', status: 'unplugged' }
+    },
+    hue: {
+      groups: { g1: { name: 'Area Cinema', active: true } }
+    }
+  };
+
+  const box = new HueSyncBoxManager({
+    ip: '192.0.2.10',
+    token: 'test-token-value',
+    eventBus: {
+      publish: (ev, data) => emitted.push({ ev, data })
+    },
+    requestFn: async (method, apiPath, body) => {
+      if (failNetwork) throw new Error('ECONNREFUSED test-token-value');
+      if (method === 'GET' && apiPath === '/api/v1') return mockApiState;
+      if (method === 'PUT' && apiPath === '/api/v1/execution') {
+        putPayloads.push(body);
+        if (body.syncActive !== undefined) mockApiState.execution.syncActive = body.syncActive;
+        if (body.mode !== undefined) mockApiState.execution.mode = body.mode;
+        if (body.brightness !== undefined) mockApiState.execution.brightness = body.brightness;
+        if (body.hdmiSource !== undefined) mockApiState.execution.hdmiSource = body.hdmiSource;
+        if (body.video?.intensity) mockApiState.execution.video.intensity = body.video.intensity;
+        return {};
+      }
+      throw new Error(`Unexpected ${method} ${apiPath}`);
+    }
+  });
+
+  const s1 = await box.refreshState();
+  assert.equal(s1.configured, true);
+  assert.equal(s1.online, true);
+  assert.equal(s1.syncActive, false);
+  assert.equal(s1.mode, 'video');
+  assert.equal(s1.intensity, 'moderate');
+  assert.equal(s1.brightness, 120);
+  assert.equal(s1.hdmiSource, 'input1');
+  assert.equal(s1.inputs.length, 2);
+  assert.ok(emitted.some((e) => e.ev === 'hue_sync:state_changed'));
+
+  // Validazione parametri non validi
+  await assert.rejects(() => box.control({ mode: 'invalid_mode' }), /Modalità Sync Box non valida/);
+  await assert.rejects(() => box.control({ intensity: 'extreme' }), /Intensità Sync Box non valida/);
+  await assert.rejects(() => box.control({ hdmiSource: 'input9' }), /Sorgente HDMI non valida/);
+
+  const startRes = await box.startSync({ mode: 'video', intensity: 'high', brightness: 160, hdmiSource: 'input2' });
+  assert.equal(startRes.success, true);
+  assert.equal(startRes.state.syncActive, true);
+  assert.equal(startRes.state.intensity, 'high');
+  assert.equal(startRes.state.brightness, 160);
+  assert.equal(putPayloads[0].syncActive, true);
+  assert.deepEqual(putPayloads[0].video, { intensity: 'high' });
+
+  const stopRes = await box.stopSync();
+  assert.equal(stopRes.state.syncActive, false);
+
+  // Gestione offline graceful con redazione token
+  failNetwork = true;
+  const offState = await box.refreshState();
+  assert.equal(offState.online, false);
+  assert.ok(offState.lastError && !offState.lastError.includes('test-token-value'), 'Token deve essere redatto');
+
+  // 3. Presenza Pin #49 in spatial-engine.js e idratazione stato
+  const pin49Def = spatialEngine.pins.find((p) => Number(p.pin) === 49);
+  assert.ok(pin49Def, 'Pin #49 Hue Sync Box deve esistere in spatialEngine.pins');
+  assert.equal(pin49Def.name, 'Hue Sync Box');
+  assert.equal(pin49Def.microZone, 'cinema_tv');
+  assert.equal(pin49Def.syncBoxId, 'salone');
+
+  // 4. activateMicroZone('cinema_tv'): startSync quando online, fallback TV 1/TV 2 al 35% quando offline/non configurata
+  const origSetChandelier = spatialEngine.setChandelierMode;
+  const origSetBrightness = hueLocal.setBrightnessByName;
+  const origToggleLight = hueLocal.toggleLightByName;
+  const origGetState = hueSyncBoxSingleton.getState;
+  const origStartSync = hueSyncBoxSingleton.startSync;
+
+  try {
+    const brightnessCalls = [];
+    let syncStartCalls = 0;
+    spatialEngine.setChandelierMode = async () => ({});
+    hueLocal.setBrightnessByName = async (name, bri) => {
+      brightnessCalls.push({ name, bri });
+    };
+    hueLocal.toggleLightByName = async () => ({});
+
+    // Caso A: Sync Box configurata e raggiungibile -> startSync({ mode: 'video' }), NO TV 1 / TV 2
+    hueSyncBoxSingleton.getState = () => ({ configured: true, online: true, syncActive: false });
+    hueSyncBoxSingleton.startSync = async (opts) => {
+      syncStartCalls += 1;
+      assert.equal(opts.mode, 'video');
+      return { success: true };
+    };
+    await spatialEngine.activateMicroZone('cinema_tv');
+    assert.equal(syncStartCalls, 1);
+    assert.ok(!brightnessCalls.some((b) => b.name === 'TV 1' || b.name === 'TV 2'), 'Con Sync Box online non deve forzare TV 1/TV 2 al 35%');
+    assert.ok(brightnessCalls.some((b) => b.name === 'Piantana divano' && b.bri === 20));
+
+    // Caso B: Sync Box offline/non configurata -> fallback TV 1 e TV 2 al 35%
+    brightnessCalls.length = 0;
+    hueSyncBoxSingleton.getState = () => ({ configured: false, online: false, syncActive: false });
+    await spatialEngine.activateMicroZone('cinema_tv');
+    assert.ok(brightnessCalls.some((b) => b.name === 'TV 1' && b.bri === 35));
+    assert.ok(brightnessCalls.some((b) => b.name === 'TV 2' && b.bri === 35));
+  } finally {
+    spatialEngine.setChandelierMode = origSetChandelier;
+    hueLocal.setBrightnessByName = origSetBrightness;
+    hueLocal.toggleLightByName = origToggleLight;
+    hueSyncBoxSingleton.getState = origGetState;
+    hueSyncBoxSingleton.startSync = origStartSync;
+  }
+});

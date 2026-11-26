@@ -306,6 +306,39 @@ module.exports = function registerHueAppliancesSpatialRoutes(app, services) {
     }
   });
 
+  // 0j. Philips Hue Play HDMI Sync Box 8K (API Locale HTTPS /api/v1)
+  app.get('/api/hue-sync/state', async (req, res) => {
+    try {
+      const box = services.hueSyncBox || require('../hue-sync-box');
+      if (String(req.query?.refresh || '') === '1') {
+        const state = await box.refreshState();
+        return res.json({ success: true, ...state });
+      }
+      return res.json({ success: true, ...box.getState() });
+    } catch (error) {
+      return res.status(500).json({ success: false, error: String(error?.message || 'Errore lettura stato Sync Box') });
+    }
+  });
+
+  app.post('/api/hue-sync/control', async (req, res) => {
+    try {
+      const box = services.hueSyncBox || require('../hue-sync-box');
+      const curState = box.getState();
+      if (!curState.configured) {
+        return res.status(503).json({ success: false, error: 'Hue Sync Box non configurata' });
+      }
+      const { syncActive, mode, intensity, brightness, hdmiSource } = req.body || {};
+      const result = await box.control({ syncActive, mode, intensity, brightness, hdmiSource });
+      return res.json({ success: true, ...result });
+    } catch (error) {
+      const code = Number(error?.statusCode) || 503;
+      const token = process.env.HUE_SYNC_BOX_TOKEN;
+      let msg = String(error?.message || 'Errore controllo Sync Box');
+      if (token) msg = msg.split(token).join('[REDACTED]');
+      return res.status(code).json({ success: false, error: msg });
+    }
+  });
+
   // 1. Snapshot completo casa con arricchimento telemetria Meross, Sicurezza e Mappa Spaziale 32 Pin
   app.get(['/api/home', '/api/dashboard'], async (req, res) => {
     try {

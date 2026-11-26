@@ -310,6 +310,26 @@ class FloorplanEngine {
           }
         } catch (_) {}
       });
+      es.addEventListener('hue_sync:state_changed', (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          const d = msg?.data;
+          if (!d) return;
+          const pins = window.homeData?.spatial?.pins;
+          if (!Array.isArray(pins)) return;
+          const pin = pins.find((p) => Boolean(p.syncBoxId));
+          if (!pin) return;
+          pin.syncBox = d;
+          pin.isOn = Boolean(d.syncActive);
+          pin.online = Boolean(d.online);
+          this.render();
+          window.homeVueBridge?.floorplanStore?.syncFromHomeData?.();
+          const drawer = document.getElementById('device-drawer');
+          if (drawer && !drawer.classList.contains('hidden') && Number(window.deviceSheet?.currentPin?.pin) === Number(pin.pin)) {
+            window.deviceSheet.open(pin);
+          }
+        } catch (_) {}
+      });
     } catch (_) {}
   }
 
@@ -1474,7 +1494,9 @@ class FloorplanEngine {
       iconColor = '#a855f7';
       fill = '#2e1065';
       stroke = isSelected ? '#22d3ee' : '#c084fc';
-      subBadge = 'TV';
+      subBadge = p.syncBoxId
+        ? (p.isOn ? (p.syncBox?.mode ? String(p.syncBox.mode).toUpperCase().slice(0, 4) : 'SYNC') : 'SYNC')
+        : 'TV';
     } else if (p.category === 'sensor') {
       iconGlyph = '&#xf09e;';
       if (p.motion) {
