@@ -136,26 +136,62 @@ class GoogleSmartHomeManager {
     return this._deps.nestCaster || require('./nest-caster');
   }
 
-  _announceComfortAsync(res, { bypassQuietHours = false } = {}) {
+  _announceComfortAsync(res, { bypassQuietHours = false, playChime = true } = {}) {
     if (this.climateOptimizer?.config?.comfortVoiceAnnounce === false) return;
-    if (!res?.reply || typeof this.nestCaster?.speak !== 'function') return;
+    const rawText = typeof res === 'string' ? res : (res?.speech || res?.reply);
+    if (!rawText || typeof this.nestCaster?.speak !== 'function') return;
     if (!bypassQuietHours && typeof this.nestCaster?.isWelcomeWithinActiveHours === 'function' && !this.nestCaster.isWelcomeWithinActiveHours()) {
       return;
     }
+    const cleanReply = String(rawText).trim().slice(0, 190);
     const now = this._nowFn();
-    const dedupKey = String(res.reply).trim().toLowerCase();
+    const dedupKey = cleanReply.toLowerCase();
     const lastAt = this._recentAnnouncements.get(dedupKey);
     if (lastAt !== undefined && (now - lastAt) < 5000) {
       return;
     }
     this._recentAnnouncements.set(dedupKey, now);
     const chimePreset = this.nestCaster?.config?.welcomeChimePreset || 'welcome_chime';
-    Promise.resolve(this.nestCaster.speak(res.reply, {
+    Promise.resolve(this.nestCaster.speak(cleanReply, {
       roomName: 'Salone',
       followMe: false,
-      playChime: true,
+      playChime: Boolean(playChime),
       chimePreset
     })).catch(() => {});
+  }
+
+  async _runComfortFlowAsync(devId, sw) {
+    const intent = sw?.mappedPayload?.intent === 'hot' ? 'hot' : 'cold';
+    const hasWarmupSupport = typeof this.nestCaster?.warmupCommonPhrases === 'function' || this._deps.comfortAckEnabled === true;
+    if (hasWarmupSupport) {
+      const ackText = intent === 'hot'
+        ? 'Ricevuto, abbasso o spengo le zone in eccesso e ti aggiorno subito.'
+        : 'Ricevuto, attivo il comfort termico e ti aggiorno tra un attimo.';
+      this._announceComfortAsync(ackText, { bypassQuietHours: false, playChime: true });
+    }
+
+    const res = await this.assistant.handleComfortBoost({
+      ...sw.mappedPayload,
+      options: { ...(sw.mappedPayload.options || {}) }
+    });
+
+    this.eventLogger?.log?.('google_smarthome', `Switch OnOff ${devId}`, {
+      source: 'Google Nest',
+      switchId: devId,
+      action: res?.action,
+      updatedRooms: res?.updatedRooms?.map((u) => u.room) || [],
+      temperature: res?.temperature ?? null
+    });
+
+    if (res?.success === true || res?.action === 'comfort_boost_already_warm') {
+      const finalText = res?.speech || res?.reply;
+      if (finalText) {
+        this._announceComfortAsync(finalText, {
+          bypassQuietHours: false,
+          playChime: !hasWarmupSupport
+        });
+      }
+    }
   }
 
   _descriptiveCapacity(pct) {
@@ -979,27 +1015,13 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
                 continue;
               }
               if (exec?.params?.on === true) {
-                const res = await this.assistant.handleComfortBoost({
-                  ...sw.mappedPayload,
-                  options: { ...(sw.mappedPayload.options || {}) }
-                });
-                this.eventLogger?.log?.('google_smarthome', `Switch OnOff ${devId}`, {
-                  source: 'Google Nest',
-                  switchId: devId,
-                  action: res?.action,
-                  updatedRooms: res?.updatedRooms?.map((u) => u.room) || [],
-                  temperature: res?.temperature ?? null
-                });
-                if (res?.success === true || res?.action === 'comfort_boost_already_warm') {
-                  this._announceComfortAsync(res);
-                  commandResults.push({ ids: [devId], status: 'SUCCESS', states: { online: true, on: false } });
-                } else {
-                  commandResults.push({
-                    ids: [devId],
-                    status: 'ERROR',
-                    errorCode: res?.blocked ? 'valueOutOfRange' : 'deviceNotReady'
+                this._runComfortFlowAsync(devId, sw).catch((err) => {
+                  this.eventLogger?.log?.('google_smarthome', `Switch OnOff ${devId} errore background: ${err?.message || err}`, {
+                    source: 'Google Nest',
+                    switchId: devId
                   });
-                }
+                });
+                commandResults.push({ ids: [devId], status: 'SUCCESS', states: { online: true, on: false } });
               } else {
                 const resetRes = typeof this.climateOptimizer?.resetComfortAndRebalance === 'function'
                   ? await this.climateOptimizer.resetComfortAndRebalance({ reason: 'comfort_reset', source: 'google_smarthome' })

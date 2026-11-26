@@ -141,6 +141,113 @@ async function resolveUserRoom(text, options = {}, snapshot = null) {
   return { room: null, level: null, source: 'unresolved', ambiguous: true };
 }
 
+async function checkBedroomOccupancy(deps = {}) {
+  const hue = deps.hueLocal || hueLocal;
+  const sec = deps.securitySystem || securitySystem;
+  const vision = deps.geminiVision || geminiVision;
+  const nowMs = typeof deps.nowFn === 'function' ? deps.nowFn() : Date.now();
+  const timeZone = 'Europe/Rome';
+
+  const bedroomLights = ['comodino cinzia', 'nuvoletta', 'comodino alex'];
+  const lights = Array.isArray(hue?.lights) ? hue.lights : [];
+  const activeBedroomLight = lights.find((l) => {
+    const name = String(l?.name || l?.metadata?.name || '').toLowerCase();
+    const isOn = Boolean(l?.on?.on ?? l?.state?.on ?? l?.isOn);
+    return isOn && bedroomLights.some((target) => name.includes(target));
+  });
+  if (activeBedroomLight) {
+    return {
+      occupied: true,
+      reason: `Luce camera accesa (${activeBedroomLight.name || 'Hue'})`,
+      source: 'hue'
+    };
+  }
+
+  const motionList = Array.isArray(hue?.motionSensors)
+    ? hue.motionSensors
+    : (hue?.motionSensor ? [hue.motionSensor] : []);
+  const recentMotion = motionList.find((m) => {
+    const name = String(m?.name || m?.room || '').toLowerCase();
+    const isBedroom = !name || name.includes('camera da letto') || name.includes('camera');
+    if (!isBedroom) return false;
+    const lastTs = m?.lastMotionAt ? new Date(m.lastMotionAt).getTime() : Number(m?.lastUpdatedMs || 0);
+    return Boolean(m?.motion) || (Number.isFinite(lastTs) && lastTs > 0 && (nowMs - lastTs) <= 15 * 60 * 1000);
+  });
+  if (recentMotion) {
+    return {
+      occupied: true,
+      reason: 'Movimento rilevato in camera da letto negli ultimi 15 minuti',
+      source: 'motion'
+    };
+  }
+
+  const rawCams = sec?.cameras;
+  let camList = [];
+  if (rawCams instanceof Map) camList = Array.from(rawCams.values());
+  else if (Array.isArray(rawCams)) camList = rawCams;
+  else if (rawCams && typeof rawCams === 'object') camList = Object.values(rawCams);
+
+  const bedroomCam = camList.find((c) => {
+    if (!c) return false;
+    const id = String(c.id || '').toLowerCase();
+    const name = String(c.name || '').toLowerCase();
+    const room = String(c.room || '').toLowerCase();
+    if (id === 'baby' || /baby|culla|monitor/i.test(`${id} ${name} ${room}`)) {
+      return false;
+    }
+    return room.includes('camera da letto') || name.includes('camera da letto') || id.includes('camera');
+  });
+
+  if (!bedroomCam || bedroomCam.privacyMode === true || sec?.privacyMode === true) {
+    return { occupied: false, reason: 'fallback_not_occupied', source: 'none' };
+  }
+
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).formatToParts(new Date(nowMs));
+  const hh = Number(parts.find((p) => p.type === 'hour')?.value || 0);
+  const mm = Number(parts.find((p) => p.type === 'minute')?.value || 0);
+  const totalMin = hh * 60 + mm;
+  if (totalMin < 8 * 60 || totalMin > 19 * 60 + 30) {
+    return { occupied: false, reason: 'vision_outside_hours', source: 'none' };
+  }
+
+  if (typeof vision?.analyzeCameraScene !== 'function') {
+    return { occupied: false, reason: 'fallback_not_occupied', source: 'none' };
+  }
+
+  let timeoutId = null;
+  try {
+    const visionRes = await Promise.race([
+      vision.analyzeCameraScene(bedroomCam.id || bedroomCam.name, {
+        prompt: 'Verifica se è presente almeno una persona in camera da letto. Rispondi con occupied true o false.',
+        camera: bedroomCam
+      }),
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('vision_timeout')), 3500);
+        if (typeof timeoutId.unref === 'function') timeoutId.unref();
+      })
+    ]);
+    const isOccupied = Boolean(
+      visionRes?.occupied === true ||
+      visionRes?.personDetected === true ||
+      (Array.isArray(visionRes?.people) && visionRes.people.length > 0)
+    );
+    return {
+      occupied: isOccupied,
+      reason: isOccupied ? 'Presenza rilevata da Vision' : 'Nessuna persona rilevata da Vision',
+      source: 'vision'
+    };
+  } catch (_) {
+    return { occupied: false, reason: 'fallback_not_occupied', source: 'none' };
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 async function handleComfortBoost({ intent, deltaC = null, text = '', options = {}, snapshot = null } = {}) {
   const cleanIntent = intent === 'hot' ? 'hot' : 'cold';
 
@@ -163,32 +270,44 @@ async function handleComfortBoost({ intent, deltaC = null, text = '', options = 
     const updatedRooms = [];
     const skippedRooms = [];
     const source = options?.source || 'voice_comfort_boost';
+    const checkBedroom = options?.allLivedRooms === true && targetRooms.includes('Camera da letto');
+    const bedroomOccPromise = checkBedroom
+      ? checkBedroomOccupancy().catch(() => ({ occupied: false, reason: 'fallback_not_occupied', source: 'none' }))
+      : Promise.resolve({ occupied: false, reason: 'not_checked', source: 'none' });
 
-    for (const roomName of targetRooms) {
-      if (!roomName || roomName === 'Bagno Alex') continue;
+    const roomTasks = targetRooms.map(async (roomName) => {
+      if (!roomName || roomName === 'Bagno Alex') return;
       const z = zones.find((zoneItem) => {
         const zId = String(zoneItem?.id || '').toLowerCase();
         const zName = String(zoneItem?.name || '').toLowerCase();
         if (zId === 'zn6' || zName.includes('bagno alex')) return false;
         return canonicalRoom(zoneItem?.name) === roomName;
       });
-      if (!z) continue;
+      if (!z) return;
 
       const tActual = Number.isFinite(Number(z.tempActual)) ? Number(z.tempActual) : null;
       const tSet = Number.isFinite(Number(z.tempSetpoint)) ? Number(z.tempSetpoint) : null;
       const isCameretta = roomName.toLowerCase().includes('cameretta');
 
+      if (roomName === 'Camera da letto' && checkBedroom) {
+        const occ = await bedroomOccPromise;
+        if (occ?.occupied) {
+          skippedRooms.push({ room: roomName, zoneId: z.id, tempActual: tActual, reason: 'bedroom_occupied' });
+          return;
+        }
+      }
+
       if (cleanIntent === 'cold') {
         if (tActual !== null && tActual >= coldTarget) {
           skippedRooms.push({ room: roomName, zoneId: z.id, tempActual: tActual, reason: 'already_above_target' });
-          continue;
+          return;
         }
         const guard = await aiGateway.validateHardwareAction({
           action: 'climate:set_temp',
           value: coldTarget,
           actor: 'voice-comfort-boost'
         });
-        if (guard && guard.allowed === false) continue;
+        if (guard && guard.allowed === false) return;
         const finalTemp = guard?.finalValue ?? coldTarget;
 
         try {
@@ -212,14 +331,14 @@ async function handleComfortBoost({ intent, deltaC = null, text = '', options = 
         const roomTarget = isCameretta ? Math.max(19.5, hotTarget) : hotTarget;
         if (tActual !== null && tActual <= roomTarget && (tSet === null || tSet <= roomTarget)) {
           skippedRooms.push({ room: roomName, zoneId: z.id, tempActual: tActual, reason: 'already_below_target' });
-          continue;
+          return;
         }
         const guard = await aiGateway.validateHardwareAction({
           action: 'climate:set_temp',
           value: roomTarget,
           actor: 'voice-comfort-boost'
         });
-        if (guard && guard.allowed === false) continue;
+        if (guard && guard.allowed === false) return;
         const finalTemp = guard?.finalValue ?? roomTarget;
 
         try {
@@ -240,7 +359,11 @@ async function handleComfortBoost({ intent, deltaC = null, text = '', options = 
         });
         updatedRooms.push({ room: roomName, zoneId: z.id, targetTemp: finalTemp, tempActual: tActual });
       }
-    }
+    });
+
+    await Promise.allSettled(roomTasks);
+    const bedroomOcc = await bedroomOccPromise;
+    const bedroomSkipped = skippedRooms.some((s) => s.reason === 'bedroom_occupied');
 
     const mainTemp = cleanIntent === 'cold' ? coldTarget : hotTarget;
     let reply = '';
@@ -252,6 +375,16 @@ async function handleComfortBoost({ intent, deltaC = null, text = '', options = 
       reply = cleanIntent === 'cold'
         ? `Le stanze vissute sono già oltre i ${formatTempIt(coldTarget)} gradi, non ho attivato i termosifoni.`
         : `Le stanze vissute sono già sotto i ${formatTempIt(hotTarget)} gradi, non ho abbassato i termosifoni.`;
+    }
+
+    let speech = reply;
+    if (bedroomSkipped) {
+      speech = updatedRooms.length > 0
+        ? `Fatto: regolato ${formatRoomListIt(updatedRooms.map((u) => u.room))} a ${formatTempIt(mainTemp)} gradi, camera non modificata per presenza.`
+        : 'Camera non modificata per presenza, le altre stanze sono già in temperatura.';
+    }
+    if (speech.length > 190) {
+      speech = `${speech.slice(0, 187).replace(/[,;\s]+$/, '')}...`;
     }
 
     eventLogger.log('bosch_thermo', reply, {
@@ -284,6 +417,8 @@ async function handleComfortBoost({ intent, deltaC = null, text = '', options = 
       ttlMinutes: overrideMin,
       updatedRooms,
       skippedRooms,
+      bedroomOccupancy: bedroomOcc,
+      speech,
       reply
     };
   }
@@ -1307,5 +1442,6 @@ async function processAssistantCommand(input, options = {}) {
 module.exports = {
   processAssistantCommand,
   resolveUserRoom,
-  handleComfortBoost
+  handleComfortBoost,
+  checkBedroomOccupancy
 };
