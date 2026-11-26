@@ -50,6 +50,8 @@ class NestCaster {
     this.soundsDir = deps.soundsDir || path.join(__dirname, '..', 'public', 'sounds');
     this.welcomeLastAt = new Map();
     this.pendingWelcomeArrivals = new Map();
+    this._roomQueues = new Map();
+    this._speechGapFn = typeof deps.speechGapFn === 'function' ? deps.speechGapFn : null;
     this.presenceAttached = false;
     this.cameraAttached = false;
     this._welcomeFlushTimer = null;
@@ -90,6 +92,39 @@ class NestCaster {
     await this._loadConfig().catch(() => {});
     this._attachPresenceListener();
     this._attachCameraListener();
+    this.warmupCommonPhrases().catch(() => {});
+  }
+
+  _estimateSpeechHoldMs(text = '', playChime = false) {
+    if (this._speechGapFn) {
+      return Math.max(0, Number(this._speechGapFn(text, playChime)) || 0);
+    }
+    const base = Math.min(9000, Math.max(2200, 1200 + String(text || '').length * 68));
+    return base + (playChime ? 600 : 0);
+  }
+
+  async warmupCommonPhrases() {
+    if (typeof this.aiGateway?.synthesizeSpeech !== 'function') return { warmed: 0 };
+    const voiceName = this.config.voiceName || 'Aoede';
+    const styleInstruction = this.config.voiceStyle || '';
+    const phrases = [
+      'Ricevuto, attivo il comfort termico e ti aggiorno tra un attimo.',
+      'Ricevuto, abbasso o spengo le zone in eccesso e ti aggiorno subito.'
+    ];
+    let warmed = 0;
+    for (const text of phrases) {
+      try {
+        await this.aiGateway.synthesizeSpeech({
+          text,
+          voiceName,
+          styleInstruction,
+          saveToFile: true,
+          useCache: true
+        });
+        warmed += 1;
+      } catch (_) {}
+    }
+    return { warmed };
   }
 
   _attachPresenceListener() {
@@ -593,15 +628,37 @@ class NestCaster {
       : (this.config.voiceStyle || '');
 
     const ssml = this.googleFulfillment.buildSsmlResponse(cleanText, { chimeUrl });
-    const castRes = await this.securitySystem.announceToNest(cleanText, {
-      roomName: targetRoom,
-      lang,
-      skipGuardrail: true,
-      chimeUrl,
-      ttsEngine: activeEngine,
-      voiceName: activeVoice,
-      styleInstruction: activeStyle
-    });
+    const queueKey = String(targetIp || targetRoom || 'default');
+    const prevQueue = this._roomQueues.get(queueKey) || Promise.resolve();
+
+    let releaseTurn;
+    const currentTurn = new Promise((resolve) => { releaseTurn = resolve; });
+    this._roomQueues.set(queueKey, prevQueue.then(() => currentTurn, () => currentTurn));
+
+    await prevQueue.catch(() => {});
+
+    let castRes;
+    try {
+      castRes = await this.securitySystem.announceToNest(cleanText, {
+        roomName: targetRoom,
+        lang,
+        skipGuardrail: true,
+        chimeUrl,
+        ttsEngine: activeEngine,
+        voiceName: activeVoice,
+        styleInstruction: activeStyle
+      });
+      const holdMs = this._estimateSpeechHoldMs(cleanText, Boolean(playChime));
+      if (holdMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, holdMs));
+      }
+    } finally {
+      releaseTurn();
+      if (this._roomQueues.get(queueKey) === currentTurn) {
+        this._roomQueues.delete(queueKey);
+      }
+    }
+
     if (castRes && castRes.blocked) {
       return { success: false, blocked: true, reason: castRes.reason };
     }
