@@ -216,7 +216,15 @@ function deviceVisual(p) {
                   <line x1="0" y1="2.3" x2="0" y2="6.4" />
                   <path d="M 4.2 2.4 Q 5 4.4 3.8 6.2" />
                 </svg>
-                <i v-else class="fa-solid" :class="deviceVisual(p).icon"></i>
+                <i
+                  v-else
+                  class="fa-solid"
+                  :class="[
+                    deviceVisual(p).icon,
+                    (p.category === 'climate' && p.isDyson && p.isOn) ? 'animate-spin' : ((p.isOn || p.isRunning || p.motion || (p.category === 'camera' && !p.privacyMode)) ? 'animate-pulse' : '')
+                  ]"
+                  :style="(p.category === 'climate' && p.isDyson && p.isOn) ? { animationDuration: '3.2s' } : undefined"
+                ></i>
               </span>
               <span class="text-xs font-semibold text-slate-100 truncate">{{ p.name }}</span>
             </div>
