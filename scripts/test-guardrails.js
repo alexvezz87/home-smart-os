@@ -6691,9 +6691,12 @@ test('TEST 76: Separazione prese Meross Bagno Alex (Spina lavatrice #7 & Spina a
   assert.ok(pin47 && pin47.name === 'Spina asciugatrice' && pin47.merossName === 'Spina asciugatrice' && pin47.room === 'Bagno Alex');
   assert.equal(oldWasherPin, undefined, 'Il vecchio Pin Lavatrice non deve più esistere');
 
-  // 2. Verifica room mapping su MerossEnergy
+  // 2. Verifica room mapping su MerossEnergy e Pin #48 Presa lavastoviglie
   assert.equal(merossEnergy.getPlugRoomName('Spina lavatrice'), 'Bagno Alex');
   assert.equal(merossEnergy.getPlugRoomName('Spina asciugatrice'), 'Bagno Alex');
+  assert.equal(merossEnergy.getPlugRoomName('Presa lavastoviglie'), 'Cucina');
+  const pin48 = spatialEngine.pins.find((p) => p.pin === 48);
+  assert.ok(pin48 && pin48.name === 'Presa lavastoviglie' && pin48.merossName === 'Presa lavastoviglie' && pin48.room === 'Cucina' && pin48.category === 'plug');
 
   // 3. Verifica precedenza match esatto in togglePlugByName (non deve colpire la vecchia "Lavatrice" offline)
   const prevDevicesMap = merossEnergy.devicesMap;

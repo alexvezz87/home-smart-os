@@ -682,6 +682,18 @@ class SpatialEngine {
         x: 30.8,
         y: 34.0,
         nearbyPins: [7, 44, 37, 9, 8]
+      },
+      {
+        pin: 48,
+        name: 'Presa lavastoviglie',
+        room: 'Cucina',
+        microZone: 'cucina_operativa',
+        category: 'plug',
+        vendor: 'Meross Smart Plug',
+        merossName: 'Presa lavastoviglie',
+        x: 68.0,
+        y: 61.8,
+        nearbyPins: [31, 32, 29, 34]
       }
     ];
 

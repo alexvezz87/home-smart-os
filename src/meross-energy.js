@@ -594,7 +594,7 @@ class MerossEnergyService {
   getPlugRoomName(deviceName) {
     const n = (deviceName || '').toLowerCase();
     if (n.includes('lavatrice') || n.includes('asciugatrice')) return 'Bagno Alex';
-    if (n.includes('cucina')) return 'Cucina';
+    if (n.includes('cucina') || n.includes('lavastoviglie')) return 'Cucina';
     if (n.includes('computer')) return 'Cameretta';
     if (n.includes('monitor')) return 'Camera da letto';
     return 'Salone';
