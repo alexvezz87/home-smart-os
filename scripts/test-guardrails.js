@@ -6783,3 +6783,219 @@ test('TEST 77: Animazioni micro-stato estese a tutte le categorie icone attive s
   assert.ok(drawerVue.includes('animate-spin') && drawerVue.includes('animate-pulse'));
   assert.ok(focusVue.includes('animate-spin') && focusVue.includes('animate-pulse'));
 });
+
+
+test('TEST 77: Staffetta Ibrida Comfort (Haier -> Bosch), Occupazione Camera & Coda Sequenziale TTS Leda (#193)', async () => {
+  const { NestCaster } = require('../src/nest-caster');
+  const { GoogleSmartHomeManager } = require('../src/google-smarthome');
+  const { ClimateOptimizer } = require('../src/climate-optimizer');
+  const { checkBedroomOccupancy } = require('../src/assistant');
+
+  // 1. Coda sequenziale NestCaster.speak() sullo stesso queueKey senza sovrapposizioni
+  const eventsOrder = [];
+  const caster = new NestCaster({
+    speechGapFn: () => 5,
+    aiGateway: {
+      validateHardwareAction: () => ({ allowed: true }),
+      synthesizeSpeech: async () => ({ cached: true })
+    },
+    googleFulfillment: { buildSsmlResponse: (t) => `<speak>${t}</speak>` },
+    hueLocal: { lights: [], motionSensor: null },
+    securitySystem: {
+      resolveNestIp: () => 'nest-salone-test',
+      announceToNest: async (txt) => {
+        eventsOrder.push(`start:${txt}`);
+        await new Promise((r) => setTimeout(r, 15));
+        eventsOrder.push(`end:${txt}`);
+        return { ttsEngine: 'gemini' };
+      }
+    }
+  });
+  caster.config.followMeEnabled = false;
+
+  await Promise.all([
+    caster.speak('Primo', { roomName: 'Salone', followMe: false, playChime: true }),
+    caster.speak('Secondo', { roomName: 'Salone', followMe: false, playChime: false })
+  ]);
+  assert.deepEqual(eventsOrder, [
+    'start:Primo',
+    'end:Primo',
+    'start:Secondo',
+    'end:Secondo'
+  ]);
+
+  // 2. EXECUTE switch-comfort-cold non bloccante + doppio annuncio Leda (ack playChime:true, finale playChime:false <= 190 chars)
+  const gshSpeaks = [];
+  let resolveBoost;
+  const boostPromise = new Promise((r) => { resolveBoost = r; });
+  let nowTick = 100000;
+  const mgr = new GoogleSmartHomeManager({
+    nowFn: () => {
+      nowTick += 10000;
+      return nowTick;
+    },
+    env: { GOOGLE_SMARTHOME_CLIENT_ID: 'c', GOOGLE_SMARTHOME_CLIENT_SECRET: 's' },
+    db: { get: async () => null, set: async () => true },
+    climateOptimizer: { config: { comfortVoiceAnnounce: true } },
+    sandboxManager: { config: { systemPaused: false } },
+    eventLogger: { log: () => {} },
+    assistant: {
+      handleComfortBoost: async () => {
+        await boostPromise;
+        return {
+          success: true,
+          action: 'comfort_boost_multi',
+          speech: 'Fatto: clima soggiorno acceso per 20 minuti con staffetta termosifoni, camera non modificata per presenza.',
+          reply: 'Fatto: clima soggiorno acceso per 20 minuti con staffetta termosifoni, camera non modificata per presenza.'
+        };
+      }
+    },
+    nestCaster: {
+      config: { welcomeChimePreset: 'welcome_chime' },
+      warmupCommonPhrases: async () => ({ warmed: 2 }),
+      isWelcomeWithinActiveHours: () => true,
+      speak: async (text, opts) => {
+        gshSpeaks.push({ text, opts });
+      }
+    }
+  });
+
+  const t0 = Date.now();
+  const execRes = await mgr.handleFulfillment({
+    requestId: 'nb-193',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [{
+          devices: [{ id: 'switch-comfort-cold' }],
+          execution: [{ command: 'action.devices.commands.OnOff', params: { on: true } }]
+        }]
+      }
+    }]
+  });
+  const elapsedMs = Date.now() - t0;
+  assert.equal(execRes.payload.commands[0].status, 'SUCCESS');
+  assert.ok(elapsedMs < 50, `EXECUTE deve ritornare subito senza attendere handleComfortBoost (${elapsedMs}ms)`);
+  assert.equal(gshSpeaks.length, 1, 'Ack immediato inviato subito');
+  assert.equal(gshSpeaks[0].opts.playChime, true);
+
+  resolveBoost();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(gshSpeaks.length, 2, 'Esito finale accodato dopo handleComfortBoost');
+  assert.equal(gshSpeaks[1].opts.playChime, false);
+  assert.ok(gshSpeaks[1].text.length <= 190);
+  assert.ok(gshSpeaks[1].text.includes('staffetta termosifoni'));
+
+  // 3. checkBedroomOccupancy(): luci/motion 0ms, esclusione Baby Monitor, blocco Vision fuori 08:00-19:30 e privacyMode
+  const occHue = await checkBedroomOccupancy({
+    hueLocal: { lights: [{ name: 'Comodino cinzia', isOn: true }], motionSensors: [] },
+    securitySystem: { cameras: [] }
+  });
+  assert.equal(occHue.occupied, true);
+  assert.equal(occHue.source, 'hue');
+
+  let visionCalls = 0;
+  const occBabyOnly = await checkBedroomOccupancy({
+    nowFn: () => new Date('2026-11-26T14:00:00+01:00').getTime(),
+    hueLocal: { lights: [], motionSensors: [] },
+    securitySystem: { cameras: new Map([['baby', { id: 'baby', name: 'Baby Monitor', room: 'Camera da letto' }]]) },
+    geminiVision: { analyzeCameraScene: async () => { visionCalls += 1; return { occupied: true }; } }
+  });
+  assert.equal(occBabyOnly.occupied, false);
+  assert.equal(visionCalls, 0, 'Baby Monitor mai interrogata da Vision');
+
+  const occNight = await checkBedroomOccupancy({
+    nowFn: () => new Date('2026-11-26T22:30:00+01:00').getTime(),
+    hueLocal: { lights: [], motionSensors: [] },
+    securitySystem: { cameras: [{ id: 'cam_letto', name: 'Camera da letto', room: 'Camera da letto' }] },
+    geminiVision: { analyzeCameraScene: async () => { visionCalls += 1; return { occupied: true }; } }
+  });
+  assert.equal(occNight.occupied, false);
+  assert.equal(visionCalls, 0, 'Vision bloccata fuori fascia 08:00-19:30');
+
+  const occPrivacy = await checkBedroomOccupancy({
+    nowFn: () => new Date('2026-11-26T14:00:00+01:00').getTime(),
+    hueLocal: { lights: [], motionSensors: [] },
+    securitySystem: { privacyMode: true, cameras: [{ id: 'cam_letto', name: 'Camera da letto', room: 'Camera da letto' }] },
+    geminiVision: { analyzeCameraScene: async () => { visionCalls += 1; return { occupied: true }; } }
+  });
+  assert.equal(occPrivacy.occupied, false);
+  assert.equal(visionCalls, 0, 'Vision bloccata con privacyMode');
+
+  // 4. Staffetta Ibrida ClimateOptimizer: Fase 1 (18.5 senza manualOverride) -> Fase 2 (target - 0.5 + manualOverride), e blocco su reset/allAway
+  const boschSetCalls = [];
+  const haierSetCalls = [];
+  let secMode = 'home';
+  const opt = new ClimateOptimizer({
+    securitySystem: { mode: secMode },
+    evClimateHub: {
+      getUnifiedStatus: () => ({ bosch: { connected: true, zones: [] } }),
+      setBoschZoneSetpoint: async (zId, temp) => {
+        boschSetCalls.push({ zId, temp });
+      }
+    },
+    haierAc: {
+      controlUnit: async (unitId, params) => {
+        haierSetCalls.push({ unitId, params });
+      }
+    }
+  });
+  opt.securitySystem = { get mode() { return secMode; } };
+  opt.evaluateNow = async () => ({ evaluatedZones: 0 });
+
+  const startMs = Date.now();
+  await opt.startHybridComfortBoost('salone', {
+    room: 'Salone',
+    zoneId: 'zn10',
+    durationMinutes: 20,
+    targetBoschC: 20.5,
+    totalWindowMinutes: 60,
+    relayDeltaC: 0.5,
+    nowMs: startMs
+  });
+  assert.deepEqual(boschSetCalls, [{ zId: 'zn10', temp: 18.5 }]);
+  assert.equal(opt.isManualOverrideActive('zn10', startMs), false, 'Fase 1 non deve impostare manualOverride');
+
+  // Fine Fase 1 dopo 20 min (rimangono 40 min >= 5 min) -> Fase 2 attiva Bosch a 20.0°C + manualOverride
+  boschSetCalls.length = 0;
+  const finishRes = await opt._finishComfortBoostUnit('salone', {
+    activateRelay: true,
+    reason: 'timer',
+    nowMs: startMs + 20 * 60 * 1000
+  });
+  assert.equal(finishRes.relayActivated, true);
+  assert.deepEqual(boschSetCalls, [{ zId: 'zn10', temp: 20.0 }]);
+  assert.equal(opt.isManualOverrideActive('zn10', startMs + 21 * 60 * 1000), true);
+
+  // resetComfortAndRebalance NON attiva Fase 2
+  opt.clearManualOverrides();
+  boschSetCalls.length = 0;
+  await opt.startHybridComfortBoost('salone', {
+    room: 'Salone',
+    zoneId: 'zn10',
+    durationMinutes: 20,
+    targetBoschC: 20.5,
+    nowMs: startMs
+  });
+  boschSetCalls.length = 0;
+  await opt.resetComfortAndRebalance({ reason: 'user_off', source: 'test' });
+  assert.equal(boschSetCalls.length, 0, 'resetComfortAndRebalance non deve attivare la Fase 2 Bosch');
+
+  // allAway NON attiva Fase 2
+  await opt.startHybridComfortBoost('salone', {
+    room: 'Salone',
+    zoneId: 'zn10',
+    durationMinutes: 20,
+    targetBoschC: 20.5,
+    nowMs: startMs
+  });
+  boschSetCalls.length = 0;
+  secMode = 'away';
+  const awayFinish = await opt._finishComfortBoostUnit('salone', {
+    activateRelay: true,
+    reason: 'timer',
+    nowMs: startMs + 20 * 60 * 1000
+  });
+  assert.equal(awayFinish.relayActivated, false);
+  assert.equal(boschSetCalls.length, 0, 'Con allAway non deve attivare la Fase 2 Bosch');
+});

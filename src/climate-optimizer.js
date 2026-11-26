@@ -294,19 +294,60 @@ class ClimateOptimizer {
     return clearedCount;
   }
 
+  _isAllAway() {
+    const presence = iliadboxClient.getPresenceState();
+    return Boolean((presence?.lastUpdated && presence.anyHome === false) || (this.securitySystem?.mode === 'away'));
+  }
+
+  async _finishComfortBoostUnit(unitId, { activateRelay = true, reason = 'timer', nowMs = Date.now() } = {}) {
+    const cleanId = String(unitId || '').toLowerCase();
+    const entry = this.hybridManagedUnits.get(cleanId);
+    if (!entry) return { finished: false };
+
+    if (entry.boostTimer) clearTimeout(entry.boostTimer);
+    const haierAc = this._resolveDep('haierAc', './haier-ac');
+    this._internalHaierStopAt.set(cleanId, nowMs);
+    try {
+      await haierAc?.controlUnit?.(cleanId, { power: false });
+    } catch (_) {}
+    this.lastHybridStopAtByUnit.set(cleanId, nowMs);
+    this.hybridManagedUnits.delete(cleanId);
+
+    const startMs = Number(entry.boostStartedAtMs || entry.startedAt || nowMs);
+    const totalMs = Number(entry.totalWindowMs || 60 * 60 * 1000);
+    const remainingMs = (startMs + totalMs) - nowMs;
+
+    let relayActivated = false;
+    if (
+      activateRelay === true
+      && entry.source === 'comfort_boost'
+      && remainingMs >= 5 * 60 * 1000
+      && !this._isAllAway()
+      && !this.windowPauseByZone.has(String(entry.zoneId))
+      && !this.isManualOverrideActive(entry.zoneId, nowMs)
+    ) {
+      try {
+        await this.evClimateHub?.setBoschZoneSetpoint?.(entry.zoneId, entry.relayTargetC);
+        this.recordManualOverride(entry.zoneId, remainingMs, nowMs);
+        relayActivated = true;
+        eventLogger.log('bosch_thermo', `Staffetta ibrida Fase 2: ${entry.room} impostato a ${entry.relayTargetC}°C per ${Math.round(remainingMs / 60000)}m`, {
+          source: 'ClimateOptimizer',
+          unitId: cleanId,
+          zoneId: entry.zoneId,
+          relayTargetC: entry.relayTargetC,
+          reason
+        });
+      } catch (_) {}
+    }
+
+    return { finished: true, unitId: cleanId, relayActivated, remainingMs, reason };
+  }
+
   async resetComfortAndRebalance({ zoneIds = null, reason = 'comfort_reset', source = 'google_smarthome' } = {}) {
     const clearedCount = this.clearManualOverrides(zoneIds);
     if (this.hybridManagedUnits.size > 0) {
-      const haierAc = this._resolveDep('haierAc', './haier-ac');
-      const nowMs = Date.now();
-      for (const [unitId, meta] of Array.from(this.hybridManagedUnits.entries())) {
-        if (meta?.boostTimer) clearTimeout(meta.boostTimer);
-        this._internalHaierStopAt.set(unitId, nowMs);
-        try {
-          await haierAc?.controlUnit?.(unitId, { power: false });
-        } catch (_) {}
-        this.lastHybridStopAtByUnit.set(unitId, nowMs);
-        this.hybridManagedUnits.delete(unitId);
+      for (const unitId of Array.from(this.hybridManagedUnits.keys())) {
+        await this._finishComfortBoostUnit(unitId, { activateRelay: false, reason });
       }
     }
     const evalResult = await this.evaluateNow({ reason }).catch((err) => ({ error: err.message }));
@@ -403,7 +444,15 @@ class ClimateOptimizer {
     return { shed: true, indoorLoadW, mainMeterTotalW, units: stoppedUnits };
   }
 
-  async startHybridComfortBoost(unitId, { room, zoneId, durationMinutes = 20, targetBoschC = 20.5, nowMs = Date.now() } = {}) {
+  async startHybridComfortBoost(unitId, {
+    room,
+    zoneId,
+    durationMinutes = 20,
+    targetBoschC = 20.5,
+    nowMs = Date.now(),
+    totalWindowMinutes = 60,
+    relayDeltaC = 0.5
+  } = {}) {
     const cleanId = String(unitId || '').toLowerCase();
     const haierAc = this._resolveDep('haierAc', './haier-ac');
     if (!haierAc || typeof haierAc.controlUnit !== 'function') {
@@ -411,6 +460,10 @@ class ClimateOptimizer {
     }
     const prev = this.hybridManagedUnits.get(cleanId);
     if (prev?.boostTimer) clearTimeout(prev.boostTimer);
+
+    const targetZoneId = zoneId || (cleanId === 'salone' ? 'zn10' : 'zn3');
+    const targetRoom = room || (cleanId === 'salone' ? 'Salone' : 'Cameretta');
+    const relayTargetC = Number((Number(targetBoschC) - Number(relayDeltaC)).toFixed(1));
 
     await haierAc.controlUnit(cleanId, {
       power: true,
@@ -420,37 +473,38 @@ class ClimateOptimizer {
       swing: 'vertical'
     });
 
-    const boostTimer = setTimeout(async () => {
-      const cur = this.hybridManagedUnits.get(cleanId);
-      if (cur && cur.source === 'comfort_boost') {
-        this._internalHaierStopAt.set(cleanId, Date.now());
-        try {
-          await haierAc.controlUnit(cleanId, { power: false });
-        } catch (_) {}
-        this.lastHybridStopAtByUnit.set(cleanId, Date.now());
-        this.hybridManagedUnits.delete(cleanId);
-      }
+    // Fase 1: valvola Bosch in attesa a 18.5°C SENZA manualOverride prematuro
+    try {
+      await this.evClimateHub?.setBoschZoneSetpoint?.(targetZoneId, 18.5);
+    } catch (_) {}
+
+    const boostTimer = setTimeout(() => {
+      this._finishComfortBoostUnit(cleanId, { activateRelay: true, reason: 'timer' }).catch(() => {});
     }, Math.max(1, Number(durationMinutes || 20)) * 60 * 1000);
     if (typeof boostTimer.unref === 'function') boostTimer.unref();
 
     this.hybridManagedUnits.set(cleanId, {
       unitId: cleanId,
-      zoneId: zoneId || (cleanId === 'salone' ? 'zn10' : 'zn3'),
-      room: room || (cleanId === 'salone' ? 'Salone' : 'Cameretta'),
+      zoneId: targetZoneId,
+      room: targetRoom,
       startedAt: nowMs,
+      boostStartedAtMs: nowMs,
+      totalWindowMs: Number(totalWindowMinutes || 60) * 60 * 1000,
       mode: 'heat',
       source: 'comfort_boost',
       targetBoschC,
+      relayTargetC,
       boostTimer
     });
 
-    eventLogger.log('haier_ac', `Boost rapido ibrido Haier ${cleanId} (${durationMinutes}m)`, {
+    eventLogger.log('haier_ac', `Boost rapido ibrido Haier ${cleanId} (${durationMinutes}m, staffetta Bosch -> ${relayTargetC}°C)`, {
       source: 'voice_comfort_boost',
       unitId: cleanId,
-      durationMinutes
+      durationMinutes,
+      relayTargetC
     });
 
-    return { success: true, unitId: cleanId, durationMinutes };
+    return { success: true, unitId: cleanId, durationMinutes, relayTargetC };
   }
 
   /**
@@ -921,7 +975,7 @@ class ClimateOptimizer {
         const unitId = String(haierUnit.id || '').toLowerCase();
         const managed = this.hybridManagedUnits.get(unitId);
 
-        if (managed && managed.source === 'optimizer') {
+        if (managed && (managed.source === 'optimizer' || managed.source === 'comfort_boost')) {
           const isOverload = loads.indoorLoadW > shedThresholdW || loads.mainMeterTotalW > (loads.maxBreakerWatts - 400);
           const isNightCamerettaBlocked = unitId === 'cameretta' && (clk.hour >= 20 || clk.hour < 8) && !this.config.allowCamerettaNightAc;
           const mustImmediateStop = isOverload || allAway || prop.badge === 'window_pause' || isNightCamerettaBlocked;
@@ -929,15 +983,23 @@ class ClimateOptimizer {
             && prop.currentTemp >= (managed.targetBoschC + 0.1)
             && (nowMs - managed.startedAt) >= minRunMs;
 
-          if (mustImmediateStop || targetReached) {
-            if (managed.boostTimer) clearTimeout(managed.boostTimer);
-            this._internalHaierStopAt.set(unitId, nowMs);
-            try {
-              await haierAc?.controlUnit?.(unitId, { power: false });
-            } catch (_) {}
-            this.lastHybridStopAtByUnit.set(unitId, nowMs);
-            this.hybridManagedUnits.delete(unitId);
-            eventLogger.log('haier_ac', `Stop automatico Haier ${unitId} (${mustImmediateStop ? 'condizione sicurezza/orario' : 'target raggiunto'})`, {
+          if (mustImmediateStop) {
+            await this._finishComfortBoostUnit(unitId, {
+              activateRelay: false,
+              reason: isOverload ? 'overload' : (allAway ? 'all_away' : 'safety_stop'),
+              nowMs
+            });
+            eventLogger.log('haier_ac', `Stop automatico Haier ${unitId} (condizione sicurezza/orario)`, {
+              source: 'ClimateOptimizer',
+              unitId
+            });
+          } else if (targetReached) {
+            await this._finishComfortBoostUnit(unitId, {
+              activateRelay: managed.source === 'comfort_boost',
+              reason: 'target_reached',
+              nowMs
+            });
+            eventLogger.log('haier_ac', `Stop automatico Haier ${unitId} (target raggiunto)`, {
               source: 'ClimateOptimizer',
               unitId
             });
@@ -945,7 +1007,8 @@ class ClimateOptimizer {
           continue;
         }
 
-        if (haierUnit.online && !haierUnit.isOn && !this.hybridManagedUnits.has(unitId)) {
+        const isResetReason = reason === 'comfort_reset' || reason === 'test_reset' || reason === 'admin_reset' || reason === 'user_off';
+        if (!isResetReason && haierUnit.online && !haierUnit.isOn && !this.hybridManagedUnits.has(unitId)) {
           const saloneAllowed = unitId === 'salone' && clk.totalMinutes >= (7 * 60 + 30) && clk.totalMinutes <= (22 * 60 + 30);
           const camerettaAllowed = unitId === 'cameretta' && ((clk.hour >= 8 && clk.hour < 20) || this.config.allowCamerettaNightAc === true);
           const slotAllowed = saloneAllowed || camerettaAllowed;
