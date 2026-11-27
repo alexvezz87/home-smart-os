@@ -14,6 +14,7 @@ try {
 } catch (_) {}
 
 const CUSTOM_LAYOUT_FILE = path.join(__dirname, '..', 'spatial-custom-layout.json');
+const AREA_CINEMA_PINS = new Set([18, 20, 23, 25, 26, 27]);
 
 /**
  * Motore di Domotica Spaziale & Prossimità (Digital Twin 1:1 - 32 Nodi Reali)
@@ -1182,6 +1183,9 @@ class SpatialEngine {
         clone.capabilities = { color: supportsColor, colorTemp: supportsColorTemp };
         if (hueSt?.colorHex) clone.colorHex = hueSt.colorHex;
         if (hueSt?.colormode) clone.colormode = hueSt.colormode;
+        const syncActive = Boolean(hueSyncBox.getState()?.syncActive);
+        clone.inCinemaSyncArea = AREA_CINEMA_PINS.has(p.pin);
+        clone.syncTvActive = clone.inCinemaSyncArea && syncActive;
       } else if (p.category === 'chandelier') {
         const bulbs = p.hueNames.map(bName => {
           const hSt = hueLocal.getLightStateByName(bName);
@@ -1530,15 +1534,27 @@ class SpatialEngine {
    */
   async triggerCorridorWave(direction = 'north_to_south', brightness = 30) {
     const sequenceNorthToSouth = ['Corridoio letto', 'Corridoio studio', 'Corridoio salone', 'Piantana ingresso'];
-    const ordered = direction === 'south_to_north' ? [...sequenceNorthToSouth].reverse() : sequenceNorthToSouth;
+    let ordered = direction === 'south_to_north' ? [...sequenceNorthToSouth].reverse() : [...sequenceNorthToSouth];
+    const syncActive = Boolean(hueSyncBox.getState()?.syncActive);
+    const skippedForSync = [];
+    if (syncActive) {
+      ordered = ordered.filter((name) => {
+        if (name === 'Piantana ingresso') {
+          skippedForSync.push(name);
+          return false;
+        }
+        return true;
+      });
+    }
+    const syncNote = skippedForSync.length > 0 ? ' (esclusa Piantana ingresso: Sync TV attivo)' : '';
 
     if (direction === 'off') {
       for (const name of ordered) {
         await hueLocal.toggleLightByName(name, false);
         await new Promise(r => setTimeout(r, 300));
       }
-      eventLogger.log('wave_trail', `🌑 Scia Luminosa Corridoio (#9-#14-#15-#18) spenta in sequenza.`);
-      return { success: true, direction: 'off' };
+      eventLogger.log('wave_trail', `🌑 Scia Luminosa Corridoio (#9-#14-#15-#18) spenta in sequenza.${syncNote}`);
+      return { success: true, direction: 'off', sequence: ordered, skippedForSync };
     }
 
     const bri = Math.max(5, Math.min(100, Number(brightness || 30)));
@@ -1547,8 +1563,8 @@ class SpatialEngine {
       await new Promise(r => setTimeout(r, 450));
     }
 
-    eventLogger.log('wave_trail', `🌊 Scia Luminosa Direzionale (${direction === 'north_to_south' ? 'Notte #8 → Giorno #18' : 'Giorno #18 → Notte #8'}) attivata al ${bri}%`);
-    return { success: true, direction, sequence: ordered };
+    eventLogger.log('wave_trail', `🌊 Scia Luminosa Direzionale (${direction === 'north_to_south' ? 'Notte #8 → Giorno #18' : 'Giorno #18 → Notte #8'}) attivata al ${bri}%${syncNote}`);
+    return { success: true, direction, sequence: ordered, skippedForSync };
   }
 
   /**

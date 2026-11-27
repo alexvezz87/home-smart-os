@@ -230,6 +230,12 @@ function deviceVisual(p) {
               <span class="text-xs font-semibold text-slate-100 truncate">{{ p.name }}</span>
             </div>
             <span
+              v-if="p.syncTvActive"
+              class="px-1.5 py-0.5 rounded-md border text-[9px] font-bold bg-purple-500/20 text-purple-200 border-purple-400/40 shrink-0"
+            >
+              🎬 Sync TV Attivo
+            </span>
+            <span
               class="px-1.5 py-0.5 rounded-md border text-[10px] font-mono font-bold shrink-0"
               :class="deviceVisual(p).badgeCls"
             >

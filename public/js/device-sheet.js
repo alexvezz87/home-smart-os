@@ -275,6 +275,12 @@ class DeviceSheetManager {
     }).join('') : '';
 
     return `
+      ${p.syncTvActive ? `
+        <div class="mb-3 px-3 py-2 rounded-xl bg-purple-500/15 border border-purple-400/40 text-purple-200 text-xs font-semibold flex items-center justify-between gap-2">
+          <span>🎬 Sync TV Attivo (Area Cinema)</span>
+          <span class="text-[10px] font-mono text-purple-300/90">Hue Sync Box</span>
+        </div>
+      ` : ''}
       <!-- Interruttore Master -->
       <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800">
         <div class="flex items-center gap-3">

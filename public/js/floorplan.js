@@ -318,15 +318,23 @@ class FloorplanEngine {
           const pins = window.homeData?.spatial?.pins;
           if (!Array.isArray(pins)) return;
           const pin = pins.find((p) => Boolean(p.syncBoxId));
-          if (!pin) return;
-          pin.syncBox = d;
-          pin.isOn = Boolean(d.syncActive);
-          pin.online = Boolean(d.online);
+          if (pin) {
+            pin.syncBox = d;
+            pin.isOn = Boolean(d.syncActive);
+            pin.online = Boolean(d.online);
+          }
+          for (const lp of pins) {
+            if (lp.inCinemaSyncArea) {
+              lp.syncTvActive = Boolean(d.syncActive);
+            }
+          }
           this.render();
           window.homeVueBridge?.floorplanStore?.syncFromHomeData?.();
           const drawer = document.getElementById('device-drawer');
-          if (drawer && !drawer.classList.contains('hidden') && Number(window.deviceSheet?.currentPin?.pin) === Number(pin.pin)) {
-            window.deviceSheet.open(pin);
+          const openPinNum = Number(window.deviceSheet?.currentPin?.pin);
+          const openPin = pins.find((x) => Number(x.pin) === openPinNum);
+          if (drawer && !drawer.classList.contains('hidden') && openPin && (openPin.syncBoxId || openPin.inCinemaSyncArea)) {
+            window.deviceSheet.open(openPin);
           }
         } catch (_) {}
       });
@@ -1955,7 +1963,8 @@ class FloorplanEngine {
       const badgeWidth = subBadge ? Math.max(26, subBadge.length * (isRoomFocused ? 5.2 : 5.8) + 7) : 0;
       const halfW = +(badgeWidth / 2).toFixed(1);
 
-      const focusName = isRoomFocused ? this.escapeSvgText(this.formatFocusDeviceName(p)) : '';
+      const baseFocusName = isRoomFocused ? this.escapeSvgText(this.formatFocusDeviceName(p)) : '';
+      const focusName = baseFocusName ? (p.syncTvActive ? `${baseFocusName} · Sync TV Attivo` : baseFocusName) : '';
       const tipW = focusName ? Math.max(46, +(focusName.length * 4.8 + 12).toFixed(1)) : 0;
       const tipHalfW = +(tipW / 2).toFixed(1);
 
