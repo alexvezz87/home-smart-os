@@ -119,6 +119,11 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 - **Polling & Push SSE**: `HueSyncBoxManager` esegue polling ogni `30s` su `GET /api/v1` emettendo `hue_sync:state_changed` su `EventBus` (inoltrato su `/api/events`) a ogni cambio stato (`syncActive`, `mode`, `hdmiSource`, `brightness`, `intensity`, `online`).
 - **Endpoint API**: `GET /api/hue-sync/state` (`?refresh=1` per refresh live) e `POST /api/hue-sync/control` (`syncActive`, `mode` `video|music|game|powersave|passthrough`, `intensity` `subtle|moderate|high|intense`, `brightness` `0..200`, `hdmiSource` `input1..input4`) con validazione `400` / offline `503` e sanitizzazione token negli errori.
 
+### Samsung Soundbar HW-QS750F (`src/samsung-soundbar.js`, `#202`)
+- **Integrazione 100% Locale (Tizen + Chromecast)**: nessuna dipendenza da token SmartThings cloud; configurata via `SAMSUNG_SOUNDBAR_IP` in `.env` (stato graceful `configured: false` se assente).
+- **Telemetria & Polling (`30s`)**: interroga in parallelo (`Promise.allSettled`, timeout `3000ms`) Tizen HTTP `http://<ip>:8001/api/v2/` (`modelName`, `powerState`, `isOn`), Eureka `http://<ip>:8008/setup/eureka_info` (`friendlyName`) e `castv2-client` porta `8009` (`volumePct`, `muted`, `castingApp`), emettendo `soundbar:state_changed` su `EventBus` (inoltrato su `/api/events` SSE).
+- **Endpoint API**: `GET /api/soundbar/state` (`?refresh=1` per refresh live) e `POST /api/soundbar/control` (`volumePct` `0..100`, `muted` boolean, `stopCast` boolean) con validazione `400` / offline `503`.
+
 ### Google Smart Home Actions & Nest Caster (`#14`)
 - **OAuth2 & Webhook**: `GET /api/google/oauth/authorize`, `POST /api/google/oauth/token` (Account Linking TiDB `google-home-oauth`) e `POST /api/google/fulfillment` (`SYNC`, `QUERY`, `EXECUTE`, `DISCONNECT` per Bosch, Volvo EX30, Wallbox ABB, Telecamere e Scene Hue).
 - **Nest Caster**: `GET/POST /api/nest/config` (IP statici, preset jingle, Follow-Me, protezione sonno) e `POST /api/nest/speak` (Pre-Roll + TTS).

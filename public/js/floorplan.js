@@ -338,6 +338,28 @@ class FloorplanEngine {
           }
         } catch (_) {}
       });
+      es.addEventListener('soundbar:state_changed', (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          const d = msg?.data;
+          if (!d) return;
+          const pins = window.homeData?.spatial?.pins;
+          if (!Array.isArray(pins)) return;
+          const pin = pins.find((p) => Boolean(p.soundbarId));
+          if (!pin) return;
+          pin.soundbar = d;
+          pin.isOn = Boolean(d.isOn);
+          pin.online = Boolean(d.online);
+          pin.volumePct = d.volumePct ?? null;
+          pin.muted = Boolean(d.muted);
+          this.render();
+          window.homeVueBridge?.floorplanStore?.syncFromHomeData?.();
+          const drawer = document.getElementById('device-drawer');
+          if (drawer && !drawer.classList.contains('hidden') && Number(window.deviceSheet?.currentPin?.pin) === Number(pin.pin)) {
+            window.deviceSheet.open(pin);
+          }
+        } catch (_) {}
+      });
     } catch (_) {}
   }
 
@@ -1498,13 +1520,17 @@ class FloorplanEngine {
       stroke = isSelected ? '#22d3ee' : '#ca8a04';
       subBadge = 'Nest';
     } else if (p.category === 'tv') {
-      iconGlyph = '&#xf26c;';
+      iconGlyph = p.soundbarId ? '&#xf028;' : '&#xf26c;';
       iconColor = '#a855f7';
       fill = '#2e1065';
       stroke = isSelected ? '#22d3ee' : '#c084fc';
-      subBadge = p.syncBoxId
-        ? (p.isOn ? (p.syncBox?.mode ? String(p.syncBox.mode).toUpperCase().slice(0, 4) : 'SYNC') : 'SYNC')
-        : 'TV';
+      if (p.soundbarId) {
+        subBadge = p.muted ? 'MUTO' : (p.volumePct != null ? `${p.volumePct}%` : (p.isOn ? 'ON' : 'STBY'));
+      } else {
+        subBadge = p.syncBoxId
+          ? (p.isOn ? (p.syncBox?.mode ? String(p.syncBox.mode).toUpperCase().slice(0, 4) : 'SYNC') : 'SYNC')
+          : 'TV';
+      }
     } else if (p.category === 'sensor') {
       iconGlyph = '&#xf09e;';
       if (p.motion) {
