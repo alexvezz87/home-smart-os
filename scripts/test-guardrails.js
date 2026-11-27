@@ -7412,3 +7412,131 @@ test('TEST 80: Guardia Corridor Wave su Piantana Ingresso & Badge Sync TV Attivo
     hueLocal.toggleLightByName = origToggleLight;
   }
 });
+
+
+test('TEST 81: Samsung Soundbar HW-QS750F locale, Pin #50 & Guardia Anti-Interruzione Film (#202, ref #151)', async () => {
+  const sbSingleton = require('../src/samsung-soundbar');
+  const { SamsungSoundbarManager } = sbSingleton;
+  const spatialEngine = require('../src/spatial-engine');
+  const { NestCaster } = require('../src/nest-caster');
+
+  // 1. Stato non configurato senza errori
+  const unconf = new SamsungSoundbarManager({ ip: '' });
+  const stUnconf = await unconf.refreshState();
+  assert.equal(stUnconf.configured, false);
+  assert.equal(stUnconf.online, false);
+
+  // 2. Lettura combinata Tizen + Eureka + Cast, controlli setVolume/setMuted/stopCast, emissione soundbar:state_changed & offline graceful
+  const emitted = [];
+  const castCalls = [];
+  let failAll = false;
+  let castStatus = { volume: { level: 0.09, muted: false }, applications: [{ displayName: 'Spotify' }] };
+
+  const sb = new SamsungSoundbarManager({
+    ip: '192.0.2.50',
+    eventBus: { publish: (ev, data) => emitted.push({ ev, data }) },
+    httpGetFn: async (url) => {
+      if (failAll) throw new Error('EHOSTUNREACH');
+      if (url.includes(':8001/api/v2/')) return { device: { ModelNumber: 'HW-QS750F', PowerState: 'on' } };
+      if (url.includes(':8008/setup/eureka_info')) return { name: 'Q-Series Soundbar' };
+      throw new Error('Unknown URL');
+    },
+    castClientFactory: () => ({
+      on: () => {},
+      connect: (_ip, cb) => cb(),
+      close: () => {},
+      getStatus: (cb) => {
+        if (failAll) return cb(new Error('Cast offline'));
+        return cb(null, castStatus);
+      },
+      setVolume: (opts, cb) => {
+        castCalls.push({ fn: 'setVolume', opts });
+        cb(null);
+      },
+      getSessions: (cb) => cb(null, [{ sessionId: 's1' }]),
+      stop: (session, cb) => {
+        castCalls.push({ fn: 'stop', session });
+        cb(null);
+      }
+    })
+  });
+
+  const st1 = await sb.refreshState();
+  assert.equal(st1.configured, true);
+  assert.equal(st1.online, true);
+  assert.equal(st1.modelName, 'HW-QS750F');
+  assert.equal(st1.friendlyName, 'Q-Series Soundbar');
+  assert.equal(st1.isOn, true);
+  assert.equal(st1.volumePct, 9);
+  assert.equal(st1.muted, false);
+  assert.equal(st1.castingApp, 'Spotify');
+  assert.ok(emitted.some((e) => e.ev === 'soundbar:state_changed'));
+
+  // Validazione input
+  await assert.rejects(() => sb.control({}), /Nessun parametro/);
+  await assert.rejects(() => sb.control({ volumePct: 150 }), /Volume non valido/);
+
+  const resVol = await sb.setVolume(25);
+  assert.equal(resVol.state.volumePct, 25);
+  assert.deepEqual(castCalls[0], { fn: 'setVolume', opts: { level: 0.25 } });
+
+  const resMute = await sb.setMuted(true);
+  assert.equal(resMute.state.muted, true);
+
+  const resStop = await sb.stopCast();
+  assert.equal(resStop.state.castingApp, null);
+  assert.ok(castCalls.some((c) => c.fn === 'stop'));
+
+  // Offline graceful
+  failAll = true;
+  const stOff = await sb.refreshState();
+  assert.equal(stOff.online, false);
+  assert.ok(stOff.lastError);
+
+  // 3. Pin #50 presente e idratato in getEnrichedMapState()
+  const pin50Def = spatialEngine.pins.find((p) => Number(p.pin) === 50);
+  assert.ok(pin50Def, 'Pin #50 Samsung Soundbar deve esistere');
+  assert.equal(pin50Def.soundbarId, 'salone');
+  assert.equal(pin50Def.microZone, 'cinema_tv');
+
+  const origSbGetState = sbSingleton.getState;
+  try {
+    sbSingleton.getState = () => ({ configured: true, online: true, isOn: true, volumePct: 18, muted: false });
+    const snap = spatialEngine.getEnrichedMapState({});
+    const pin50 = snap.pins.find((p) => Number(p.pin) === 50);
+    assert.ok(pin50);
+    assert.equal(pin50.isOn, true);
+    assert.equal(pin50.volumePct, 18);
+    assert.equal(pin50.muted, false);
+  } finally {
+    sbSingleton.getState = origSbGetState;
+  }
+
+  // 4. Guardia Anti-Interruzione Film su NestCaster.speak()
+  const announced = [];
+  const caster = new NestCaster({
+    speechGapFn: () => 1,
+    aiGateway: { validateHardwareAction: () => ({ allowed: true }) },
+    googleFulfillment: { buildSsmlResponse: (t) => `<speak>${t}</speak>` },
+    hueLocal: { lights: [], motionSensor: null },
+    spatialEngine: { lastTvState: false },
+    hueSyncBox: { getState: () => ({ syncActive: true }) },
+    securitySystem: {
+      resolveNestIp: (room) => (room === 'Salone' ? '192.0.2.10' : '192.0.2.50'),
+      announceToNest: async (txt, opts) => {
+        announced.push({ txt, roomName: opts.roomName });
+        return { ttsEngine: 'gemini' };
+      }
+    }
+  });
+  caster.config.followMeEnabled = false;
+
+  const speakRes = await caster.speak('Avviso test film', {
+    roomName: 'Samsung Soundbar',
+    followMe: false,
+    playChime: false
+  });
+  assert.equal(speakRes.cinemaGuardRedirected, true);
+  assert.equal(speakRes.targetRoom, 'Salone');
+  assert.equal(announced[0].roomName, 'Salone');
+});

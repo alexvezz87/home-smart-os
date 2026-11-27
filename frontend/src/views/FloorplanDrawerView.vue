@@ -33,6 +33,12 @@ function toggleSyncBox(pin) {
     window.controlHueSyncBoxUi(pin.pin, { syncActive: !pin.isOn });
   }
 }
+
+function toggleSoundbarMute(pin) {
+  if (typeof window !== 'undefined' && typeof window.controlSoundbarUi === 'function') {
+    window.controlSoundbarUi(pin.pin, { muted: !pin.muted });
+  }
+}
 </script>
 
 <template>
@@ -272,13 +278,25 @@ function toggleSyncBox(pin) {
                   <span v-if="p.temperature != null"> · {{ p.temperature }}°C</span>
                   <span v-if="p.category === 'plug' && p.powerW != null" class="font-mono text-cyan-300"> · {{ Math.round(p.powerW) }}W</span>
                   <span v-if="p.syncBoxId" class="text-purple-300"> · {{ p.isOn ? `Sync (${p.syncBox?.mode || 'video'})` : 'Standby' }}</span>
+                  <span v-if="p.soundbarId" class="text-cyan-300"> · {{ p.muted ? 'Muto' : (p.volumePct != null ? `Vol ${p.volumePct}%` : (p.isOn ? 'ON' : 'Standby')) }}</span>
                 </div>
               </div>
             </button>
 
             <!-- Controlli rapidi per categoria -->
             <button
-              v-if="p.syncBoxId"
+              v-if="p.soundbarId"
+              type="button"
+              @click="toggleSoundbarMute(p)"
+              class="px-2 py-1 rounded-lg text-[10px] font-bold border shrink-0 transition-all"
+              :class="p.muted
+                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-white'"
+            >
+              {{ p.muted ? 'Unmute' : (p.volumePct != null ? `Vol ${p.volumePct}%` : 'Mute') }}
+            </button>
+            <button
+              v-else-if="p.syncBoxId"
               type="button"
               @click="toggleSyncBox(p)"
               class="px-2 py-1 rounded-lg text-[10px] font-bold border shrink-0 transition-all"

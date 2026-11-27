@@ -339,6 +339,36 @@ module.exports = function registerHueAppliancesSpatialRoutes(app, services) {
     }
   });
 
+  // 0k. Samsung Soundbar HW-QS750F (Locale Tizen :8001 + Chromecast :8008/:8009)
+  app.get('/api/soundbar/state', async (req, res) => {
+    try {
+      const sb = services.samsungSoundbar || require('../samsung-soundbar');
+      if (String(req.query?.refresh || '') === '1') {
+        const state = await sb.refreshState();
+        return res.json({ success: true, ...state });
+      }
+      return res.json({ success: true, ...sb.getState() });
+    } catch (error) {
+      return res.status(500).json({ success: false, error: String(error?.message || 'Errore stato Soundbar') });
+    }
+  });
+
+  app.post('/api/soundbar/control', async (req, res) => {
+    try {
+      const sb = services.samsungSoundbar || require('../samsung-soundbar');
+      const cur = sb.getState();
+      if (!cur.configured) {
+        return res.status(503).json({ success: false, error: 'Samsung Soundbar non configurata' });
+      }
+      const { volumePct, muted, stopCast } = req.body || {};
+      const result = await sb.control({ volumePct, muted, stopCast });
+      return res.json({ success: true, ...result });
+    } catch (error) {
+      const code = Number(error?.statusCode) || 503;
+      return res.status(code).json({ success: false, error: String(error?.message || 'Errore controllo Soundbar') });
+    }
+  });
+
   // 1. Snapshot completo casa con arricchimento telemetria Meross, Sicurezza e Mappa Spaziale 32 Pin
   app.get(['/api/home', '/api/dashboard'], async (req, res) => {
     try {

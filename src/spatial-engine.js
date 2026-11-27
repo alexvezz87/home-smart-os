@@ -7,6 +7,7 @@ const eventLogger = require('./event-logger');
 const db = require('./db');
 const climateOptimizer = require('./climate-optimizer');
 const hueSyncBox = require('./hue-sync-box');
+const samsungSoundbar = require('./samsung-soundbar');
 
 let eventBus = null;
 try {
@@ -708,6 +709,18 @@ class SpatialEngine {
         x: 47.4,
         y: 71.0,
         nearbyPins: [22, 23, 24, 25]
+      },
+      {
+        pin: 50,
+        name: 'Samsung Soundbar',
+        room: 'Salone',
+        microZone: 'cinema_tv',
+        category: 'tv',
+        vendor: 'Samsung HW-QS750F 5.1.2',
+        soundbarId: 'salone',
+        x: 53.4,
+        y: 71.0,
+        nearbyPins: [22, 23, 24, 25, 49]
       }
     ];
 
@@ -716,7 +729,7 @@ class SpatialEngine {
         id: 'cinema_tv',
         name: '🎬 Cinema & Ambilight TV',
         room: 'Salone',
-        pins: [22, 23, 24, 25, 20, 26, 21, 49],
+        pins: [22, 23, 24, 25, 20, 26, 21, 49, 50],
         description: 'Accende TV 1 (#23) e TV 2 (#25) al 35%, spegne i riflessi del Lampadario Giunone (#21) e imposta Divano (#20) e Tiffany (#26) al 20%.'
       },
       {
@@ -1247,6 +1260,13 @@ class SpatialEngine {
         clone.syncBox = syncState;
         clone.isOn = Boolean(syncState?.syncActive);
         clone.online = Boolean(syncState?.online);
+      } else if (p.soundbarId) {
+        const sbState = samsungSoundbar.getState();
+        clone.soundbar = sbState;
+        clone.isOn = Boolean(sbState?.isOn);
+        clone.online = Boolean(sbState?.online);
+        clone.volumePct = sbState?.volumePct ?? null;
+        clone.muted = Boolean(sbState?.muted);
       } else if (p.category === 'valve') {
         const bosch = homeSnapshot.evClimate?.bosch || {};
         const rawZones = bosch.zones;

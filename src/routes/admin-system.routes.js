@@ -23,7 +23,8 @@ module.exports = function registerAdminSystemRoutes(app, services) {
       'ai:guardrail_blocked',
       'notifications:updated',
       'haier:state_changed',
-      'hue_sync:state_changed'
+      'hue_sync:state_changed',
+      'soundbar:state_changed'
     ]);
 
     const onEvent = (evt) => {
