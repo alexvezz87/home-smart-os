@@ -7337,3 +7337,78 @@ test('TEST 79: Modalità Cinema Vocale (Google Home & Leda), Stop Auto-Cinema TV
     spatialEngine.lastTvState = origLastTv;
   }
 });
+
+
+test('TEST 80: Guardia Corridor Wave su Piantana Ingresso & Badge Sync TV Attivo (#200, ref #151)', async () => {
+  const fs = require('fs');
+  const path = require('path');
+  const spatialEngine = require('../src/spatial-engine');
+  const hueSyncBox = require('../src/hue-sync-box');
+  const hueLocal = require('../src/hue-local');
+
+  const origGetState = hueSyncBox.getState;
+  const origSetBrightness = hueLocal.setBrightnessByName;
+  const origToggleLight = hueLocal.toggleLightByName;
+
+  try {
+    const waveBriCalls = [];
+    const waveToggleCalls = [];
+    let mockSyncActive = true;
+
+    hueSyncBox.getState = () => ({ configured: true, online: true, syncActive: mockSyncActive });
+    hueLocal.setBrightnessByName = async (name, bri) => {
+      waveBriCalls.push({ name, bri });
+    };
+    hueLocal.toggleLightByName = async (name, on) => {
+      waveToggleCalls.push({ name, on });
+    };
+
+    // 1a. triggerCorridorWave con syncActive=true salta Piantana ingresso (ON e OFF)
+    const waveOn = await spatialEngine.triggerCorridorWave('north_to_south', 30);
+    assert.deepEqual(waveOn.skippedForSync, ['Piantana ingresso']);
+    assert.ok(!waveBriCalls.some((c) => c.name === 'Piantana ingresso'));
+    assert.ok(waveBriCalls.some((c) => c.name === 'Corridoio letto'));
+
+    const waveOff = await spatialEngine.triggerCorridorWave('off');
+    assert.deepEqual(waveOff.skippedForSync, ['Piantana ingresso']);
+    assert.ok(!waveToggleCalls.some((c) => c.name === 'Piantana ingresso'));
+
+    // 1b. triggerCorridorWave con syncActive=false include normalmente Piantana ingresso
+    mockSyncActive = false;
+    waveBriCalls.length = 0;
+    const waveNormal = await spatialEngine.triggerCorridorWave('north_to_south', 30);
+    assert.deepEqual(waveNormal.skippedForSync, []);
+    assert.ok(waveBriCalls.some((c) => c.name === 'Piantana ingresso'));
+
+    // 2. getEnrichedMapState(): inCinemaSyncArea & syncTvActive sui soli 6 pin [18, 20, 23, 25, 26, 27]
+    mockSyncActive = true;
+    const snapSyncOn = spatialEngine.getEnrichedMapState({});
+    const areaPins = new Set([18, 20, 23, 25, 26, 27]);
+    const syncActivePins = snapSyncOn.pins.filter((p) => p.syncTvActive === true).map((p) => p.pin).sort((a, b) => a - b);
+    assert.deepEqual(syncActivePins, [18, 20, 23, 25, 26, 27]);
+    for (const p of snapSyncOn.pins) {
+      if (p.category === 'light') {
+        assert.equal(p.inCinemaSyncArea, areaPins.has(p.pin));
+        assert.equal(p.syncTvActive, areaPins.has(p.pin));
+      }
+    }
+    const giunone = snapSyncOn.pins.find((p) => p.pin === 21);
+    assert.ok(giunone && !giunone.syncTvActive, 'Giunone (#21) non deve avere syncTvActive');
+
+    mockSyncActive = false;
+    const snapSyncOff = spatialEngine.getEnrichedMapState({});
+    assert.equal(snapSyncOff.pins.some((p) => p.syncTvActive === true), false);
+
+    // 3. Presenza badge Sync TV Attivo nei file UI
+    const dsCode = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'device-sheet.js'), 'utf8');
+    const drawerVue = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'src', 'views', 'FloorplanDrawerView.vue'), 'utf8');
+    const focusVue = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'src', 'views', 'RoomFocusOverlay.vue'), 'utf8');
+    assert.ok(dsCode.includes('Sync TV Attivo'));
+    assert.ok(drawerVue.includes('Sync TV Attivo'));
+    assert.ok(focusVue.includes('Sync TV Attivo'));
+  } finally {
+    hueSyncBox.getState = origGetState;
+    hueLocal.setBrightnessByName = origSetBrightness;
+    hueLocal.toggleLightByName = origToggleLight;
+  }
+});
