@@ -173,6 +173,21 @@ class DeviceSheetManager {
         bodyHtml = p.isHaierAc ? this.renderHaierAcControls(p) : this.renderDysonControls(p);
         break;
 
+      case 'tv':
+        categoryIcon = p.soundbarId ? 'fa-volume-high' : 'fa-tv';
+        categoryLabel = p.soundbarId
+          ? 'Samsung Soundbar 5.1.2'
+          : (p.syncBoxId ? 'Philips Hue Play HDMI Sync Box 4K' : 'TV / Intrattenimento');
+        badgeColor = p.isOn
+          ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
+          : 'bg-slate-800 text-slate-400';
+        bodyHtml = p.soundbarId
+          ? this.renderSoundbarControls(p)
+          : (p.syncBoxId
+            ? this.renderHueSyncBoxControls(p)
+            : `${p.poweredOffByPlug ? `<div class="mb-3 px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-400/40 text-amber-200 text-xs font-semibold">🔌 Presa televisione spenta (#22) — nessuna alimentazione</div>` : ''}<div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 text-center text-xs text-slate-400">Nessun controllo specifico per questa TV.</div>`);
+        break;
+
       default:
         bodyHtml = `
           <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 text-center text-xs text-slate-400">
@@ -264,6 +279,17 @@ class DeviceSheetManager {
     }).join('') : '';
 
     return `
+      ${p.poweredOffByPlug ? `
+        <div class="mb-3 px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-400/40 text-amber-200 text-xs font-semibold">
+          🔌 Presa televisione spenta (#22) — nessuna alimentazione
+        </div>
+      ` : ''}
+      ${p.syncTvActive ? `
+        <div class="mb-3 px-3 py-2 rounded-xl bg-purple-500/15 border border-purple-400/40 text-purple-200 text-xs font-semibold flex items-center justify-between gap-2">
+          <span>🎬 Sync TV Attivo (Area Cinema)</span>
+          <span class="text-[10px] font-mono text-purple-300/90">Hue Sync Box</span>
+        </div>
+      ` : ''}
       <!-- Interruttore Master -->
       <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800">
         <div class="flex items-center gap-3">
@@ -2201,6 +2227,266 @@ async function controlHaierAcUi(pinNum, unitId, payload) {
 
 window.refreshHaierAcUi = refreshHaierAcUi;
 window.controlHaierAcUi = controlHaierAcUi;
+
+DeviceSheetManager.prototype.renderHueSyncBoxControls = function (p) {
+  const sb = p.syncBox || {};
+  const configured = Boolean(sb.configured);
+  const online = Boolean(sb.online ?? p.online);
+  const syncActive = Boolean(sb.syncActive ?? p.isOn);
+  const mode = sb.mode || 'video';
+  const intensity = sb.intensity || 'moderate';
+  const brightness = Number.isFinite(Number(sb.brightness)) ? Number(sb.brightness) : 100;
+  const hdmiSource = sb.hdmiSource || 'input1';
+  const inputs = Array.isArray(sb.inputs) && sb.inputs.length > 0
+    ? sb.inputs
+    : [
+        { id: 'input1', name: 'HDMI 1' },
+        { id: 'input2', name: 'HDMI 2' },
+        { id: 'input3', name: 'HDMI 3' },
+        { id: 'input4', name: 'HDMI 4' }
+      ];
+
+  const modes = [
+    { id: 'video', label: 'Video' },
+    { id: 'music', label: 'Musica' },
+    { id: 'game', label: 'Gioco' }
+  ];
+  const intensities = [
+    { id: 'subtle', label: 'Subtle' },
+    { id: 'moderate', label: 'Moderate' },
+    { id: 'high', label: 'High' },
+    { id: 'intense', label: 'Intense' }
+  ];
+
+  return `
+    <div class="space-y-3">
+      ${p.poweredOffByPlug ? `
+        <div class="px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-400/40 text-amber-200 text-xs font-semibold">
+          🔌 Presa televisione spenta (#22) — nessuna alimentazione
+        </div>
+      ` : ''}
+      <div class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between gap-2">
+        <div>
+          <div class="text-xs font-bold text-white">Stato Sync Box 4K</div>
+          <div class="text-[11px] ${!configured ? 'text-amber-300' : (online ? (syncActive ? 'text-purple-300' : 'text-slate-400') : 'text-rose-400')}">
+            ${!configured ? 'Non configurata (.env)' : (online ? (syncActive ? `Sync attivo (${mode})` : 'Standby') : 'Offline / non raggiungibile')}
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="refreshHueSyncBoxUi(${p.pin})" class="px-2.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs" title="Aggiorna stato">
+            <i class="fa-solid fa-rotate"></i>
+          </button>
+          <button onclick="controlHueSyncBoxUi(${p.pin}, { syncActive: ${!syncActive} })"
+                  class="px-3.5 py-2 rounded-lg text-xs font-bold transition-all ${syncActive ? 'bg-purple-600 hover:bg-purple-500 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'}">
+            ${syncActive ? 'Sync ON' : 'Sync OFF'}
+          </button>
+        </div>
+      </div>
+
+      <div class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5">
+        <div>
+          <div class="text-[11px] font-semibold text-slate-400 mb-1.5">Modalità</div>
+          <div class="grid grid-cols-3 gap-1.5">
+            ${modes.map((m) => `
+              <button onclick="controlHueSyncBoxUi(${p.pin}, { mode: '${m.id}', syncActive: true })"
+                      class="py-1.5 rounded-lg text-xs font-semibold border transition-all ${mode === m.id ? 'bg-purple-500/25 text-purple-200 border-purple-400/60' : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:bg-slate-800'}">
+                ${m.label}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+
+        <div>
+          <div class="text-[11px] font-semibold text-slate-400 mb-1.5">Intensità</div>
+          <div class="grid grid-cols-4 gap-1.5">
+            ${intensities.map((it) => `
+              <button onclick="controlHueSyncBoxUi(${p.pin}, { intensity: '${it.id}' })"
+                      class="py-1.5 rounded-lg text-[11px] font-semibold border transition-all ${intensity === it.id ? 'bg-cyan-500/25 text-cyan-200 border-cyan-400/60' : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:bg-slate-800'}">
+                ${it.label}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+            <span>Luminosità</span>
+            <span id="hue-sync-bri-val-${p.pin}" class="font-mono text-purple-300 font-bold">${brightness}</span>
+          </div>
+          <input type="range" min="0" max="200" step="5" value="${brightness}"
+                 oninput="document.getElementById('hue-sync-bri-val-${p.pin}').textContent = this.value"
+                 onchange="controlHueSyncBoxUi(${p.pin}, { brightness: Number(this.value) })"
+                 class="w-full accent-purple-500 cursor-pointer" />
+        </div>
+
+        <div>
+          <div class="text-[11px] font-semibold text-slate-400 mb-1.5">Ingresso HDMI</div>
+          <select onchange="controlHueSyncBoxUi(${p.pin}, { hdmiSource: this.value })"
+                  class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white">
+            ${inputs.map((inp) => `
+              <option value="${inp.id}" ${hdmiSource === inp.id ? 'selected' : ''}>${inp.name || inp.id.toUpperCase()}</option>
+            `).join('')}
+          </select>
+        </div>
+      </div>
+    </div>
+  `;
+};
+
+async function refreshHueSyncBoxUi(pinNum) {
+  try {
+    const res = await fetch('/api/hue-sync/state?refresh=1').then((r) => r.json());
+    if (!res.success) return;
+    const pin = window.homeData?.spatial?.pins?.find((x) => Number(x.pin) === Number(pinNum));
+    if (pin) {
+      pin.syncBox = res;
+      pin.isOn = Boolean(res.syncActive);
+      pin.online = Boolean(res.online);
+      window.floorplan?.render?.();
+      window.homeVueBridge?.floorplanStore?.syncFromHomeData?.();
+      window.deviceSheet?.open?.(pin);
+    }
+  } catch (_) {}
+}
+
+async function controlHueSyncBoxUi(pinNum, payload) {
+  try {
+    const res = await fetch('/api/hue-sync/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {})
+    }).then((r) => r.json());
+    if (!res.success) {
+      if (typeof showToast === 'function') showToast(res.error || 'Errore controllo Sync Box', 'error');
+      return;
+    }
+    const st = res.state || res;
+    const pin = window.homeData?.spatial?.pins?.find((x) => Number(x.pin) === Number(pinNum));
+    if (pin) {
+      pin.syncBox = st;
+      pin.isOn = Boolean(st.syncActive);
+      pin.online = Boolean(st.online);
+      window.floorplan?.render?.();
+      window.homeVueBridge?.floorplanStore?.syncFromHomeData?.();
+      window.deviceSheet?.open?.(pin);
+    }
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('Errore Sync Box: ' + e.message, 'error');
+  }
+}
+
+window.refreshHueSyncBoxUi = refreshHueSyncBoxUi;
+window.controlHueSyncBoxUi = controlHueSyncBoxUi;
+
+DeviceSheetManager.prototype.renderSoundbarControls = function (p) {
+  const sb = p.soundbar || {};
+  const configured = Boolean(sb.configured);
+  const online = Boolean(sb.online ?? p.online);
+  const isOn = Boolean(sb.isOn ?? p.isOn);
+  const vol = Number.isFinite(Number(sb.volumePct ?? p.volumePct)) ? Number(sb.volumePct ?? p.volumePct) : 15;
+  const muted = Boolean(sb.muted ?? p.muted);
+  const castingApp = sb.castingApp || null;
+
+  return `
+    <div class="space-y-3">
+      ${p.poweredOffByPlug ? `
+        <div class="px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-400/40 text-amber-200 text-xs font-semibold">
+          🔌 Presa televisione spenta (#22) — nessuna alimentazione
+        </div>
+      ` : ''}
+      <div class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between gap-2">
+        <div>
+          <div class="text-xs font-bold text-white">${sb.friendlyName || 'Q-Series Soundbar'}</div>
+          <div class="text-[11px] ${!configured ? 'text-amber-300' : (online ? (isOn ? 'text-emerald-300' : 'text-slate-400') : 'text-rose-400')}">
+            ${!configured ? 'Non configurata (.env)' : (online ? (isOn ? 'ON' : 'Standby') : 'Offline')}
+            ${castingApp ? ` · Cast: ${castingApp}` : ''}
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="refreshSoundbarUi(${p.pin})" class="px-2.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs" title="Aggiorna stato">
+            <i class="fa-solid fa-rotate"></i>
+          </button>
+          <button onclick="controlSoundbarUi(${p.pin}, { muted: ${!muted} })"
+                  class="px-3 py-2 rounded-lg text-xs font-bold border transition-all ${muted ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'}">
+            ${muted ? 'Unmute' : 'Mute'}
+          </button>
+        </div>
+      </div>
+
+      <div class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold text-slate-300">Volume</span>
+          <span id="sb-vol-val-${p.pin}" class="font-mono text-sm font-bold text-cyan-300">${muted ? 'Muto' : `${vol}%`}</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="controlSoundbarUi(${p.pin}, { volumePct: ${Math.max(0, vol - 5)} })"
+                  class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold border border-slate-700">-5%</button>
+          <input type="range" min="0" max="100" step="1" value="${vol}"
+                 oninput="document.getElementById('sb-vol-val-${p.pin}').textContent = this.value + '%'"
+                 onchange="controlSoundbarUi(${p.pin}, { volumePct: Number(this.value) })"
+                 class="flex-1 accent-cyan-400 cursor-pointer" />
+          <button onclick="controlSoundbarUi(${p.pin}, { volumePct: ${Math.min(100, vol + 5)} })"
+                  class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold border border-slate-700">+5%</button>
+        </div>
+        ${castingApp ? `
+          <button onclick="controlSoundbarUi(${p.pin}, { stopCast: true })"
+                  class="w-full py-2 rounded-lg bg-rose-600/20 hover:bg-rose-600/35 text-rose-200 border border-rose-500/40 text-xs font-bold">
+            ⏹️ Stop Cast (${castingApp})
+          </button>
+        ` : ''}
+      </div>
+    </div>
+  `;
+};
+
+async function refreshSoundbarUi(pinNum) {
+  try {
+    const res = await fetch('/api/soundbar/state?refresh=1').then((r) => r.json());
+    if (!res.success) return;
+    const pin = window.homeData?.spatial?.pins?.find((x) => Number(x.pin) === Number(pinNum));
+    if (pin) {
+      pin.soundbar = res;
+      pin.isOn = Boolean(res.isOn);
+      pin.online = Boolean(res.online);
+      pin.volumePct = res.volumePct ?? null;
+      pin.muted = Boolean(res.muted);
+      window.floorplan?.render?.();
+      window.homeVueBridge?.floorplanStore?.syncFromHomeData?.();
+      window.deviceSheet?.open?.(pin);
+    }
+  } catch (_) {}
+}
+
+async function controlSoundbarUi(pinNum, payload) {
+  try {
+    const res = await fetch('/api/soundbar/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {})
+    }).then((r) => r.json());
+    if (!res.success) {
+      if (typeof showToast === 'function') showToast(res.error || 'Errore controllo Soundbar', 'error');
+      return;
+    }
+    const st = res.state || res;
+    const pin = window.homeData?.spatial?.pins?.find((x) => Number(x.pin) === Number(pinNum));
+    if (pin) {
+      pin.soundbar = st;
+      pin.isOn = Boolean(st.isOn);
+      pin.online = Boolean(st.online);
+      pin.volumePct = st.volumePct ?? null;
+      pin.muted = Boolean(st.muted);
+      window.floorplan?.render?.();
+      window.homeVueBridge?.floorplanStore?.syncFromHomeData?.();
+      window.deviceSheet?.open?.(pin);
+    }
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('Errore Soundbar: ' + e.message, 'error');
+  }
+}
+
+window.refreshSoundbarUi = refreshSoundbarUi;
+window.controlSoundbarUi = controlSoundbarUi;
 window.refreshThinqUi = refreshThinqUi;
 window.controlThinqDryerUi = controlThinqDryerUi;
 window.refreshPantumPrinterUi = refreshPantumPrinterUi;

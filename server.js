@@ -73,6 +73,8 @@ const services = {
   merossEnergy: null,
   securitySystem: null,
   hueLocal: null,
+  hueSyncBox: null,
+  samsungSoundbar: null,
   spatialEngine: null,
   evClimateHub: null,
   geminiVision: null,
@@ -238,6 +240,8 @@ async function bootstrap() {
   services.lgThinq = require('./src/lg-thinq');
   services.dysonPurifier = require('./src/dyson-purifier');
   services.haierAc = require('./src/haier-ac');
+  services.hueSyncBox = require('./src/hue-sync-box');
+  services.samsungSoundbar = require('./src/samsung-soundbar');
   services.volvoTripsSync = require('./src/volvo-trips-sync');
   services.wallboxSync = require('./src/wallbox-sync');
   services.dolomitiBillsSync = require('./src/dolomiti-bills-sync');
@@ -281,6 +285,8 @@ async function bootstrap() {
   services.aiGateway.init().catch((err) => console.warn('⚠️ [AIGateway] Init background:', err.message));
   services.iliadboxClient.init().catch((err) => console.warn('⚠️ [Iliadbox] Init background:', err.message));
   services.haierAc.init().catch((err) => console.warn('⚠️ [Haier AC] Init background:', err.message));
+  services.hueSyncBox.init().catch((err) => console.warn('⚠️ [Hue Sync Box] Init background:', err.message));
+  services.samsungSoundbar.init().catch((err) => console.warn('⚠️ [Samsung Soundbar] Init background:', err.message));
   services.serviceStatus.init({
     db,
     aiGateway: services.aiGateway,

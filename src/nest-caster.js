@@ -52,6 +52,8 @@ class NestCaster {
     this.pendingWelcomeArrivals = new Map();
     this._roomQueues = new Map();
     this._speechGapFn = typeof deps.speechGapFn === 'function' ? deps.speechGapFn : null;
+    this._spatialEngine = deps.spatialEngine || null;
+    this._hueSyncBox = deps.hueSyncBox || null;
     this.presenceAttached = false;
     this.cameraAttached = false;
     this._welcomeFlushTimer = null;
@@ -613,12 +615,36 @@ class NestCaster {
     }
 
     const useFollowMe = followMe !== false && this.config.followMeEnabled;
-    const { targetRoom, targetIp } = useFollowMe
+    let { targetRoom, targetIp } = useFollowMe
       ? this.resolveFollowMeTarget({ preferredRoom: roomName, respectBabySleep: this.config.respectBabySleep })
       : {
           targetRoom: roomName || 'Camera da letto',
           targetIp: this.securitySystem.resolveNestIp(roomName || 'Camera da letto')
         };
+
+    // Guardia Anti-Interruzione Film: se il target punta alla Soundbar durante TV/Cinema attivo, reindirizza su Nest Salone
+    let cinemaGuardRedirected = false;
+    const soundbarIp = String(process.env.SAMSUNG_SOUNDBAR_IP || '').trim();
+    const isSoundbarTarget = Boolean(
+      (soundbarIp && targetIp === soundbarIp) ||
+      /soundbar|qs750/i.test(String(targetRoom || ''))
+    );
+    if (isSoundbarTarget) {
+      let spEngine = this._spatialEngine;
+      if (!spEngine) {
+        try { spEngine = require('./spatial-engine'); } catch (_) { spEngine = null; }
+      }
+      let syncBox = this._hueSyncBox;
+      if (!syncBox) {
+        try { syncBox = require('./hue-sync-box'); } catch (_) { syncBox = null; }
+      }
+      const isCinemaOrTvActive = Boolean(spEngine?.lastTvState) || Boolean(syncBox?.getState?.()?.syncActive);
+      if (isCinemaOrTvActive) {
+        targetRoom = 'Salone';
+        targetIp = this.securitySystem.resolveNestIp('Salone');
+        cinemaGuardRedirected = true;
+      }
+    }
 
     const chimeUrl = playChime ? this._resolveChimeUrl(chimePreset) : null;
     const activeEngine = ttsEngine || this.config.ttsEngine || 'gemini';
@@ -671,7 +697,8 @@ class NestCaster {
       ssml,
       text: cleanText,
       ttsEngine: castRes?.ttsEngine || activeEngine,
-      voiceName: activeVoice
+      voiceName: activeVoice,
+      ...(cinemaGuardRedirected ? { cinemaGuardRedirected: true } : {})
     };
   }
 }

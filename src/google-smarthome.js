@@ -75,6 +75,15 @@ const SWITCH_DEFINITIONS = [
       nicknames: ['Comfort Caldo', 'Boost Comfort Caldo']
     },
     mappedPayload: { intent: 'hot', text: 'ho caldo', options: { allLivedRooms: true, source: 'google_smarthome' } }
+  },
+  {
+    id: 'switch-cinema-mode',
+    roomHint: 'Salone',
+    name: {
+      defaultNames: ['Modalità Cinema'],
+      name: 'Modalità Cinema',
+      nicknames: ['Modalità Cinema', 'Cinema', 'Cinema TV']
+    }
   }
 ];
 
@@ -134,6 +143,40 @@ class GoogleSmartHomeManager {
 
   get nestCaster() {
     return this._deps.nestCaster || require('./nest-caster');
+  }
+
+  get hueSyncBox() {
+    return this._deps.hueSyncBox || require('./hue-sync-box');
+  }
+
+  get spatialEngine() {
+    return this._deps.spatialEngine || require('./spatial-engine');
+  }
+
+  async _runCinemaModeAsync(turnOn) {
+    if (turnOn) {
+      const res = await this.spatialEngine.activateMicroZone('cinema_tv');
+      const speech = res?.tvPlugOff === true
+        ? 'La presa della televisione è spenta, accendi prima la TV.'
+        : (res?.syncStarted === true
+          ? 'Modalità cinema attiva: lampadario spento e luci sincronizzate con la TV.'
+          : 'Lampadario Giunone spento, avvia la sorgente TV per attivare la sincronizzazione luci.');
+      this.eventLogger?.log?.('google_smarthome', `Modalità Cinema ON (syncStarted=${Boolean(res?.syncStarted)}, tvPlugOff=${Boolean(res?.tvPlugOff)})`, {
+        source: 'Google Nest',
+        deviceId: 'switch-cinema-mode',
+        syncStarted: Boolean(res?.syncStarted),
+        tvPlugOff: Boolean(res?.tvPlugOff)
+      });
+      this._announceComfortAsync(speech, { bypassQuietHours: false, playChime: true });
+    } else {
+      await this.spatialEngine.deactivateCinemaMode();
+      const speech = 'Modalità cinema disattivata, sincronizzazione luci fermata.';
+      this.eventLogger?.log?.('google_smarthome', 'Modalità Cinema OFF', {
+        source: 'Google Nest',
+        deviceId: 'switch-cinema-mode'
+      });
+      this._announceComfortAsync(speech, { bypassQuietHours: false, playChime: true });
+    }
   }
 
   _announceComfortAsync(res, { bypassQuietHours = false, playChime = true } = {}) {
@@ -722,7 +765,8 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
           traits: ['action.devices.traits.OnOff'],
           name: sw.name,
           willReportState: false,
-          attributes: { commandOnlyOnOff: true }
+          ...(sw.roomHint ? { roomHint: sw.roomHint } : {}),
+          attributes: sw.id === 'switch-cinema-mode' ? {} : { commandOnlyOnOff: true }
         });
       }
 
@@ -830,7 +874,15 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
           continue;
         }
         if (SWITCH_MAP.has(id)) {
-          devicesMap[id] = { online: true, status: 'SUCCESS', on: false };
+          if (id === 'switch-cinema-mode') {
+            devicesMap[id] = {
+              online: true,
+              status: 'SUCCESS',
+              on: Boolean(this.hueSyncBox?.getState?.()?.syncActive)
+            };
+          } else {
+            devicesMap[id] = { online: true, status: 'SUCCESS', on: false };
+          }
           continue;
         }
         if (id === 'switch-volvo-status') {
@@ -986,6 +1038,18 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
 
               if (devId === 'wallbox-abb') {
                 commandResults.push(await this._executeWallboxCharge(Boolean(exec?.params?.on)));
+                continue;
+              }
+
+              if (devId === 'switch-cinema-mode') {
+                const turnOn = Boolean(exec?.params?.on);
+                this._runCinemaModeAsync(turnOn).catch((err) => {
+                  this.eventLogger?.log?.('google_smarthome', `Modalità Cinema errore background: ${err?.message || err}`, {
+                    source: 'Google Nest',
+                    deviceId: devId
+                  });
+                });
+                commandResults.push({ ids: [devId], status: 'SUCCESS', states: { online: true, on: turnOn } });
                 continue;
               }
 

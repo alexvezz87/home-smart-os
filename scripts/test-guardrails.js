@@ -6999,3 +6999,719 @@ test('TEST 77: Staffetta Ibrida Comfort (Haier -> Bosch), Occupazione Camera & C
   assert.equal(awayFinish.relayActivated, false);
   assert.equal(boschSetCalls.length, 0, 'Con allAway non deve attivare la Fase 2 Bosch');
 });
+
+
+test('TEST 78: Philips Hue Play HDMI Sync Box 4K, Pin #49 & Scena cinema_tv (#196)', async () => {
+  const hueSyncBoxSingleton = require('../src/hue-sync-box');
+  const { HueSyncBoxManager } = hueSyncBoxSingleton;
+  const spatialEngine = require('../src/spatial-engine');
+  const hueLocal = require('../src/hue-local');
+
+  // 1. Stato non configurato senza crash
+  const unconf = new HueSyncBoxManager({ ip: '', token: '' });
+  const unconfState = await unconf.refreshState();
+  assert.equal(unconfState.configured, false);
+  assert.equal(unconfState.online, false);
+
+  // 2. Lettura GET /api/v1, normalizzazione stato, control()/startSync()/stopSync(), evento hue_sync:state_changed & offline graceful
+  const emitted = [];
+  const putPayloads = [];
+  let failNetwork = false;
+  let mockApiState = {
+    device: { name: 'Hue Sync Box 4K Test' },
+    execution: {
+      syncActive: false,
+      mode: 'video',
+      brightness: 120,
+      hdmiSource: 'input1',
+      video: { intensity: 'moderate' }
+    },
+    hdmi: {
+      input1: { name: 'Apple TV 4K', type: 'streaming', status: 'linked' },
+      input2: { name: 'PS5', type: 'console', status: 'unplugged' }
+    },
+    hue: {
+      groups: { g1: { name: 'Area Cinema', active: true } }
+    }
+  };
+
+  const box = new HueSyncBoxManager({
+    ip: '192.0.2.10',
+    token: 'test-token-value',
+    eventBus: {
+      publish: (ev, data) => emitted.push({ ev, data })
+    },
+    requestFn: async (method, apiPath, body) => {
+      if (failNetwork) throw new Error('ECONNREFUSED test-token-value');
+      if (method === 'GET' && apiPath === '/api/v1') return mockApiState;
+      if (method === 'PUT' && apiPath === '/api/v1/execution') {
+        putPayloads.push(body);
+        if (body.syncActive !== undefined) mockApiState.execution.syncActive = body.syncActive;
+        if (body.mode !== undefined) mockApiState.execution.mode = body.mode;
+        if (body.brightness !== undefined) mockApiState.execution.brightness = body.brightness;
+        if (body.hdmiSource !== undefined) mockApiState.execution.hdmiSource = body.hdmiSource;
+        if (body.video?.intensity) mockApiState.execution.video.intensity = body.video.intensity;
+        return {};
+      }
+      throw new Error(`Unexpected ${method} ${apiPath}`);
+    }
+  });
+
+  const s1 = await box.refreshState();
+  assert.equal(s1.configured, true);
+  assert.equal(s1.online, true);
+  assert.equal(s1.syncActive, false);
+  assert.equal(s1.mode, 'video');
+  assert.equal(s1.intensity, 'moderate');
+  assert.equal(s1.brightness, 120);
+  assert.equal(s1.hdmiSource, 'input1');
+  assert.equal(s1.inputs.length, 2);
+  assert.ok(emitted.some((e) => e.ev === 'hue_sync:state_changed'));
+
+  // Validazione parametri non validi
+  await assert.rejects(() => box.control({ mode: 'invalid_mode' }), /Modalità Sync Box non valida/);
+  await assert.rejects(() => box.control({ intensity: 'extreme' }), /Intensità Sync Box non valida/);
+  await assert.rejects(() => box.control({ hdmiSource: 'input9' }), /Sorgente HDMI non valida/);
+
+  const startRes = await box.startSync({ mode: 'video', intensity: 'high', brightness: 160, hdmiSource: 'input2' });
+  assert.equal(startRes.success, true);
+  assert.equal(startRes.state.syncActive, true);
+  assert.equal(startRes.state.intensity, 'high');
+  assert.equal(startRes.state.brightness, 160);
+  assert.equal(putPayloads[0].syncActive, true);
+  assert.deepEqual(putPayloads[0].video, { intensity: 'high' });
+
+  const stopRes = await box.stopSync();
+  assert.equal(stopRes.state.syncActive, false);
+
+  // Gestione offline graceful con redazione token
+  failNetwork = true;
+  const offState = await box.refreshState();
+  assert.equal(offState.online, false);
+  assert.ok(offState.lastError && !offState.lastError.includes('test-token-value'), 'Token deve essere redatto');
+
+  // 3. Presenza Pin #49 in spatial-engine.js e idratazione stato
+  const pin49Def = spatialEngine.pins.find((p) => Number(p.pin) === 49);
+  assert.ok(pin49Def, 'Pin #49 Hue Sync Box deve esistere in spatialEngine.pins');
+  assert.equal(pin49Def.name, 'Hue Sync Box');
+  assert.equal(pin49Def.microZone, 'cinema_tv');
+  assert.equal(pin49Def.syncBoxId, 'salone');
+
+  // 4. activateMicroZone('cinema_tv'): startSync quando online, fallback TV 1/TV 2 al 35% quando offline/non configurata
+  const origSetChandelier = spatialEngine.setChandelierMode;
+  const origSetBrightness = hueLocal.setBrightnessByName;
+  const origToggleLight = hueLocal.toggleLightByName;
+  const origGetState = hueSyncBoxSingleton.getState;
+  const origStartSync = hueSyncBoxSingleton.startSync;
+
+  try {
+    const brightnessCalls = [];
+    let syncStartCalls = 0;
+    spatialEngine.setChandelierMode = async () => ({});
+    hueLocal.setBrightnessByName = async (name, bri) => {
+      brightnessCalls.push({ name, bri });
+    };
+    hueLocal.toggleLightByName = async () => ({});
+
+    // Caso A: Sync Box configurata e raggiungibile -> startSync({ mode: 'video' }), NO TV 1 / TV 2
+    hueSyncBoxSingleton.getState = () => ({ configured: true, online: true, syncActive: false });
+    hueSyncBoxSingleton.startSync = async (opts) => {
+      syncStartCalls += 1;
+      assert.equal(opts.mode, 'video');
+      return { success: true };
+    };
+    await spatialEngine.activateMicroZone('cinema_tv');
+    assert.equal(syncStartCalls, 1);
+    assert.ok(!brightnessCalls.some((b) => b.name === 'TV 1' || b.name === 'TV 2'), 'Con Sync Box online non deve forzare TV 1/TV 2 al 35%');
+    assert.equal(brightnessCalls.length, 0, 'Con Sync Box online Area Cinema gestisce le 6 luci');
+
+    // Caso B: Sync Box offline/non configurata -> fallback TV 1 e TV 2 al 35% + Piantana divano al 20%
+    brightnessCalls.length = 0;
+    hueSyncBoxSingleton.getState = () => ({ configured: false, online: false, syncActive: false });
+    await spatialEngine.activateMicroZone('cinema_tv');
+    assert.ok(brightnessCalls.some((b) => b.name === 'TV 1' && b.bri === 35));
+    assert.ok(brightnessCalls.some((b) => b.name === 'TV 2' && b.bri === 35));
+    assert.ok(brightnessCalls.some((b) => b.name === 'Piantana divano' && b.bri === 20));
+  } finally {
+    spatialEngine.setChandelierMode = origSetChandelier;
+    hueLocal.setBrightnessByName = origSetBrightness;
+    hueLocal.toggleLightByName = origToggleLight;
+    hueSyncBoxSingleton.getState = origGetState;
+    hueSyncBoxSingleton.startSync = origStartSync;
+  }
+});
+
+
+test('TEST 79: Modalità Cinema Vocale (Google Home & Leda), Stop Auto-Cinema TV & Sync Area Cinema (#198)', async () => {
+  const spatialEngine = require('../src/spatial-engine');
+  const hueSyncBox = require('../src/hue-sync-box');
+  const hueLocal = require('../src/hue-local');
+  const merossEnergy = require('../src/meross-energy');
+  const { GoogleSmartHomeManager } = require('../src/google-smarthome');
+  const { processAssistantCommand } = require('../src/assistant');
+
+  // 1. autoCinemaEnabled = false di default + checkProximityReflexTick() non tocca luci/Sync Box a TV ON, ma ferma Sync Box a TV OFF
+  assert.equal(spatialEngine.autoCinemaEnabled, false, 'autoCinemaEnabled deve essere false di default');
+
+  const origMerossStatus = merossEnergy.getStatus;
+  const origSyncGetState = hueSyncBox.getState;
+  const origSyncStart = hueSyncBox.startSync;
+  const origSyncStop = hueSyncBox.stopSync;
+  const origSetChandelier = spatialEngine.setChandelierMode;
+  const origSetBrightness = hueLocal.setBrightnessByName;
+  const origToggleLight = hueLocal.toggleLightByName;
+  const origLastTv = spatialEngine.lastTvState;
+
+  try {
+    let tvWatts = 95;
+    let syncActiveState = false;
+    let startCalls = 0;
+    let stopCalls = 0;
+    const hueCalls = [];
+
+    merossEnergy.getStatus = () => ({ plugs: [{ name: 'Presa televisione', isOn: true, powerW: tvWatts }] });
+    hueSyncBox.getState = () => ({ configured: true, online: true, syncActive: syncActiveState });
+    hueSyncBox.startSync = async () => {
+      startCalls += 1;
+      syncActiveState = true;
+      return { success: true, state: { configured: true, online: true, syncActive: true } };
+    };
+    hueSyncBox.stopSync = async () => {
+      stopCalls += 1;
+      syncActiveState = false;
+      return { success: true, state: { configured: true, online: true, syncActive: false } };
+    };
+    spatialEngine.setChandelierMode = async (name, mode) => {
+      hueCalls.push({ fn: 'chandelier', name, mode });
+      return {};
+    };
+    hueLocal.setBrightnessByName = async (name, bri) => {
+      hueCalls.push({ fn: 'bri', name, bri });
+    };
+    hueLocal.toggleLightByName = async (name, on) => {
+      hueCalls.push({ fn: 'toggle', name, on });
+    };
+
+    spatialEngine.lastTvState = false;
+    await spatialEngine.checkProximityReflexTick();
+    assert.equal(spatialEngine.lastTvState, true);
+    assert.equal(startCalls, 0, 'Con autoCinemaEnabled=false TV ON non avvia Sync Box');
+    assert.equal(hueCalls.length, 0, 'Con autoCinemaEnabled=false TV ON non tocca luci');
+
+    // TV spenta con syncActive=true -> deve chiamare stopSync() anche con autoCinemaEnabled=false
+    tvWatts = 2;
+    syncActiveState = true;
+    await spatialEngine.checkProximityReflexTick();
+    assert.equal(spatialEngine.lastTvState, false);
+    assert.equal(stopCalls, 1, 'TV OFF con syncActive=true deve chiamare stopSync()');
+
+    // 2. activateMicroZone('cinema_tv'): con Sync Box online spegne solo giunone e avvia startSync senza toccare le 6 luci Area Cinema
+    hueCalls.length = 0;
+    startCalls = 0;
+    const resOn = await spatialEngine.activateMicroZone('cinema_tv');
+    assert.equal(resOn.syncStarted, true);
+    assert.equal(startCalls, 1);
+    assert.deepEqual(hueCalls, [{ fn: 'chandelier', name: 'giunone', mode: 'off' }]);
+
+    // Con Sync Box offline -> fallback statico
+    hueCalls.length = 0;
+    hueSyncBox.getState = () => ({ configured: false, online: false, syncActive: false });
+    const resFallback = await spatialEngine.activateMicroZone('cinema_tv');
+    assert.equal(resFallback.syncStarted, false);
+    assert.equal(resFallback.fallbackUsed, true);
+    assert.ok(hueCalls.some((c) => c.fn === 'bri' && c.name === 'TV 1' && c.bri === 35));
+    assert.ok(hueCalls.some((c) => c.fn === 'bri' && c.name === 'Piantana divano' && c.bri === 20));
+    assert.ok(hueCalls.some((c) => c.fn === 'toggle' && c.name === 'Piantana ingresso' && c.on === false));
+
+    // 3. GoogleSmartHomeManager: switch-cinema-mode SYNC, QUERY, EXECUTE < 20ms & Leda
+    const gshSpeaks = [];
+    let mockSyncActive = false;
+    let cinemaActivateCount = 0;
+    let cinemaDeactivateCount = 0;
+    let nextSyncStarted = true;
+    let nowTick = 200000;
+
+    const mgr = new GoogleSmartHomeManager({
+      nowFn: () => {
+        nowTick += 10000;
+        return nowTick;
+      },
+      env: { GOOGLE_SMARTHOME_CLIENT_ID: 'c', GOOGLE_SMARTHOME_CLIENT_SECRET: 's' },
+      db: { get: async () => null, set: async () => true },
+      climateOptimizer: { config: { comfortVoiceAnnounce: true } },
+      sandboxManager: { config: { systemPaused: false } },
+      eventLogger: { log: () => {} },
+      hueSyncBox: { getState: () => ({ configured: true, online: true, syncActive: mockSyncActive }) },
+      spatialEngine: {
+        activateMicroZone: async (z) => {
+          assert.equal(z, 'cinema_tv');
+          cinemaActivateCount += 1;
+          mockSyncActive = nextSyncStarted;
+          return { success: true, syncStarted: nextSyncStarted };
+        },
+        deactivateCinemaMode: async () => {
+          cinemaDeactivateCount += 1;
+          mockSyncActive = false;
+          return { success: true, stopped: true };
+        }
+      },
+      nestCaster: {
+        config: { welcomeChimePreset: 'welcome_chime' },
+        isWelcomeWithinActiveHours: () => true,
+        speak: async (text, opts) => {
+          gshSpeaks.push({ text, opts });
+        }
+      }
+    });
+
+    const syncRes = await mgr.handleFulfillment({ requestId: 'cm-sync', inputs: [{ intent: 'action.devices.SYNC' }] });
+    const cmDev = syncRes.payload.devices.find((d) => d.id === 'switch-cinema-mode');
+    assert.ok(cmDev && cmDev.type === 'action.devices.types.SWITCH');
+    assert.equal(cmDev.roomHint, 'Salone');
+
+    mockSyncActive = true;
+    const qRes = await mgr.handleFulfillment({
+      requestId: 'cm-query',
+      inputs: [{ intent: 'action.devices.QUERY', payload: { devices: [{ id: 'switch-cinema-mode' }] } }]
+    });
+    assert.equal(qRes.payload.devices['switch-cinema-mode'].on, true);
+
+    const t0 = Date.now();
+    const execOn = await mgr.handleFulfillment({
+      requestId: 'cm-on',
+      inputs: [{
+        intent: 'action.devices.EXECUTE',
+        payload: { commands: [{ devices: [{ id: 'switch-cinema-mode' }], execution: [{ command: 'action.devices.commands.OnOff', params: { on: true } }] }] }
+      }]
+    });
+    assert.ok((Date.now() - t0) < 50);
+    assert.deepEqual(execOn.payload.commands[0], { ids: ['switch-cinema-mode'], status: 'SUCCESS', states: { online: true, on: true } });
+    await new Promise((r) => setTimeout(r, 15));
+    assert.equal(cinemaActivateCount, 1);
+    assert.ok(gshSpeaks[0].text.length <= 190 && gshSpeaks[0].text.includes('sincronizzate con la TV'));
+
+    // Caso senza segnale HDMI (syncStarted: false)
+    nextSyncStarted = false;
+    await mgr.handleFulfillment({
+      requestId: 'cm-on-nosig',
+      inputs: [{
+        intent: 'action.devices.EXECUTE',
+        payload: { commands: [{ devices: [{ id: 'switch-cinema-mode' }], execution: [{ command: 'action.devices.commands.OnOff', params: { on: true } }] }] }
+      }]
+    });
+    await new Promise((r) => setTimeout(r, 15));
+    assert.ok(gshSpeaks[1].text.includes('avvia la sorgente TV'));
+
+    // OFF
+    const execOff = await mgr.handleFulfillment({
+      requestId: 'cm-off',
+      inputs: [{
+        intent: 'action.devices.EXECUTE',
+        payload: { commands: [{ devices: [{ id: 'switch-cinema-mode' }], execution: [{ command: 'action.devices.commands.OnOff', params: { on: false } }] }] }
+      }]
+    });
+    assert.deepEqual(execOff.payload.commands[0], { ids: ['switch-cinema-mode'], status: 'SUCCESS', states: { online: true, on: false } });
+    await new Promise((r) => setTimeout(r, 15));
+    assert.equal(cinemaDeactivateCount, 1);
+    assert.ok(gshSpeaks[2].text.includes('disattivata'));
+
+    // 4. processAssistantCommand() riconosce "modalità cinema" e "disattiva modalità cinema"
+    hueSyncBox.getState = () => ({ configured: true, online: true, syncActive: false });
+    const cmdOn = await processAssistantCommand('modalità cinema');
+    assert.equal(cmdOn.success, true);
+    assert.equal(cmdOn.action, 'cinema_mode_on');
+    assert.ok(cmdOn.speech.length <= 190);
+
+    const cmdOff = await processAssistantCommand('disattiva modalità cinema');
+    assert.equal(cmdOff.success, true);
+    assert.equal(cmdOff.action, 'cinema_mode_off');
+    assert.ok(cmdOff.speech.length <= 190);
+  } finally {
+    merossEnergy.getStatus = origMerossStatus;
+    hueSyncBox.getState = origSyncGetState;
+    hueSyncBox.startSync = origSyncStart;
+    hueSyncBox.stopSync = origSyncStop;
+    spatialEngine.setChandelierMode = origSetChandelier;
+    hueLocal.setBrightnessByName = origSetBrightness;
+    hueLocal.toggleLightByName = origToggleLight;
+    spatialEngine.lastTvState = origLastTv;
+  }
+});
+
+
+test('TEST 80: Guardia Corridor Wave su Piantana Ingresso & Badge Sync TV Attivo (#200, ref #151)', async () => {
+  const fs = require('fs');
+  const path = require('path');
+  const spatialEngine = require('../src/spatial-engine');
+  const hueSyncBox = require('../src/hue-sync-box');
+  const hueLocal = require('../src/hue-local');
+
+  const origGetState = hueSyncBox.getState;
+  const origSetBrightness = hueLocal.setBrightnessByName;
+  const origToggleLight = hueLocal.toggleLightByName;
+
+  try {
+    const waveBriCalls = [];
+    const waveToggleCalls = [];
+    let mockSyncActive = true;
+
+    hueSyncBox.getState = () => ({ configured: true, online: true, syncActive: mockSyncActive });
+    hueLocal.setBrightnessByName = async (name, bri) => {
+      waveBriCalls.push({ name, bri });
+    };
+    hueLocal.toggleLightByName = async (name, on) => {
+      waveToggleCalls.push({ name, on });
+    };
+
+    // 1a. triggerCorridorWave con syncActive=true salta Piantana ingresso (ON e OFF)
+    const waveOn = await spatialEngine.triggerCorridorWave('north_to_south', 30);
+    assert.deepEqual(waveOn.skippedForSync, ['Piantana ingresso']);
+    assert.ok(!waveBriCalls.some((c) => c.name === 'Piantana ingresso'));
+    assert.ok(waveBriCalls.some((c) => c.name === 'Corridoio letto'));
+
+    const waveOff = await spatialEngine.triggerCorridorWave('off');
+    assert.deepEqual(waveOff.skippedForSync, ['Piantana ingresso']);
+    assert.ok(!waveToggleCalls.some((c) => c.name === 'Piantana ingresso'));
+
+    // 1b. triggerCorridorWave con syncActive=false include normalmente Piantana ingresso
+    mockSyncActive = false;
+    waveBriCalls.length = 0;
+    const waveNormal = await spatialEngine.triggerCorridorWave('north_to_south', 30);
+    assert.deepEqual(waveNormal.skippedForSync, []);
+    assert.ok(waveBriCalls.some((c) => c.name === 'Piantana ingresso'));
+
+    // 2. getEnrichedMapState(): inCinemaSyncArea & syncTvActive sui soli 6 pin [18, 20, 23, 25, 26, 27]
+    mockSyncActive = true;
+    const snapSyncOn = spatialEngine.getEnrichedMapState({});
+    const areaPins = new Set([18, 20, 23, 25, 26, 27]);
+    const syncActivePins = snapSyncOn.pins.filter((p) => p.syncTvActive === true).map((p) => p.pin).sort((a, b) => a - b);
+    assert.deepEqual(syncActivePins, [18, 20, 23, 25, 26, 27]);
+    for (const p of snapSyncOn.pins) {
+      if (p.category === 'light') {
+        assert.equal(p.inCinemaSyncArea, areaPins.has(p.pin));
+        assert.equal(p.syncTvActive, areaPins.has(p.pin));
+      }
+    }
+    const giunone = snapSyncOn.pins.find((p) => p.pin === 21);
+    assert.ok(giunone && !giunone.syncTvActive, 'Giunone (#21) non deve avere syncTvActive');
+
+    mockSyncActive = false;
+    const snapSyncOff = spatialEngine.getEnrichedMapState({});
+    assert.equal(snapSyncOff.pins.some((p) => p.syncTvActive === true), false);
+
+    // 3. Presenza badge Sync TV Attivo nei file UI
+    const dsCode = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'device-sheet.js'), 'utf8');
+    const drawerVue = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'src', 'views', 'FloorplanDrawerView.vue'), 'utf8');
+    const focusVue = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'src', 'views', 'RoomFocusOverlay.vue'), 'utf8');
+    assert.ok(dsCode.includes('Sync TV Attivo'));
+    assert.ok(drawerVue.includes('Sync TV Attivo'));
+    assert.ok(focusVue.includes('Sync TV Attivo'));
+  } finally {
+    hueSyncBox.getState = origGetState;
+    hueLocal.setBrightnessByName = origSetBrightness;
+    hueLocal.toggleLightByName = origToggleLight;
+  }
+});
+
+
+test('TEST 81: Samsung Soundbar HW-QS750F locale, Pin #50 & Guardia Anti-Interruzione Film (#202, ref #151)', async () => {
+  const sbSingleton = require('../src/samsung-soundbar');
+  const { SamsungSoundbarManager } = sbSingleton;
+  const spatialEngine = require('../src/spatial-engine');
+  const { NestCaster } = require('../src/nest-caster');
+
+  // 1. Stato non configurato senza errori
+  const unconf = new SamsungSoundbarManager({ ip: '' });
+  const stUnconf = await unconf.refreshState();
+  assert.equal(stUnconf.configured, false);
+  assert.equal(stUnconf.online, false);
+
+  // 2. Lettura combinata Tizen + Eureka + Cast, controlli setVolume/setMuted/stopCast, emissione soundbar:state_changed & offline graceful
+  const emitted = [];
+  const castCalls = [];
+  let failAll = false;
+  let castStatus = { volume: { level: 0.09, muted: false }, applications: [{ displayName: 'Spotify' }] };
+
+  const sb = new SamsungSoundbarManager({
+    ip: '192.0.2.50',
+    eventBus: { publish: (ev, data) => emitted.push({ ev, data }) },
+    httpGetFn: async (url) => {
+      if (failAll) throw new Error('EHOSTUNREACH');
+      if (url.includes(':8001/api/v2/')) return { device: { ModelNumber: 'HW-QS750F', PowerState: 'on' } };
+      if (url.includes(':8008/setup/eureka_info')) return { name: 'Q-Series Soundbar' };
+      throw new Error('Unknown URL');
+    },
+    castClientFactory: () => ({
+      on: () => {},
+      connect: (_ip, cb) => cb(),
+      close: () => {},
+      getStatus: (cb) => {
+        if (failAll) return cb(new Error('Cast offline'));
+        return cb(null, castStatus);
+      },
+      setVolume: (opts, cb) => {
+        castCalls.push({ fn: 'setVolume', opts });
+        cb(null);
+      },
+      getSessions: (cb) => cb(null, [{ sessionId: 's1' }]),
+      stop: (session, cb) => {
+        castCalls.push({ fn: 'stop', session });
+        cb(null);
+      }
+    })
+  });
+
+  const st1 = await sb.refreshState();
+  assert.equal(st1.configured, true);
+  assert.equal(st1.online, true);
+  assert.equal(st1.modelName, 'HW-QS750F');
+  assert.equal(st1.friendlyName, 'Q-Series Soundbar');
+  assert.equal(st1.isOn, true);
+  assert.equal(st1.volumePct, 9);
+  assert.equal(st1.muted, false);
+  assert.equal(st1.castingApp, 'Spotify');
+  assert.ok(emitted.some((e) => e.ev === 'soundbar:state_changed'));
+
+  // Validazione input
+  await assert.rejects(() => sb.control({}), /Nessun parametro/);
+  await assert.rejects(() => sb.control({ volumePct: 150 }), /Volume non valido/);
+
+  const resVol = await sb.setVolume(25);
+  assert.equal(resVol.state.volumePct, 25);
+  assert.deepEqual(castCalls[0], { fn: 'setVolume', opts: { level: 0.25 } });
+
+  const resMute = await sb.setMuted(true);
+  assert.equal(resMute.state.muted, true);
+
+  const resStop = await sb.stopCast();
+  assert.equal(resStop.state.castingApp, null);
+  assert.ok(castCalls.some((c) => c.fn === 'stop'));
+
+  // Offline graceful
+  failAll = true;
+  const stOff = await sb.refreshState();
+  assert.equal(stOff.online, false);
+  assert.ok(stOff.lastError);
+
+  // 3. Pin #50 presente e idratato in getEnrichedMapState()
+  const pin50Def = spatialEngine.pins.find((p) => Number(p.pin) === 50);
+  assert.ok(pin50Def, 'Pin #50 Samsung Soundbar deve esistere');
+  assert.equal(pin50Def.soundbarId, 'salone');
+  assert.equal(pin50Def.microZone, 'cinema_tv');
+
+  const origSbGetState = sbSingleton.getState;
+  try {
+    sbSingleton.getState = () => ({ configured: true, online: true, isOn: true, volumePct: 18, muted: false });
+    const snap = spatialEngine.getEnrichedMapState({});
+    const pin50 = snap.pins.find((p) => Number(p.pin) === 50);
+    assert.ok(pin50);
+    assert.equal(pin50.isOn, true);
+    assert.equal(pin50.volumePct, 18);
+    assert.equal(pin50.muted, false);
+  } finally {
+    sbSingleton.getState = origSbGetState;
+  }
+
+  // 4. Guardia Anti-Interruzione Film su NestCaster.speak()
+  const announced = [];
+  const caster = new NestCaster({
+    speechGapFn: () => 1,
+    aiGateway: { validateHardwareAction: () => ({ allowed: true }) },
+    googleFulfillment: { buildSsmlResponse: (t) => `<speak>${t}</speak>` },
+    hueLocal: { lights: [], motionSensor: null },
+    spatialEngine: { lastTvState: false },
+    hueSyncBox: { getState: () => ({ syncActive: true }) },
+    securitySystem: {
+      resolveNestIp: (room) => (room === 'Salone' ? '192.0.2.10' : '192.0.2.50'),
+      announceToNest: async (txt, opts) => {
+        announced.push({ txt, roomName: opts.roomName });
+        return { ttsEngine: 'gemini' };
+      }
+    }
+  });
+  caster.config.followMeEnabled = false;
+
+  const speakRes = await caster.speak('Avviso test film', {
+    roomName: 'Samsung Soundbar',
+    followMe: false,
+    playChime: false
+  });
+  assert.equal(speakRes.cinemaGuardRedirected, true);
+  assert.equal(speakRes.targetRoom, 'Salone');
+  assert.equal(announced[0].roomName, 'Salone');
+});
+
+test('TEST 82: Correzione Modello 4K, Topologia Presa TV #22 & Soglie Watt Reali (#204)', async () => {
+  const spatialEngine = require('../src/spatial-engine');
+  const hueSyncBox = require('../src/hue-sync-box');
+  const samsungSoundbar = require('../src/samsung-soundbar');
+  const merossEnergy = require('../src/meross-energy');
+  const { GoogleSmartHomeManager } = require('../src/google-smarthome');
+  const { processAssistantCommand } = require('../src/assistant');
+
+  // 1. Vendor Pin #49 aggiornato a 4K
+  const pin49Def = spatialEngine.pins.find((p) => Number(p.pin) === 49);
+  assert.ok(pin49Def, 'Pin #49 deve esistere');
+  assert.equal(pin49Def.vendor, 'Philips Hue Sync Box 4K');
+
+  const origMerossStatus = merossEnergy.getStatus;
+  const origSyncGetState = hueSyncBox.getState;
+  const origSyncStart = hueSyncBox.startSync;
+  const origSyncStop = hueSyncBox.stopSync;
+  const origSbGetState = samsungSoundbar.getState;
+  const origSetChandelier = spatialEngine.setChandelierMode;
+  const origLastTv = spatialEngine.lastTvState;
+
+  try {
+    // 2. Presa #22 OFF -> getEnrichedMapState() propaga isOn=false, online=false, poweredOffByPlug=true su #23/#24/#25/#49/#50 e syncTvActive=false
+    hueSyncBox.getState = () => ({ configured: true, online: true, syncActive: true, mode: 'video' });
+    samsungSoundbar.getState = () => ({ configured: true, online: true, isOn: true, volumePct: 20, muted: false });
+
+    const snapOff = spatialEngine.getEnrichedMapState({
+      devices: [
+        { id: 'l-23', name: 'TV 1', isOn: true, brightness: 80 },
+        { id: 'l-25', name: 'TV 2', isOn: true, brightness: 80 },
+        { id: 'l-18', name: 'Piantana Salone', isOn: true, brightness: 60 },
+        { id: 'tv-24', name: 'Google TV Streamer', isOn: true }
+      ],
+      energySummary: {
+        plugs: [{ name: 'Presa televisione', isOn: false, powerW: 0 }]
+      }
+    });
+
+    for (const pNum of [23, 24, 25, 49, 50]) {
+      const p = snapOff.pins.find((x) => Number(x.pin) === pNum);
+      assert.ok(p, `Pin #${pNum} presente`);
+      assert.equal(p.isOn, false, `Pin #${pNum} deve risultare spento se Presa #22 OFF`);
+      assert.equal(p.online, false, `Pin #${pNum} deve risultare offline se Presa #22 OFF`);
+      assert.equal(p.poweredOffByPlug, true, `Pin #${pNum} deve avere poweredOffByPlug=true`);
+    }
+    const p18Off = snapOff.pins.find((x) => Number(x.pin) === 18);
+    assert.equal(p18Off.syncTvActive, false, 'Area Cinema non deve mostrare syncTvActive se Presa #22 OFF');
+
+    // Presa #22 ON -> poweredOffByPlug assente/false e Soundbar/Sync Box seguono stato reale
+    const snapOn = spatialEngine.getEnrichedMapState({
+      energySummary: {
+        plugs: [{ name: 'Presa televisione', isOn: true, powerW: 72 }]
+      }
+    });
+    const p49On = snapOn.pins.find((x) => Number(x.pin) === 49);
+    const p50On = snapOn.pins.find((x) => Number(x.pin) === 50);
+    assert.equal(p49On.online, true);
+    assert.equal(p49On.poweredOffByPlug, undefined);
+    assert.equal(p50On.isOn, true);
+    assert.equal(p50On.poweredOffByPlug, undefined);
+
+    // 3. Soglie watt reali: standby ciabatta (~20-26W) NON attiva lastTvState; >=50W attiva; <28W ferma sync
+    let tvIsOn = true;
+    let tvWatts = 24;
+    let syncActiveState = true;
+    let stopCalls = 0;
+    merossEnergy.getStatus = () => ({ plugs: [{ name: 'Presa televisione', isOn: tvIsOn, powerW: tvWatts }] });
+    hueSyncBox.getState = () => ({ configured: true, online: true, syncActive: syncActiveState });
+    hueSyncBox.stopSync = async () => {
+      stopCalls += 1;
+      syncActiveState = false;
+      return { success: true };
+    };
+
+    spatialEngine.lastTvState = false;
+    await spatialEngine.checkProximityReflexTick();
+    assert.equal(spatialEngine.lastTvState, false, '24W (standby ciabatta) non deve attivare lastTvState');
+
+    tvWatts = 65;
+    await spatialEngine.checkProximityReflexTick();
+    assert.equal(spatialEngine.lastTvState, true, '65W (>=50W) deve attivare lastTvState');
+
+    tvWatts = 22;
+    await spatialEngine.checkProximityReflexTick();
+    assert.equal(spatialEngine.lastTvState, false, '22W (<28W) deve resettare lastTvState');
+    assert.equal(stopCalls, 1, 'Sotto 28W deve fermare Hue Sync Box');
+
+    // 4. activateMicroZone('cinema_tv') con Presa #22 OFF blocca senza toccare Giunone ne Sync Box
+    let chandelierCalls = 0;
+    let syncStartCalls = 0;
+    spatialEngine.setChandelierMode = async () => { chandelierCalls += 1; return {}; };
+    hueSyncBox.startSync = async () => { syncStartCalls += 1; return { success: true }; };
+    merossEnergy.getStatus = () => ({ plugs: [{ name: 'Presa televisione', isOn: false, powerW: 0 }] });
+
+    const cinemaRes = await spatialEngine.activateMicroZone('cinema_tv');
+    assert.equal(cinemaRes.success, false);
+    assert.equal(cinemaRes.tvPlugOff, true);
+    assert.equal(chandelierCalls, 0, 'Con Presa #22 OFF non deve spegnere Giunone');
+    assert.equal(syncStartCalls, 0, 'Con Presa #22 OFF non deve chiamare startSync');
+
+    // 5. Leda & Google Smart Home annunciano correttamente tvPlugOff
+    const ledaRes = await processAssistantCommand('Attiva modalità cinema', { user: 'Tester' });
+    assert.equal(ledaRes.success, false);
+    assert.equal(ledaRes.tvPlugOff, true);
+    assert.ok(ledaRes.speech.includes('presa della televisione è spenta'));
+
+    const announcements = [];
+    const gm = new GoogleSmartHomeManager({
+      spatialEngine,
+      eventLogger: { log: () => {} }
+    });
+    gm._announceComfortAsync = async (speech) => { announcements.push(speech); };
+    await gm._runCinemaModeAsync(true);
+    assert.equal(announcements.length, 1);
+    assert.ok(announcements[0].includes('presa della televisione è spenta'));
+    assert.ok(announcements[0].length <= 190);
+  } finally {
+    merossEnergy.getStatus = origMerossStatus;
+    hueSyncBox.getState = origSyncGetState;
+    hueSyncBox.startSync = origSyncStart;
+    hueSyncBox.stopSync = origSyncStop;
+    samsungSoundbar.getState = origSbGetState;
+    spatialEngine.setChandelierMode = origSetChandelier;
+    spatialEngine.lastTvState = origLastTv;
+  }
+});
+
+test('TEST 83: Restyling HUD planimetria — rimozione selettore Casa/Notte/Giorno e widget Meteo + Temperatura Esterna (#206)', async () => {
+  const fs = require('fs');
+  const path = require('path');
+  const express = require('express');
+  const http = require('http');
+  const registerHueRoutes = require('../src/routes/hue-appliances-spatial.routes');
+
+  const floorplanJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'floorplan.js'), 'utf8');
+  assert.ok(!floorplanJs.includes("setZoomPreset('night')") && !floorplanJs.includes("setZoomPreset('day')"), 'Il selettore Casa/Notte/Giorno deve essere rimosso dalla HUD');
+  assert.ok(floorplanJs.includes('resolveWeatherVisual('), 'floorplan.js deve includere resolveWeatherVisual()');
+  assert.ok(floorplanJs.includes('fp-weather-widget'), 'renderClockWidgetHtml deve integrare fp-weather-widget');
+  for (const label of ['Calura', 'Pioggia', 'Nebbia', 'Neve', 'Temporale', 'Sereno']) {
+    assert.ok(floorplanJs.includes(label), `resolveWeatherVisual deve gestire lo stato meteo "${label}"`);
+  }
+
+  // Verifica endpoint /api/home espone snapshot.weather con weatherCode e outdoorTemp
+  const app = express();
+  app.use(express.json());
+  registerHueRoutes(app, {
+    mcp: { getHomeSnapshot: async () => ({ devices: [] }) },
+    merossEnergy: { enrichDevices: () => ({ devices: [], energySummary: {} }) },
+    securitySystem: { getStatus: () => ({}) },
+    spatialEngine: { getEnrichedMapState: () => ({ pins: [] }) },
+    evClimateHub: { getUnifiedStatus: () => ({ bosch: { outdoorTemp: 6.5 } }) },
+    climateOptimizer: {
+      metrics: { weatherSummary: { outdoorTemp: 7.0, cloudCover: 85, weatherCode: 61, sunny: false, updatedAt: Date.now() } },
+      fetchWeatherForecast: async () => ({})
+    },
+    iliadboxClient: { getPresenceState: () => ({}) },
+    getHomeAvatars: async () => ({ alex: null, cinzia: null })
+  });
+
+  const server = http.createServer(app);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const port = server.address().port;
+    const res = await fetch(`http://127.0.0.1:${port}/api/home`);
+    const json = await res.json();
+    assert.equal(json.success, true);
+    assert.equal(json.data.weather.outdoorTemp, 6.5);
+    assert.equal(json.data.weather.weatherCode, 61);
+    assert.equal(json.data.weather.cloudCover, 85);
+    assert.equal(json.data.weather.sunny, false);
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+});

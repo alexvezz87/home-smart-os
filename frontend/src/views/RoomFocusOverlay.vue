@@ -52,10 +52,15 @@ function deviceVisual(p) {
   }
   if (p.category === 'speaker' || p.category === 'tv') {
     const isTv = p.category === 'tv';
+    const isSyncBox = Boolean(p.syncBoxId);
+    const isSoundbar = Boolean(p.soundbarId);
+    let badge = isTv ? 'TV' : 'Nest';
+    if (isSyncBox) badge = p.isOn ? 'Sync' : 'OFF';
+    else if (isSoundbar) badge = p.muted ? 'Muto' : (p.volumePct != null ? `Vol ${p.volumePct}%` : (p.isOn ? 'ON' : 'Standby'));
     return {
-      icon: isTv ? 'fa-tv' : 'fa-volume-high',
+      icon: isSoundbar ? 'fa-volume-high' : (isTv ? 'fa-tv' : 'fa-volume-high'),
       iconCls: isTv ? 'bg-purple-500/20 text-purple-300 border-purple-400/40' : 'bg-yellow-500/20 text-yellow-300 border-yellow-400/40',
-      badge: isTv ? 'TV' : 'Nest',
+      badge,
       badgeCls: isTv ? 'text-purple-200 bg-purple-500/15 border-purple-500/30' : 'text-yellow-200 bg-yellow-500/15 border-yellow-500/30'
     };
   }
@@ -228,6 +233,18 @@ function deviceVisual(p) {
               </span>
               <span class="text-xs font-semibold text-slate-100 truncate">{{ p.name }}</span>
             </div>
+            <span
+              v-if="p.syncTvActive"
+              class="px-1.5 py-0.5 rounded-md border text-[9px] font-bold bg-purple-500/20 text-purple-200 border-purple-400/40 shrink-0"
+            >
+              🎬 Sync TV Attivo
+            </span>
+            <span
+              v-if="p.poweredOffByPlug"
+              class="px-1.5 py-0.5 rounded-md border text-[9px] font-bold bg-amber-500/20 text-amber-200 border-amber-400/40 shrink-0"
+            >
+              🔌 Presa TV OFF
+            </span>
             <span
               class="px-1.5 py-0.5 rounded-md border text-[10px] font-mono font-bold shrink-0"
               :class="deviceVisual(p).badgeCls"

@@ -306,13 +306,76 @@ module.exports = function registerHueAppliancesSpatialRoutes(app, services) {
     }
   });
 
+  // 0j. Philips Hue Play HDMI Sync Box 8K (API Locale HTTPS /api/v1)
+  app.get('/api/hue-sync/state', async (req, res) => {
+    try {
+      const box = services.hueSyncBox || require('../hue-sync-box');
+      if (String(req.query?.refresh || '') === '1') {
+        const state = await box.refreshState();
+        return res.json({ success: true, ...state });
+      }
+      return res.json({ success: true, ...box.getState() });
+    } catch (error) {
+      return res.status(500).json({ success: false, error: String(error?.message || 'Errore lettura stato Sync Box') });
+    }
+  });
+
+  app.post('/api/hue-sync/control', async (req, res) => {
+    try {
+      const box = services.hueSyncBox || require('../hue-sync-box');
+      const curState = box.getState();
+      if (!curState.configured) {
+        return res.status(503).json({ success: false, error: 'Hue Sync Box non configurata' });
+      }
+      const { syncActive, mode, intensity, brightness, hdmiSource } = req.body || {};
+      const result = await box.control({ syncActive, mode, intensity, brightness, hdmiSource });
+      return res.json({ success: true, ...result });
+    } catch (error) {
+      const code = Number(error?.statusCode) || 503;
+      const token = process.env.HUE_SYNC_BOX_TOKEN;
+      let msg = String(error?.message || 'Errore controllo Sync Box');
+      if (token) msg = msg.split(token).join('[REDACTED]');
+      return res.status(code).json({ success: false, error: msg });
+    }
+  });
+
+  // 0k. Samsung Soundbar HW-QS750F (Locale Tizen :8001 + Chromecast :8008/:8009)
+  app.get('/api/soundbar/state', async (req, res) => {
+    try {
+      const sb = services.samsungSoundbar || require('../samsung-soundbar');
+      if (String(req.query?.refresh || '') === '1') {
+        const state = await sb.refreshState();
+        return res.json({ success: true, ...state });
+      }
+      return res.json({ success: true, ...sb.getState() });
+    } catch (error) {
+      return res.status(500).json({ success: false, error: String(error?.message || 'Errore stato Soundbar') });
+    }
+  });
+
+  app.post('/api/soundbar/control', async (req, res) => {
+    try {
+      const sb = services.samsungSoundbar || require('../samsung-soundbar');
+      const cur = sb.getState();
+      if (!cur.configured) {
+        return res.status(503).json({ success: false, error: 'Samsung Soundbar non configurata' });
+      }
+      const { volumePct, muted, stopCast } = req.body || {};
+      const result = await sb.control({ volumePct, muted, stopCast });
+      return res.json({ success: true, ...result });
+    } catch (error) {
+      const code = Number(error?.statusCode) || 503;
+      return res.status(code).json({ success: false, error: String(error?.message || 'Errore controllo Soundbar') });
+    }
+  });
+
   // 1. Snapshot completo casa con arricchimento telemetria Meross, Sicurezza e Mappa Spaziale 32 Pin
   app.get(['/api/home', '/api/dashboard'], async (req, res) => {
     try {
       const {
         mcp, merossEnergy, securitySystem, pantumPrinter,
         lgThinq, dysonPurifier, haierAc, spatialEngine, evClimateHub,
-        iliadboxClient, getHomeAvatars
+        climateOptimizer, iliadboxClient, getHomeAvatars
       } = services;
       const snapshot = await mcp.getHomeSnapshot();
       const enriched = merossEnergy.enrichDevices(snapshot.devices);
@@ -327,6 +390,24 @@ module.exports = function registerHueAppliancesSpatialRoutes(app, services) {
       snapshot.spatial = spatialEngine.getEnrichedMapState(snapshot);
       snapshot.presence = iliadboxClient ? iliadboxClient.getPresenceState() : null;
       snapshot.avatars = typeof getHomeAvatars === 'function' ? await getHomeAvatars() : { alex: null, cinzia: null };
+
+      const ws = climateOptimizer?.metrics?.weatherSummary || {};
+      if (climateOptimizer && typeof climateOptimizer.fetchWeatherForecast === 'function') {
+        const ageMs = ws.updatedAt ? (Date.now() - Number(ws.updatedAt)) : Infinity;
+        if (ws.weatherCode === undefined || ws.weatherCode === null || ageMs > 15 * 60 * 1000) {
+          climateOptimizer.fetchWeatherForecast().catch(() => {});
+        }
+      }
+      const boschOut = snapshot.evClimate?.bosch?.outdoorTemp ?? null;
+      snapshot.weather = {
+        outdoorTemp: boschOut ?? ws.outdoorTemp ?? null,
+        openMeteoTemp: ws.outdoorTemp ?? null,
+        weatherCode: ws.weatherCode ?? null,
+        cloudCover: ws.cloudCover ?? null,
+        sunny: ws.sunny ?? null,
+        updatedAt: ws.updatedAt ?? null
+      };
+
       res.json({ success: true, data: snapshot });
     } catch (error) {
       console.error('[API /api/home Error]:', error.message);

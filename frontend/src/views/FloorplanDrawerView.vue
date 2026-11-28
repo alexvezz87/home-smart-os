@@ -27,6 +27,18 @@ function sceneGradient(scene) {
   }
   return {};
 }
+
+function toggleSyncBox(pin) {
+  if (typeof window !== 'undefined' && typeof window.controlHueSyncBoxUi === 'function') {
+    window.controlHueSyncBoxUi(pin.pin, { syncActive: !pin.isOn });
+  }
+}
+
+function toggleSoundbarMute(pin) {
+  if (typeof window !== 'undefined' && typeof window.controlSoundbarUi === 'function') {
+    window.controlSoundbarUi(pin.pin, { muted: !pin.muted });
+  }
+}
 </script>
 
 <template>
@@ -261,15 +273,41 @@ function sceneGradient(scene) {
                 <div class="text-[10px] text-slate-400 truncate">
                   {{ p.room }}
                   <span v-if="p.category === 'light' || p.category === 'chandelier'"> · {{ p.isOn ? `${p.brightness || 80}%` : 'Spenta' }}</span>
+                  <span v-if="p.syncTvActive" class="ml-1 inline-flex items-center px-1.5 py-0.2 rounded bg-purple-500/20 border border-purple-400/40 text-purple-200 font-semibold">🎬 Sync TV Attivo</span>
+                  <span v-if="p.poweredOffByPlug" class="ml-1 inline-flex items-center px-1.5 py-0.2 rounded bg-amber-500/20 border border-amber-400/40 text-amber-200 font-semibold">🔌 Presa TV OFF</span>
                   <span v-if="p.category === 'camera'" class="text-emerald-300"> · {{ (p.name || '').includes('Baby') || (p.name || '').includes('Francesco') ? '2K Live' : 'WebRTC Live' }}</span>
                   <span v-if="p.temperature != null"> · {{ p.temperature }}°C</span>
                   <span v-if="p.category === 'plug' && p.powerW != null" class="font-mono text-cyan-300"> · {{ Math.round(p.powerW) }}W</span>
+                  <span v-if="p.syncBoxId" class="text-purple-300"> · {{ p.isOn ? `Sync (${p.syncBox?.mode || 'video'})` : 'Standby' }}</span>
+                  <span v-if="p.soundbarId" class="text-cyan-300"> · {{ p.muted ? 'Muto' : (p.volumePct != null ? `Vol ${p.volumePct}%` : (p.isOn ? 'ON' : 'Standby')) }}</span>
                 </div>
               </div>
             </button>
 
             <!-- Controlli rapidi per categoria -->
-            <div v-if="p.category === 'valve'" class="flex items-center gap-1 shrink-0">
+            <button
+              v-if="p.soundbarId"
+              type="button"
+              @click="toggleSoundbarMute(p)"
+              class="px-2 py-1 rounded-lg text-[10px] font-bold border shrink-0 transition-all"
+              :class="p.muted
+                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-white'"
+            >
+              {{ p.muted ? 'Unmute' : (p.volumePct != null ? `Vol ${p.volumePct}%` : 'Mute') }}
+            </button>
+            <button
+              v-else-if="p.syncBoxId"
+              type="button"
+              @click="toggleSyncBox(p)"
+              class="px-2 py-1 rounded-lg text-[10px] font-bold border shrink-0 transition-all"
+              :class="p.isOn
+                ? 'bg-purple-500/25 text-purple-200 border-purple-400/50'
+                : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'"
+            >
+              {{ p.isOn ? 'Sync ON' : 'Sync OFF' }}
+            </button>
+            <div v-else-if="p.category === 'valve'" class="flex items-center gap-1 shrink-0">
               <button
                 type="button"
                 @click="store.adjustValve(p.pin, -0.5)"

@@ -114,6 +114,17 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 ### Controllo Vocale Scene & Luci Philips Hue (`#39`)
 - **Endpoint**: `GET /api/hue/voice-catalog` (stanze, scene, luci, effetti live), `POST /api/hue/color` (colore `colorName`/`hex`, temperatura `kelvin` e `brightness`) e `POST /api/google/fulfillment` (Google Home Smart Home `SYNC` per `action.devices.types.SCENE` e `EXECUTE` `ActivateScene`).
 
+### Philips Hue Play HDMI Sync Box 4K (`src/hue-sync-box.js`, `#196`, `#204`)
+- **Protocollo Locale HTTPS (`/api/v1`)**: connessione diretta su porta `443` (`rejectUnauthorized: false` per certificato locale Signify, Bearer Token e timeout `4000ms`), configurata tramite variabili d'ambiente `HUE_SYNC_BOX_IP` e `HUE_SYNC_BOX_TOKEN` (nessun segreto nel repo; stato graceful `configured: false` se assenti).
+- **Topologia Elettrica Presa TV `#22` & Soglie Reali (`#204`)**: alimentata dalla ciabatta controllata da `Presa televisione (#22)` insieme a `TV 1 (#23)`, `Google TV Streamer (#24)`, `TV 2 (#25)` e `Samsung Soundbar (#50)`. Se `#22` è `OFF`, `getEnrichedMapState()` propaga `isOn: false`, `online: false` e `poweredOffByPlug: true` (`syncTvActive: false` su `Area Cinema`) e `Modalità Cinema` blocca l'esecuzione prima di spegnere Giunone. Le soglie di prossimità su `#22` sono `>= 50W` (TV ON) e `< 28W` / `isOn === false` (TV OFF / auto-stop Sync Box).
+- **Polling & Push SSE**: `HueSyncBoxManager` esegue polling ogni `30s` su `GET /api/v1` emettendo `hue_sync:state_changed` su `EventBus` (inoltrato su `/api/events`) a ogni cambio stato (`syncActive`, `mode`, `hdmiSource`, `brightness`, `intensity`, `online`).
+- **Endpoint API**: `GET /api/hue-sync/state` (`?refresh=1` per refresh live) e `POST /api/hue-sync/control` (`syncActive`, `mode` `video|music|game|powersave|passthrough`, `intensity` `subtle|moderate|high|intense`, `brightness` `0..200`, `hdmiSource` `input1..input4`) con validazione `400` / offline `503` e sanitizzazione token negli errori.
+
+### Samsung Soundbar HW-QS750F (`src/samsung-soundbar.js`, `#202`)
+- **Integrazione 100% Locale (Tizen + Chromecast)**: nessuna dipendenza da token SmartThings cloud; configurata via `SAMSUNG_SOUNDBAR_IP` in `.env` (stato graceful `configured: false` se assente).
+- **Telemetria & Polling (`30s`)**: interroga in parallelo (`Promise.allSettled`, timeout `3000ms`) Tizen HTTP `http://<ip>:8001/api/v2/` (`modelName`, `powerState`, `isOn`), Eureka `http://<ip>:8008/setup/eureka_info` (`friendlyName`) e `castv2-client` porta `8009` (`volumePct`, `muted`, `castingApp`), emettendo `soundbar:state_changed` su `EventBus` (inoltrato su `/api/events` SSE).
+- **Endpoint API**: `GET /api/soundbar/state` (`?refresh=1` per refresh live) e `POST /api/soundbar/control` (`volumePct` `0..100`, `muted` boolean, `stopCast` boolean) con validazione `400` / offline `503`.
+
 ### Google Smart Home Actions & Nest Caster (`#14`)
 - **OAuth2 & Webhook**: `GET /api/google/oauth/authorize`, `POST /api/google/oauth/token` (Account Linking TiDB `google-home-oauth`) e `POST /api/google/fulfillment` (`SYNC`, `QUERY`, `EXECUTE`, `DISCONNECT` per Bosch, Volvo EX30, Wallbox ABB, Telecamere e Scene Hue).
 - **Nest Caster**: `GET/POST /api/nest/config` (IP statici, preset jingle, Follow-Me, protezione sonno) e `POST /api/nest/speak` (Pre-Roll + TTS).
