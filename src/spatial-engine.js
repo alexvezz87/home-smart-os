@@ -16,6 +16,7 @@ try {
 
 const CUSTOM_LAYOUT_FILE = path.join(__dirname, '..', 'spatial-custom-layout.json');
 const AREA_CINEMA_PINS = new Set([18, 20, 23, 25, 26, 27]);
+const TV_PLUG_POWERED_PINS = new Set([23, 24, 25, 49, 50]);
 
 /**
  * Motore di Domotica Spaziale & Prossimità (Digital Twin 1:1 - 32 Nodi Reali)
@@ -704,7 +705,7 @@ class SpatialEngine {
         room: 'Salone',
         microZone: 'cinema_tv',
         category: 'tv',
-        vendor: 'Philips Hue Sync Box 8K',
+        vendor: 'Philips Hue Sync Box 4K',
         syncBoxId: 'salone',
         x: 47.4,
         y: 71.0,
@@ -1137,14 +1138,14 @@ class SpatialEngine {
       const tvPlug = (status.plugs || []).find(p => p.name.toLowerCase().includes('televisione'));
       if (!tvPlug) return;
 
-      const isTvDrawingPower = tvPlug.powerW >= 32;
+      const isTvDrawingPower = Boolean(tvPlug.isOn) && Number(tvPlug.powerW) >= 50;
       if (isTvDrawingPower && !this.lastTvState) {
         this.lastTvState = true;
         if (this.autoCinemaEnabled === true) {
           eventLogger.log('proximity_reflex', `🎬 [Prossimità #22→#23/#25] Rilevata accensione TV (${tvPlug.powerW}W): attivazione automatica Bias Lighting TV 1 & TV 2 e anti-riflesso Giunone!`);
           await this.activateMicroZone('cinema_tv');
         }
-      } else if (!isTvDrawingPower && this.lastTvState && tvPlug.powerW < 10) {
+      } else if (this.lastTvState && (!tvPlug.isOn || Number(tvPlug.powerW) < 28)) {
         this.lastTvState = false;
         if (hueSyncBox.getState()?.syncActive === true) {
           await hueSyncBox.stopSync().catch(() => {});
@@ -1174,6 +1175,8 @@ class SpatialEngine {
     const devices = homeSnapshot.devices || [];
     const plugs = homeSnapshot.energySummary?.plugs || [];
     const cameras = homeSnapshot.security?.cameras || [];
+    const tvPlug = plugs.find(pl => String(pl.name || '').toLowerCase().includes('televisione'));
+    const isTvPlugOff = Boolean(tvPlug && tvPlug.isOn === false);
 
     const enrichedPins = this.pins
       .filter(p => !this.isRedundantOrOutsidePin(p))
@@ -1406,6 +1409,20 @@ class SpatialEngine {
         clone.deviceId = dMatch?.id || null;
       }
 
+      if (isTvPlugOff) {
+        if (TV_PLUG_POWERED_PINS.has(clone.pin)) {
+          clone.isOn = false;
+          clone.online = false;
+          clone.poweredOffByPlug = true;
+          if (clone.category === 'light') clone.brightness = 0;
+          if (clone.syncBoxId) clone.syncBox = { ...(clone.syncBox || {}), online: false, syncActive: false };
+          if (clone.soundbarId) clone.soundbar = { ...(clone.soundbar || {}), online: false, isOn: false, powerState: 'off' };
+        }
+        if (AREA_CINEMA_PINS.has(clone.pin)) {
+          clone.syncTvActive = false;
+        }
+      }
+
       return clone;
     });
 
@@ -1480,6 +1497,13 @@ class SpatialEngine {
   async activateMicroZone(zoneId) {
     switch (zoneId) {
       case 'cinema_tv': {
+        const energyStatus = merossEnergy.getStatus();
+        const tvPlug = (energyStatus?.plugs || []).find(p => String(p.name || '').toLowerCase().includes('televisione'));
+        if (tvPlug && tvPlug.isOn === false) {
+          eventLogger.log('cinema_tv', 'Modalità Cinema bloccata: Presa televisione (#22) spenta');
+          return { success: false, zoneId: 'cinema_tv', tvPlugOff: true, syncStarted: false, fallbackUsed: false };
+        }
+
         // Spegne sempre il lampadario centrale #21 Giunone
         await this.setChandelierMode('giunone', 'off');
 

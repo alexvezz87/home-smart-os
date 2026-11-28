@@ -375,7 +375,7 @@ module.exports = function registerHueAppliancesSpatialRoutes(app, services) {
       const {
         mcp, merossEnergy, securitySystem, pantumPrinter,
         lgThinq, dysonPurifier, haierAc, spatialEngine, evClimateHub,
-        iliadboxClient, getHomeAvatars
+        climateOptimizer, iliadboxClient, getHomeAvatars
       } = services;
       const snapshot = await mcp.getHomeSnapshot();
       const enriched = merossEnergy.enrichDevices(snapshot.devices);
@@ -390,6 +390,24 @@ module.exports = function registerHueAppliancesSpatialRoutes(app, services) {
       snapshot.spatial = spatialEngine.getEnrichedMapState(snapshot);
       snapshot.presence = iliadboxClient ? iliadboxClient.getPresenceState() : null;
       snapshot.avatars = typeof getHomeAvatars === 'function' ? await getHomeAvatars() : { alex: null, cinzia: null };
+
+      const ws = climateOptimizer?.metrics?.weatherSummary || {};
+      if (climateOptimizer && typeof climateOptimizer.fetchWeatherForecast === 'function') {
+        const ageMs = ws.updatedAt ? (Date.now() - Number(ws.updatedAt)) : Infinity;
+        if (ws.weatherCode === undefined || ws.weatherCode === null || ageMs > 15 * 60 * 1000) {
+          climateOptimizer.fetchWeatherForecast().catch(() => {});
+        }
+      }
+      const boschOut = snapshot.evClimate?.bosch?.outdoorTemp ?? null;
+      snapshot.weather = {
+        outdoorTemp: boschOut ?? ws.outdoorTemp ?? null,
+        openMeteoTemp: ws.outdoorTemp ?? null,
+        weatherCode: ws.weatherCode ?? null,
+        cloudCover: ws.cloudCover ?? null,
+        sunny: ws.sunny ?? null,
+        updatedAt: ws.updatedAt ?? null
+      };
+
       res.json({ success: true, data: snapshot });
     } catch (error) {
       console.error('[API /api/home Error]:', error.message);

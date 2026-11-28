@@ -274,6 +274,7 @@ function toggleSoundbarMute(pin) {
                   {{ p.room }}
                   <span v-if="p.category === 'light' || p.category === 'chandelier'"> · {{ p.isOn ? `${p.brightness || 80}%` : 'Spenta' }}</span>
                   <span v-if="p.syncTvActive" class="ml-1 inline-flex items-center px-1.5 py-0.2 rounded bg-purple-500/20 border border-purple-400/40 text-purple-200 font-semibold">🎬 Sync TV Attivo</span>
+                  <span v-if="p.poweredOffByPlug" class="ml-1 inline-flex items-center px-1.5 py-0.2 rounded bg-amber-500/20 border border-amber-400/40 text-amber-200 font-semibold">🔌 Presa TV OFF</span>
                   <span v-if="p.category === 'camera'" class="text-emerald-300"> · {{ (p.name || '').includes('Baby') || (p.name || '').includes('Francesco') ? '2K Live' : 'WebRTC Live' }}</span>
                   <span v-if="p.temperature != null"> · {{ p.temperature }}°C</span>
                   <span v-if="p.category === 'plug' && p.powerW != null" class="font-mono text-cyan-300"> · {{ Math.round(p.powerW) }}W</span>

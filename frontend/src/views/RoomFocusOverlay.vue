@@ -240,6 +240,12 @@ function deviceVisual(p) {
               🎬 Sync TV Attivo
             </span>
             <span
+              v-if="p.poweredOffByPlug"
+              class="px-1.5 py-0.5 rounded-md border text-[9px] font-bold bg-amber-500/20 text-amber-200 border-amber-400/40 shrink-0"
+            >
+              🔌 Presa TV OFF
+            </span>
+            <span
               class="px-1.5 py-0.5 rounded-md border text-[10px] font-mono font-bold shrink-0"
               :class="deviceVisual(p).badgeCls"
             >

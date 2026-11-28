@@ -825,6 +825,86 @@ class FloorplanEngine {
     }
   }
 
+  resolveWeatherVisual(weather = {}, dayPhaseId = 'afternoon') {
+    const rawTemp = weather?.outdoorTemp ?? window.homeData?.evClimate?.bosch?.outdoorTemp ?? null;
+    const tempNum = rawTemp !== null && rawTemp !== undefined && Number.isFinite(Number(rawTemp))
+      ? Number(rawTemp)
+      : null;
+    const code = weather?.weatherCode !== null && weather?.weatherCode !== undefined && Number.isFinite(Number(weather.weatherCode))
+      ? Number(weather.weatherCode)
+      : null;
+    const isNight = dayPhaseId === 'night' || dayPhaseId === 'evening';
+
+    let icon = 'fa-cloud';
+    let iconColor = 'text-slate-300';
+    let label = 'Meteo';
+
+    if (tempNum !== null && tempNum >= 29.5 && (code === null || code <= 2)) {
+      icon = 'fa-temperature-high';
+      iconColor = 'text-orange-400';
+      label = 'Calura';
+    } else if (code !== null) {
+      if (code === 0 || code === 1) {
+        icon = isNight ? 'fa-moon' : 'fa-sun';
+        iconColor = isNight ? 'text-indigo-300' : 'text-amber-300';
+        label = 'Sereno';
+      } else if (code === 2) {
+        icon = isNight ? 'fa-cloud-moon' : 'fa-cloud-sun';
+        iconColor = isNight ? 'text-sky-300' : 'text-amber-200';
+        label = 'Variabile';
+      } else if (code === 3) {
+        icon = 'fa-cloud';
+        iconColor = 'text-slate-300';
+        label = 'Nuvoloso';
+      } else if (code === 45 || code === 48) {
+        icon = 'fa-smog';
+        iconColor = 'text-slate-300';
+        label = 'Nebbia';
+      } else if (code >= 51 && code <= 57) {
+        icon = 'fa-cloud-rain';
+        iconColor = 'text-sky-300';
+        label = 'Pioviggine';
+      } else if ((code >= 61 && code <= 67) || (code >= 80 && code <= 82)) {
+        icon = 'fa-cloud-showers-heavy';
+        iconColor = 'text-sky-400';
+        label = 'Pioggia';
+      } else if ((code >= 71 && code <= 77) || code === 85 || code === 86) {
+        icon = 'fa-snowflake';
+        iconColor = 'text-cyan-200';
+        label = 'Neve';
+      } else if (code >= 95 && code <= 99) {
+        icon = 'fa-cloud-bolt';
+        iconColor = 'text-amber-400';
+        label = 'Temporale';
+      }
+    } else if (weather?.sunny === true) {
+      icon = isNight ? 'fa-moon' : 'fa-sun';
+      iconColor = isNight ? 'text-indigo-300' : 'text-amber-300';
+      label = 'Sereno';
+    } else if (weather?.sunny === false) {
+      icon = 'fa-cloud';
+      iconColor = 'text-slate-300';
+      label = 'Nuvoloso';
+    } else {
+      icon = 'fa-temperature-half';
+      iconColor = 'text-cyan-300';
+      label = 'Esterno';
+    }
+
+    let tempColor = 'text-slate-100';
+    if (tempNum !== null) {
+      if (tempNum <= 5) tempColor = 'text-cyan-300';
+      else if (tempNum <= 15) tempColor = 'text-sky-200';
+      else if (tempNum <= 25) tempColor = 'text-emerald-200';
+      else tempColor = 'text-orange-300';
+    }
+
+    const tempStr = tempNum !== null ? `${tempNum.toFixed(1)}°` : '--°';
+    const cloudTxt = weather?.cloudCover != null ? ` · Nuvolosità ${Math.round(Number(weather.cloudCover))}%` : '';
+    const tooltip = `Esterno: ${tempStr}C · ${label}${cloudTxt}`;
+    return { icon, iconColor, label, tempStr, tempColor, tooltip };
+  }
+
   renderClockWidgetHtml(dayPhase) {
     const now = new Date();
     const hh = now.getHours();
@@ -844,6 +924,8 @@ class FloorplanEngine {
       return `<line x1="20" y1="${major ? 3.5 : 4.5}" x2="20" y2="${major ? 6.5 : 6}" stroke="${major ? '#94a3b8' : '#475569'}" stroke-width="${major ? 1.4 : 1}" transform="rotate(${i * 30} 20 20)" />`;
     }).join('');
 
+    const wv = this.resolveWeatherVisual(window.homeData?.weather || {}, dayPhase?.id);
+
     return `
       <div class="inline-flex items-center gap-2.5 rounded-2xl bg-slate-900/85 backdrop-blur-md px-2.5 py-1.5 border ${dayPhase.clockBorder} shadow-lg">
         <!-- Quadrante Orologio Analogico Live -->
@@ -857,12 +939,25 @@ class FloorplanEngine {
         </svg>
 
         <!-- Orario Digitale + Data -->
-        <div class="leading-tight pr-0.5">
+        <div class="leading-tight">
           <div class="flex items-baseline gap-0.5 font-mono">
             <span id="fp-clock-time" class="text-sm sm:text-base font-black text-white tracking-tight">${timeStr}</span>
             <span id="fp-clock-sec-text" class="text-[10px] text-slate-400 font-semibold">${secStr}</span>
           </div>
           <div id="fp-clock-date" class="text-[10px] text-slate-400 font-medium">${dateStr}</div>
+        </div>
+
+        <div class="w-px h-7 bg-slate-700/70 shrink-0" aria-hidden="true"></div>
+
+        <!-- Infografica Meteo & Temperatura Esterna -->
+        <div id="fp-weather-widget" class="flex items-center gap-2 pr-0.5 leading-tight" title="${this.escapeSvgText(wv.tooltip)}">
+          <div class="w-7 h-7 rounded-xl bg-slate-950/75 border border-slate-700/60 flex items-center justify-center shrink-0">
+            <i class="fa-solid ${wv.icon} ${wv.iconColor} text-sm"></i>
+          </div>
+          <div>
+            <div class="text-xs sm:text-sm font-black font-mono ${wv.tempColor} tracking-tight">${wv.tempStr}<span class="text-[10px] font-bold text-slate-400 ml-0.5">C</span></div>
+            <div class="text-[10px] text-slate-400 font-medium">${wv.label}</div>
+          </div>
         </div>
       </div>
     `;
@@ -2174,16 +2269,9 @@ class FloorplanEngine {
                   `;
                 }).join('')}
               </div>
-
-              <!-- Selettore Vista Zoom (Proporzioni SVG fedeli) -->
-              <div class="inline-flex items-center rounded-xl bg-slate-900/80 backdrop-blur-md p-0.5 border border-slate-700/60 shadow-lg">
-                <button onclick="window.floorplan.setZoomPreset('all')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${!isRoomFocused && this.zoomPreset === 'all' ? 'bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Casa</button>
-                <button onclick="window.floorplan.setZoomPreset('night')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${!isRoomFocused && this.zoomPreset === 'night' ? 'bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Notte</button>
-                <button onclick="window.floorplan.setZoomPreset('day')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${!isRoomFocused && this.zoomPreset === 'day' ? 'bg-gradient-to-r from-cyan-600 to-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}">Giorno</button>
-              </div>
             </div>
 
-            <!-- Quadrante Orologio Live & Fase Giornata (Mattino / Pomeriggio / Sera / Notte) -->
+            <!-- Quadrante Orologio Live + Infografica Meteo & Temperatura Esterna -->
             ${this.renderClockWidgetHtml(dayPhase)}
           </div>
         </div>

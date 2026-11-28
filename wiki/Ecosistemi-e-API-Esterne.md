@@ -114,8 +114,9 @@ Questa pagina documenta i protocolli di comunicazione utilizzati da **Home Smart
 ### Controllo Vocale Scene & Luci Philips Hue (`#39`)
 - **Endpoint**: `GET /api/hue/voice-catalog` (stanze, scene, luci, effetti live), `POST /api/hue/color` (colore `colorName`/`hex`, temperatura `kelvin` e `brightness`) e `POST /api/google/fulfillment` (Google Home Smart Home `SYNC` per `action.devices.types.SCENE` e `EXECUTE` `ActivateScene`).
 
-### Philips Hue Play HDMI Sync Box 8K (`src/hue-sync-box.js`, `#196`)
+### Philips Hue Play HDMI Sync Box 4K (`src/hue-sync-box.js`, `#196`, `#204`)
 - **Protocollo Locale HTTPS (`/api/v1`)**: connessione diretta su porta `443` (`rejectUnauthorized: false` per certificato locale Signify, Bearer Token e timeout `4000ms`), configurata tramite variabili d'ambiente `HUE_SYNC_BOX_IP` e `HUE_SYNC_BOX_TOKEN` (nessun segreto nel repo; stato graceful `configured: false` se assenti).
+- **Topologia Elettrica Presa TV `#22` & Soglie Reali (`#204`)**: alimentata dalla ciabatta controllata da `Presa televisione (#22)` insieme a `TV 1 (#23)`, `Google TV Streamer (#24)`, `TV 2 (#25)` e `Samsung Soundbar (#50)`. Se `#22` è `OFF`, `getEnrichedMapState()` propaga `isOn: false`, `online: false` e `poweredOffByPlug: true` (`syncTvActive: false` su `Area Cinema`) e `Modalità Cinema` blocca l'esecuzione prima di spegnere Giunone. Le soglie di prossimità su `#22` sono `>= 50W` (TV ON) e `< 28W` / `isOn === false` (TV OFF / auto-stop Sync Box).
 - **Polling & Push SSE**: `HueSyncBoxManager` esegue polling ogni `30s` su `GET /api/v1` emettendo `hue_sync:state_changed` su `EventBus` (inoltrato su `/api/events`) a ogni cambio stato (`syncActive`, `mode`, `hdmiSource`, `brightness`, `intensity`, `online`).
 - **Endpoint API**: `GET /api/hue-sync/state` (`?refresh=1` per refresh live) e `POST /api/hue-sync/control` (`syncActive`, `mode` `video|music|game|powersave|passthrough`, `intensity` `subtle|moderate|high|intense`, `brightness` `0..200`, `hdmiSource` `input1..input4`) con validazione `400` / offline `503` e sanitizzazione token negli errori.
 
