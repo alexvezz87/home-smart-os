@@ -740,6 +740,10 @@ async function processAssistantCommand(input, options = {}) {
   ) {
     const spatialEngine = require('./spatial-engine');
     const res = await spatialEngine.activateMicroZone('cinema_tv');
+    if (res?.tvPlugOff === true) {
+      const msg = 'La presa della televisione è spenta, accendi prima la TV.';
+      return { success: false, action: 'cinema_mode_tv_plug_off', tvPlugOff: true, speech: msg, reply: msg };
+    }
     const speech = res?.syncStarted === true
       ? 'Modalità cinema attiva: lampadario spento e luci sincronizzate con la TV.'
       : 'Lampadario Giunone spento, avvia la sorgente TV per attivare la sincronizzazione luci.';

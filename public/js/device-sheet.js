@@ -177,7 +177,7 @@ class DeviceSheetManager {
         categoryIcon = p.soundbarId ? 'fa-volume-high' : 'fa-tv';
         categoryLabel = p.soundbarId
           ? 'Samsung Soundbar 5.1.2'
-          : (p.syncBoxId ? 'Philips Hue Play HDMI Sync Box 8K' : 'TV / Intrattenimento');
+          : (p.syncBoxId ? 'Philips Hue Play HDMI Sync Box 4K' : 'TV / Intrattenimento');
         badgeColor = p.isOn
           ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
           : 'bg-slate-800 text-slate-400';
@@ -185,7 +185,7 @@ class DeviceSheetManager {
           ? this.renderSoundbarControls(p)
           : (p.syncBoxId
             ? this.renderHueSyncBoxControls(p)
-            : `<div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 text-center text-xs text-slate-400">Nessun controllo specifico per questa TV.</div>`);
+            : `${p.poweredOffByPlug ? `<div class="mb-3 px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-400/40 text-amber-200 text-xs font-semibold">🔌 Presa televisione spenta (#22) — nessuna alimentazione</div>` : ''}<div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 text-center text-xs text-slate-400">Nessun controllo specifico per questa TV.</div>`);
         break;
 
       default:
@@ -279,6 +279,11 @@ class DeviceSheetManager {
     }).join('') : '';
 
     return `
+      ${p.poweredOffByPlug ? `
+        <div class="mb-3 px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-400/40 text-amber-200 text-xs font-semibold">
+          🔌 Presa televisione spenta (#22) — nessuna alimentazione
+        </div>
+      ` : ''}
       ${p.syncTvActive ? `
         <div class="mb-3 px-3 py-2 rounded-xl bg-purple-500/15 border border-purple-400/40 text-purple-200 text-xs font-semibold flex items-center justify-between gap-2">
           <span>🎬 Sync TV Attivo (Area Cinema)</span>
@@ -2255,9 +2260,14 @@ DeviceSheetManager.prototype.renderHueSyncBoxControls = function (p) {
 
   return `
     <div class="space-y-3">
+      ${p.poweredOffByPlug ? `
+        <div class="px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-400/40 text-amber-200 text-xs font-semibold">
+          🔌 Presa televisione spenta (#22) — nessuna alimentazione
+        </div>
+      ` : ''}
       <div class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between gap-2">
         <div>
-          <div class="text-xs font-bold text-white">Stato Sync Box 8K</div>
+          <div class="text-xs font-bold text-white">Stato Sync Box 4K</div>
           <div class="text-[11px] ${!configured ? 'text-amber-300' : (online ? (syncActive ? 'text-purple-300' : 'text-slate-400') : 'text-rose-400')}">
             ${!configured ? 'Non configurata (.env)' : (online ? (syncActive ? `Sync attivo (${mode})` : 'Standby') : 'Offline / non raggiungibile')}
           </div>
@@ -2379,6 +2389,11 @@ DeviceSheetManager.prototype.renderSoundbarControls = function (p) {
 
   return `
     <div class="space-y-3">
+      ${p.poweredOffByPlug ? `
+        <div class="px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-400/40 text-amber-200 text-xs font-semibold">
+          🔌 Presa televisione spenta (#22) — nessuna alimentazione
+        </div>
+      ` : ''}
       <div class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between gap-2">
         <div>
           <div class="text-xs font-bold text-white">${sb.friendlyName || 'Q-Series Soundbar'}</div>

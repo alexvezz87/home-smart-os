@@ -156,13 +156,16 @@ class GoogleSmartHomeManager {
   async _runCinemaModeAsync(turnOn) {
     if (turnOn) {
       const res = await this.spatialEngine.activateMicroZone('cinema_tv');
-      const speech = res?.syncStarted === true
-        ? 'Modalità cinema attiva: lampadario spento e luci sincronizzate con la TV.'
-        : 'Lampadario Giunone spento, avvia la sorgente TV per attivare la sincronizzazione luci.';
-      this.eventLogger?.log?.('google_smarthome', `Modalità Cinema ON (syncStarted=${Boolean(res?.syncStarted)})`, {
+      const speech = res?.tvPlugOff === true
+        ? 'La presa della televisione è spenta, accendi prima la TV.'
+        : (res?.syncStarted === true
+          ? 'Modalità cinema attiva: lampadario spento e luci sincronizzate con la TV.'
+          : 'Lampadario Giunone spento, avvia la sorgente TV per attivare la sincronizzazione luci.');
+      this.eventLogger?.log?.('google_smarthome', `Modalità Cinema ON (syncStarted=${Boolean(res?.syncStarted)}, tvPlugOff=${Boolean(res?.tvPlugOff)})`, {
         source: 'Google Nest',
         deviceId: 'switch-cinema-mode',
-        syncStarted: Boolean(res?.syncStarted)
+        syncStarted: Boolean(res?.syncStarted),
+        tvPlugOff: Boolean(res?.tvPlugOff)
       });
       this._announceComfortAsync(speech, { bypassQuietHours: false, playChime: true });
     } else {
