@@ -153,6 +153,45 @@ class GoogleSmartHomeManager {
     return this._deps.spatialEngine || require('./spatial-engine');
   }
 
+  get haierAc() {
+    return this._deps.haierAc || require('./haier-ac');
+  }
+
+  _getHaierGoogleDevices() {
+    return [
+      {
+        id: 'haier-ac-salone',
+        unitId: 'salone',
+        name: 'Condizionatore Salone',
+        roomHint: 'Salone',
+        nicknames: ['Condizionatore Salone', 'Clima Salone', 'Split Salone', 'Aria Condizionata Salone']
+      },
+      {
+        id: 'haier-ac-cameretta',
+        unitId: 'cameretta',
+        name: 'Condizionatore Cameretta',
+        roomHint: 'Cameretta',
+        nicknames: ['Condizionatore Cameretta', 'Clima Cameretta', 'Split Cameretta', 'Aria Condizionata Cameretta']
+      }
+    ];
+  }
+
+  _buildHaierGoogleStates(unit, fallback = {}) {
+    const isOnline = Boolean(unit?.online ?? fallback.online ?? false);
+    const isOn = Boolean(unit?.isOn ?? fallback.on ?? false);
+    const rawMode = String(unit?.mode || fallback.mode || 'auto').toLowerCase();
+    const thermostatMode = !isOn ? 'off' : (rawMode === 'fan' ? 'fan-only' : rawMode);
+    const setpoint = Number(unit?.targetTemperature ?? fallback.targetTemperature ?? 21);
+    const ambient = Number(unit?.temperature ?? unit?.targetTemperature ?? setpoint);
+    return {
+      online: isOnline,
+      on: isOn,
+      thermostatMode,
+      thermostatTemperatureSetpoint: setpoint,
+      thermostatTemperatureAmbient: ambient
+    };
+  }
+
   async _runCinemaModeAsync(turnOn) {
     if (turnOn) {
       const res = await this.spatialEngine.activateMicroZone('cinema_tv');
@@ -851,7 +890,27 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
               },
               willReportState: false,
               attributes: { commandOnlyOnOff: true }
-            }
+            },
+            ...this._getHaierGoogleDevices().map((h) => ({
+              id: h.id,
+              type: 'action.devices.types.AC_UNIT',
+              traits: ['action.devices.traits.OnOff', 'action.devices.traits.TemperatureSetting'],
+              name: {
+                defaultNames: [h.name],
+                name: h.name,
+                nicknames: h.nicknames
+              },
+              willReportState: false,
+              roomHint: h.roomHint,
+              attributes: {
+                availableThermostatModes: ['off', 'heat', 'cool', 'dry', 'fan-only', 'auto'],
+                thermostatTemperatureUnit: 'C',
+                thermostatTemperatureRange: {
+                  minThresholdCelsius: 16,
+                  maxThresholdCelsius: 30
+                }
+              }
+            }))
           ]
         }
       };
@@ -887,6 +946,16 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
         }
         if (id === 'switch-volvo-status') {
           devicesMap[id] = { online: true, status: 'SUCCESS', on: false };
+          continue;
+        }
+        const haierDev = this._getHaierGoogleDevices().find((h) => h.id === id);
+        if (haierDev) {
+          const haierUnits = Array.isArray(this.haierAc?.getStatus?.()?.units) ? this.haierAc.getStatus().units : [];
+          const unit = haierUnits.find((u) => String(u.id || '').toLowerCase() === haierDev.unitId);
+          devicesMap[id] = {
+            status: 'SUCCESS',
+            ...this._buildHaierGoogleStates(unit)
+          };
           continue;
         }
         if (id === 'volvo-ex30') {
@@ -1053,6 +1122,25 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
                 continue;
               }
 
+              const haierDev = this._getHaierGoogleDevices().find((h) => h.id === devId);
+              if (haierDev) {
+                const haierUnits = Array.isArray(this.haierAc?.getStatus?.()?.units) ? this.haierAc.getStatus().units : [];
+                const unit = haierUnits.find((u) => String(u.id || '').toLowerCase() === haierDev.unitId);
+                if (!unit || !unit.online) {
+                  commandResults.push({ ids: [devId], status: 'ERROR', errorCode: 'deviceOffline' });
+                  continue;
+                }
+                const turnOn = Boolean(exec?.params?.on);
+                const ctrlRes = await this.haierAc.controlUnit(haierDev.unitId, { power: turnOn });
+                const updatedUnit = ctrlRes?.unit || { ...unit, isOn: turnOn };
+                commandResults.push({
+                  ids: [devId],
+                  status: 'SUCCESS',
+                  states: this._buildHaierGoogleStates(updatedUnit, { on: turnOn })
+                });
+                continue;
+              }
+
               if (devId === 'switch-volvo-status') {
                 if (exec?.params?.on === true) {
                   if (typeof this.evClimateHub?.syncVolvoEx30 === 'function') {
@@ -1115,6 +1203,30 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
             }
 
             if (cmd === 'action.devices.commands.ThermostatTemperatureSetpoint') {
+              const haierDev = this._getHaierGoogleDevices().find((h) => h.id === devId);
+              if (haierDev) {
+                const haierUnits = Array.isArray(this.haierAc?.getStatus?.()?.units) ? this.haierAc.getStatus().units : [];
+                const unit = haierUnits.find((u) => String(u.id || '').toLowerCase() === haierDev.unitId);
+                if (!unit || !unit.online) {
+                  commandResults.push({ ids: [devId], status: 'ERROR', errorCode: 'deviceOffline' });
+                  continue;
+                }
+                const rawTemp = Number(exec?.params?.thermostatTemperatureSetpoint);
+                if (!Number.isFinite(rawTemp)) {
+                  commandResults.push({ ids: [devId], status: 'ERROR', errorCode: 'protocolError' });
+                  continue;
+                }
+                const finalTemp = Math.min(30, Math.max(16, Math.round(rawTemp * 2) / 2));
+                const ctrlRes = await this.haierAc.controlUnit(haierDev.unitId, { power: true, targetTemperature: finalTemp });
+                const updatedUnit = ctrlRes?.unit || { ...unit, isOn: true, targetTemperature: finalTemp };
+                commandResults.push({
+                  ids: [devId],
+                  status: 'SUCCESS',
+                  states: this._buildHaierGoogleStates(updatedUnit, { on: true, targetTemperature: finalTemp })
+                });
+                continue;
+              }
+
               let zoneId = '';
               if (devId.startsWith('bosch-zone-')) zoneId = devId.slice('bosch-zone-'.length);
               else if (devId.startsWith('bosch_zone_')) zoneId = devId.slice('bosch_zone_'.length);
@@ -1178,6 +1290,36 @@ ${trustedLan ? `<form onsubmit="event.preventDefault();fetch('/api/auth/kiosk-lo
             }
 
             if (cmd === 'action.devices.commands.ThermostatSetMode') {
+              const haierDev = this._getHaierGoogleDevices().find((h) => h.id === devId);
+              if (haierDev) {
+                const haierUnits = Array.isArray(this.haierAc?.getStatus?.()?.units) ? this.haierAc.getStatus().units : [];
+                const unit = haierUnits.find((u) => String(u.id || '').toLowerCase() === haierDev.unitId);
+                if (!unit || !unit.online) {
+                  commandResults.push({ ids: [devId], status: 'ERROR', errorCode: 'deviceOffline' });
+                  continue;
+                }
+                const reqMode = String(exec?.params?.thermostatMode || '').toLowerCase();
+                if (!['off', 'heat', 'cool', 'dry', 'fan-only', 'auto'].includes(reqMode)) {
+                  commandResults.push({ ids: [devId], status: 'ERROR', errorCode: 'notSupported' });
+                  continue;
+                }
+                const patch = reqMode === 'off'
+                  ? { power: false }
+                  : { power: true, mode: reqMode === 'fan-only' ? 'fan' : reqMode };
+                const ctrlRes = await this.haierAc.controlUnit(haierDev.unitId, patch);
+                const updatedUnit = ctrlRes?.unit || {
+                  ...unit,
+                  isOn: patch.power,
+                  ...(patch.mode ? { mode: patch.mode } : {})
+                };
+                commandResults.push({
+                  ids: [devId],
+                  status: 'SUCCESS',
+                  states: this._buildHaierGoogleStates(updatedUnit, { on: patch.power, mode: patch.mode || unit.mode })
+                });
+                continue;
+              }
+
               let zoneId = '';
               if (devId.startsWith('bosch-zone-')) zoneId = devId.slice('bosch-zone-'.length);
               else if (devId.startsWith('bosch_zone_')) zoneId = devId.slice('bosch_zone_'.length);

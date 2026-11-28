@@ -1065,6 +1065,7 @@ class EnergyManager {
                   <th class="py-2 pr-3">Media °C</th>
                   <th class="py-2 pr-3">Sopra Target</th>
                   <th class="py-2 pr-3">Ore Valvola</th>
+                  <th class="py-2 pr-3">Ore AC</th>
                   <th class="py-2 pr-3">Raffr. °C/h</th>
                   <th class="py-2 pr-3">Guadagno Passivo</th>
                 </tr>
@@ -1076,6 +1077,11 @@ class EnergyManager {
                     <td class="py-2 pr-3 font-mono">${z.avgTemp ?? '--'}°C</td>
                     <td class="py-2 pr-3 font-mono">${z.aboveTargetPct ?? 0}%</td>
                     <td class="py-2 pr-3 font-mono">${z.valveOpenHours ?? 0}h</td>
+                    <td class="py-2 pr-3 font-mono text-[10px]">${z.hasHaierAc
+                      ? ((z.acHeatHours > 0 || z.acCoolHours > 0)
+                        ? `${z.acHeatHours > 0 ? `<span class="text-orange-300">🔥 ${z.acHeatHours}h</span>` : ''}${z.acCoolHours > 0 ? `<span class="text-cyan-300 ml-1">❄️ ${z.acCoolHours}h</span>` : ''}`
+                        : '<span class="text-slate-400">0h</span>')
+                      : '<span class="text-slate-600">—</span>'}</td>
                     <td class="py-2 pr-3 font-mono">${z.coolingRatePerHour !== null ? z.coolingRatePerHour : '--'}</td>
                     <td class="py-2 pr-3 font-mono text-emerald-400">${z.passiveGainHours > 0 ? `+${z.passiveGainHours}h` : '0h'}</td>
                   </tr>
@@ -1160,37 +1166,66 @@ class EnergyManager {
           : d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
       });
 
+      const showAcSeries = Boolean(json.data?.hasHaierAc ?? json.data?.stats?.hasHaierAc) || points.some((p) => p.acOn === true);
+      const datasets = [
+        {
+          label: 'Temp Reale (°C)',
+          data: points.map((p) => p.tActual),
+          borderColor: '#f43f5e',
+          backgroundColor: 'rgba(244,63,94,0.12)',
+          tension: 0.3,
+          yAxisID: 'yTemp'
+        },
+        {
+          label: 'Setpoint (°C)',
+          data: points.map((p) => p.tSet),
+          borderColor: '#38bdf8',
+          borderDash: [5, 4],
+          tension: 0.1,
+          yAxisID: 'yTemp'
+        },
+        {
+          label: 'Valvola (%)',
+          data: points.map((p) => p.valvePos),
+          borderColor: '#f59e0b',
+          backgroundColor: 'rgba(245,158,11,0.15)',
+          fill: true,
+          tension: 0.2,
+          yAxisID: 'yValve'
+        }
+      ];
+      if (showAcSeries) {
+        datasets.push(
+          {
+            label: '🔥 AC Riscaldamento (°C)',
+            data: points.map((p) => (p.acOn && p.acMode === 'heat' ? (p.acTargetTemp ?? p.tActual ?? null) : null)),
+            borderColor: '#f97316',
+            backgroundColor: 'rgba(249, 115, 22, 0.22)',
+            fill: 'start',
+            borderWidth: 2,
+            pointRadius: 2,
+            spanGaps: false,
+            yAxisID: 'yTemp'
+          },
+          {
+            label: '❄️ AC Raffreddamento (°C)',
+            data: points.map((p) => (p.acOn && (p.acMode === 'cool' || p.acMode === 'dry') ? (p.acTargetTemp ?? p.tActual ?? null) : null)),
+            borderColor: '#06b6d4',
+            backgroundColor: 'rgba(6, 182, 212, 0.22)',
+            fill: 'start',
+            borderWidth: 2,
+            pointRadius: 2,
+            spanGaps: false,
+            yAxisID: 'yTemp'
+          }
+        );
+      }
+
       this.thermalChart = new Chart(canvas.getContext('2d'), {
         type: 'line',
         data: {
           labels,
-          datasets: [
-            {
-              label: 'Temp Reale (°C)',
-              data: points.map((p) => p.tActual),
-              borderColor: '#f43f5e',
-              backgroundColor: 'rgba(244,63,94,0.12)',
-              tension: 0.3,
-              yAxisID: 'yTemp'
-            },
-            {
-              label: 'Setpoint (°C)',
-              data: points.map((p) => p.tSet),
-              borderColor: '#38bdf8',
-              borderDash: [5, 4],
-              tension: 0.1,
-              yAxisID: 'yTemp'
-            },
-            {
-              label: 'Valvola (%)',
-              data: points.map((p) => p.valvePos),
-              borderColor: '#f59e0b',
-              backgroundColor: 'rgba(245,158,11,0.15)',
-              fill: true,
-              tension: 0.2,
-              yAxisID: 'yValve'
-            }
-          ]
+          datasets
         },
         options: {
           responsive: true,

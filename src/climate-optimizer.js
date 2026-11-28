@@ -299,6 +299,11 @@ class ClimateOptimizer {
     return Boolean((presence?.lastUpdated && presence.anyHome === false) || (this.securitySystem?.mode === 'away'));
   }
 
+  _isOnlyCinziaHome(presence) {
+    if (!presence || !presence.lastUpdated) return false;
+    return presence.cinzia?.status === 'home' && presence.alex?.status !== 'home';
+  }
+
   async _finishComfortBoostUnit(unitId, { activateRelay = true, reason = 'timer', nowMs = Date.now() } = {}) {
     const cleanId = String(unitId || '').toLowerCase();
     const entry = this.hybridManagedUnits.get(cleanId);
@@ -971,6 +976,8 @@ class ClimateOptimizer {
       const minOffMs = Number(this.config.acMinOffMinutes ?? 20) * 60 * 1000;
       const switchoverC = Number(this.config.hybridSwitchoverTempC ?? 4.0);
 
+      const onlyCinziaHome = this._isOnlyCinziaHome(presence);
+
       for (const item of pendingProposals) {
         const { z, prop, haierUnit } = item;
         if (!haierUnit) continue;
@@ -980,7 +987,7 @@ class ClimateOptimizer {
         if (managed && (managed.source === 'optimizer' || managed.source === 'comfort_boost')) {
           const isOverload = loads.indoorLoadW > shedThresholdW || loads.mainMeterTotalW > (loads.maxBreakerWatts - 400);
           const isNightCamerettaBlocked = unitId === 'cameretta' && (clk.hour >= 20 || clk.hour < 8) && !this.config.allowCamerettaNightAc;
-          const mustImmediateStop = isOverload || allAway || prop.badge === 'window_pause' || isNightCamerettaBlocked;
+          const mustImmediateStop = isOverload || allAway || onlyCinziaHome || prop.badge === 'window_pause' || isNightCamerettaBlocked;
           const targetReached = prop.currentTemp !== null
             && prop.currentTemp >= (managed.targetBoschC + 0.1)
             && (nowMs - managed.startedAt) >= minRunMs;
@@ -988,7 +995,7 @@ class ClimateOptimizer {
           if (mustImmediateStop) {
             await this._finishComfortBoostUnit(unitId, {
               activateRelay: false,
-              reason: isOverload ? 'overload' : (allAway ? 'all_away' : 'safety_stop'),
+              reason: isOverload ? 'overload' : (allAway ? 'all_away' : (onlyCinziaHome ? 'only_cinzia_home' : 'safety_stop')),
               nowMs
             });
             eventLogger.log('haier_ac', `Stop automatico Haier ${unitId} (condizione sicurezza/orario)`, {
@@ -1024,6 +1031,7 @@ class ClimateOptimizer {
           if (
             slotAllowed
             && !allAway
+            && !onlyCinziaHome
             && prop.badge !== 'window_pause'
             && !this.isManualOverrideActive(z.id, nowMs)
             && cooldownOk
@@ -1315,8 +1323,10 @@ Restituisci JSON con schema: { "motivation": "frase breve in italiano", "adjustm
         savedEuro
       },
       zones: Object.values(this.zoneStates),
+      hybridBlockedOnlyCinzia: this._isOnlyCinziaHome(iliadboxClient.getPresenceState()),
       hybridStatus: {
         enabled: Boolean(this.config.enableHybridAc),
+        hybridBlockedOnlyCinzia: this._isOnlyCinziaHome(iliadboxClient.getPresenceState()),
         indoorLoadW: loads.indoorLoadW,
         mainMeterTotalW: loads.mainMeterTotalW,
         managedUnits: Array.from(this.hybridManagedUnits.values()).map(({ boostTimer, ...rest }) => rest)
