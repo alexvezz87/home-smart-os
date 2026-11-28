@@ -7667,3 +7667,51 @@ test('TEST 82: Correzione Modello 4K, Topologia Presa TV #22 & Soglie Watt Reali
     spatialEngine.lastTvState = origLastTv;
   }
 });
+
+test('TEST 83: Restyling HUD planimetria — rimozione selettore Casa/Notte/Giorno e widget Meteo + Temperatura Esterna (#206)', async () => {
+  const fs = require('fs');
+  const path = require('path');
+  const express = require('express');
+  const http = require('http');
+  const registerHueRoutes = require('../src/routes/hue-appliances-spatial.routes');
+
+  const floorplanJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'floorplan.js'), 'utf8');
+  assert.ok(!floorplanJs.includes("setZoomPreset('night')") && !floorplanJs.includes("setZoomPreset('day')"), 'Il selettore Casa/Notte/Giorno deve essere rimosso dalla HUD');
+  assert.ok(floorplanJs.includes('resolveWeatherVisual('), 'floorplan.js deve includere resolveWeatherVisual()');
+  assert.ok(floorplanJs.includes('fp-weather-widget'), 'renderClockWidgetHtml deve integrare fp-weather-widget');
+  for (const label of ['Calura', 'Pioggia', 'Nebbia', 'Neve', 'Temporale', 'Sereno']) {
+    assert.ok(floorplanJs.includes(label), `resolveWeatherVisual deve gestire lo stato meteo "${label}"`);
+  }
+
+  // Verifica endpoint /api/home espone snapshot.weather con weatherCode e outdoorTemp
+  const app = express();
+  app.use(express.json());
+  registerHueRoutes(app, {
+    mcp: { getHomeSnapshot: async () => ({ devices: [] }) },
+    merossEnergy: { enrichDevices: () => ({ devices: [], energySummary: {} }) },
+    securitySystem: { getStatus: () => ({}) },
+    spatialEngine: { getEnrichedMapState: () => ({ pins: [] }) },
+    evClimateHub: { getUnifiedStatus: () => ({ bosch: { outdoorTemp: 6.5 } }) },
+    climateOptimizer: {
+      metrics: { weatherSummary: { outdoorTemp: 7.0, cloudCover: 85, weatherCode: 61, sunny: false, updatedAt: Date.now() } },
+      fetchWeatherForecast: async () => ({})
+    },
+    iliadboxClient: { getPresenceState: () => ({}) },
+    getHomeAvatars: async () => ({ alex: null, cinzia: null })
+  });
+
+  const server = http.createServer(app);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const port = server.address().port;
+    const res = await fetch(`http://127.0.0.1:${port}/api/home`);
+    const json = await res.json();
+    assert.equal(json.success, true);
+    assert.equal(json.data.weather.outdoorTemp, 6.5);
+    assert.equal(json.data.weather.weatherCode, 61);
+    assert.equal(json.data.weather.cloudCover, 85);
+    assert.equal(json.data.weather.sunny, false);
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+});

@@ -590,7 +590,9 @@ class ClimateOptimizer {
       this.metrics.weatherSummary = {
         outdoorTemp: summary.outdoorTemp,
         cloudCover,
-        sunny
+        weatherCode,
+        sunny,
+        updatedAt: Date.now()
       };
       return summary;
     } catch (_) {
