@@ -207,11 +207,43 @@ class ThermalAnalytics {
     return this.samples.filter((s) => s.ts >= sinceTs && s.ts <= nowMs);
   }
 
+  _resolveHaierUnitForZone(zoneId, zoneName = '') {
+    const id = String(zoneId || '').trim().toLowerCase();
+    const name = String(zoneName || '').trim();
+    if (id === 'zn10' || /salone/i.test(name)) return 'salone';
+    if (id === 'zn3' || /cameretta/i.test(name)) return 'cameretta';
+    return null;
+  }
+
+  _extractZoneAcPoint(sample, zoneId, zoneObj, unitId) {
+    if (unitId && sample?.haierAc && sample.haierAc[unitId]) {
+      const u = sample.haierAc[unitId];
+      return {
+        acOn: Boolean(u.isOn),
+        acMode: u.mode || null,
+        acTargetTemp: u.targetTemp ?? null,
+        acPowerW: u.powerW ?? null
+      };
+    }
+    if (unitId && zoneObj?.badge === 'hybrid_ac_heat') {
+      return { acOn: true, acMode: 'heat', acTargetTemp: null, acPowerW: null };
+    }
+    if (unitId && zoneObj?.badge === 'hybrid_interlock') {
+      return { acOn: true, acMode: 'cool', acTargetTemp: null, acPowerW: null };
+    }
+    return { acOn: false, acMode: null, acTargetTemp: null, acPowerW: null };
+  }
+
   _computeZoneMetrics(samples, zoneId) {
+    let unitId = this._resolveHaierUnitForZone(zoneId, '');
     const points = [];
     for (const s of samples) {
       const z = s.zones && s.zones[zoneId];
       if (!z) continue;
+      if (!unitId && z.name) {
+        unitId = this._resolveHaierUnitForZone(zoneId, z.name);
+      }
+      const acPt = this._extractZoneAcPoint(s, zoneId, z, unitId);
       points.push({
         ts: s.ts,
         name: z.name || zoneId,
@@ -219,7 +251,8 @@ class ThermalAnalytics {
         tSet: z.tSet,
         valvePos: typeof z.valvePos === 'number' ? z.valvePos : 0,
         outdoorTemp: s.outdoorTemp,
-        badge: z.badge || null
+        badge: z.badge || null,
+        ...acPt
       });
     }
 
@@ -236,6 +269,9 @@ class ThermalAnalytics {
     let aboveTargetCount = 0;
     let valveOpenHours = 0;
     let passiveGainHours = 0;
+    let acHeatHours = 0;
+    let acCoolHours = 0;
+    let acTotalHours = 0;
 
     const coolingRates = [];
     const heatingRates = [];
@@ -265,6 +301,16 @@ class ThermalAnalytics {
           if (p.valvePos > 10 || prev.valvePos > 10) {
             valveOpenHours += dtHours;
           }
+          const acDt = Math.min(0.5, dtHours);
+          if (p.acOn === true || prev.acOn === true) {
+            acTotalHours += acDt;
+            const activeMode = p.acOn ? p.acMode : prev.acMode;
+            if (activeMode === 'heat') {
+              acHeatHours += acDt;
+            } else if (activeMode === 'cool' || activeMode === 'dry') {
+              acCoolHours += acDt;
+            }
+          }
           if (typeof p.tActual === 'number' && typeof prev.tActual === 'number') {
             const dT = p.tActual - prev.tActual;
             const rate = dT / dtHours;
@@ -275,7 +321,7 @@ class ThermalAnalytics {
               if (!isElectricSpike && !isPostSpikeRebalance) {
                 coolingRates.push(rate);
               }
-              if (!isElectricSpike && !isPostSpikeRebalance && ((typeof p.tSet === 'number' && p.tActual > p.tSet + 0.2) || dT > 0.05)) {
+              if (!p.acOn && !prev.acOn && !isElectricSpike && !isPostSpikeRebalance && ((typeof p.tSet === 'number' && p.tActual > p.tSet + 0.2) || dT > 0.05)) {
                 passiveGainHours += dtHours;
               }
             } else if (p.valvePos >= 25 && prev.valvePos >= 25 && dT > 0) {
@@ -303,6 +349,10 @@ class ThermalAnalytics {
       aboveTargetPct: cntTemp ? Math.round((aboveTargetCount / cntTemp) * 100) : 0,
       valveOpenHours: +valveOpenHours.toFixed(2),
       passiveGainHours: +passiveGainHours.toFixed(2),
+      hasHaierAc: Boolean(unitId),
+      acHeatHours: +acHeatHours.toFixed(2),
+      acCoolHours: +acCoolHours.toFixed(2),
+      acTotalHours: +acTotalHours.toFixed(2),
       coolingRatePerHour: avg(coolingRates),
       heatingRatePerHour: avg(heatingRates),
       manualOverrides: {
@@ -526,23 +576,31 @@ Restituisci JSON valido: { "summary": "sintesi breve in italiano (max 2 frasi)",
 
   getZoneSeries(zoneId, { days = 7, nowMs = Date.now() } = {}) {
     const windowSamples = this._getSamplesWindow(days, nowMs);
+    let unitId = this._resolveHaierUnitForZone(zoneId, '');
     const points = [];
     for (const s of windowSamples) {
       const z = s.zones && s.zones[zoneId];
       if (!z) continue;
+      if (!unitId && z.name) {
+        unitId = this._resolveHaierUnitForZone(zoneId, z.name);
+      }
+      const acPt = this._extractZoneAcPoint(s, zoneId, z, unitId);
       points.push({
         ts: s.ts,
         tActual: z.tActual,
         tSet: z.tSet,
         valvePos: z.valvePos ?? 0,
         outdoorTemp: s.outdoorTemp,
-        badge: z.badge || null
+        badge: z.badge || null,
+        ...acPt
       });
     }
     const stats = this._computeZoneMetrics(windowSamples, zoneId);
+    const hasHaierAc = Boolean(unitId || stats?.hasHaierAc);
     return {
       zoneId,
       days: Number(days) || 7,
+      hasHaierAc,
       stats,
       points
     };

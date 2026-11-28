@@ -7715,3 +7715,199 @@ test('TEST 83: Restyling HUD planimetria — rimozione selettore Casa/Notte/Gior
     await new Promise((r) => server.close(r));
   }
 });
+
+test('TEST 84: Grafici Analisi Termica AC, Blocco Ibrido Solo-Cinzia & Haier AC su Google Home (#207)', async () => {
+  const { ThermalAnalytics } = require('../src/thermal-analytics');
+  const { ClimateOptimizer } = require('../src/climate-optimizer');
+  const { GoogleSmartHomeManager } = require('../src/google-smarthome');
+  const iliadboxClient = require('../src/iliadbox-client');
+
+  // 1. ThermalAnalytics: hasHaierAc, acOn/acMode/acTargetTemp (haierAc + fallback hybrid_ac_heat), acHeatHours/acCoolHours & esclusione passiveGainHours
+  const ta = new ThermalAnalytics();
+  const baseTs = Date.now() - 2 * 3600 * 1000;
+  ta.samples = [
+    {
+      ts: baseTs,
+      outdoorTemp: 9,
+      zones: {
+        zn10: { name: 'Salone', tActual: 19.2, tSet: 20.5, valvePos: 0, badge: 'hybrid_ac_heat' },
+        zn1: { name: 'Camera da letto', tActual: 19.5, tSet: 19.5, valvePos: 0, badge: null }
+      }
+    },
+    {
+      ts: baseTs + 30 * 60 * 1000,
+      outdoorTemp: 9,
+      zones: {
+        zn10: { name: 'Salone', tActual: 20.0, tSet: 20.5, valvePos: 0, badge: null },
+        zn1: { name: 'Camera da letto', tActual: 19.8, tSet: 19.5, valvePos: 0, badge: null }
+      },
+      haierAc: { salone: { isOn: true, mode: 'heat', targetTemp: 22, powerW: 650 } }
+    },
+    {
+      ts: baseTs + 60 * 60 * 1000,
+      outdoorTemp: 10,
+      zones: {
+        zn10: { name: 'Salone', tActual: 20.8, tSet: 20.5, valvePos: 0, badge: null },
+        zn1: { name: 'Camera da letto', tActual: 20.1, tSet: 19.5, valvePos: 0, badge: null }
+      },
+      haierAc: { salone: { isOn: true, mode: 'cool', targetTemp: 24, powerW: 520 } }
+    }
+  ];
+
+  const seriesSalone = ta.getZoneSeries('zn10', { days: 1, nowMs: baseTs + 90 * 60 * 1000 });
+  assert.equal(seriesSalone.hasHaierAc, true);
+  assert.equal(seriesSalone.points[0].acOn, true);
+  assert.equal(seriesSalone.points[0].acMode, 'heat');
+  assert.equal(seriesSalone.points[1].acTargetTemp, 22);
+  assert.equal(seriesSalone.points[2].acMode, 'cool');
+  assert.equal(seriesSalone.stats.hasHaierAc, true);
+  assert.equal(seriesSalone.stats.acHeatHours, 0.5);
+  assert.equal(seriesSalone.stats.acCoolHours, 0.5);
+  assert.equal(seriesSalone.stats.acTotalHours, 1);
+  assert.equal(seriesSalone.stats.passiveGainHours, 0, 'Ore AC non devono essere conteggiate come guadagno passivo');
+
+  const seriesCamera = ta.getZoneSeries('zn1', { days: 1, nowMs: baseTs + 90 * 60 * 1000 });
+  assert.equal(seriesCamera.hasHaierAc, false);
+  assert.ok(seriesCamera.stats.passiveGainHours > 0);
+
+  // 2. ClimateOptimizer: solo Cinzia in casa blocca avvio automatico e ferma unità optimizer attiva
+  const origGetPresence = iliadboxClient.getPresenceState;
+  try {
+    let presenceMock = { lastUpdated: Date.now(), anyHome: true, alex: { status: 'away' }, cinzia: { status: 'home' } };
+    iliadboxClient.getPresenceState = () => presenceMock;
+
+    const haierCalls = [];
+    let unitOn = true;
+    const opt = new ClimateOptimizer({
+      evClimateHub: {
+        getUnifiedStatus: () => ({
+          bosch: {
+            connected: true,
+            outdoorTemp: 10,
+            flameOn: false,
+            zones: [{ id: 'zn10', name: 'Salone', tempActual: 19.0, tempSetpoint: 20.5, valvePosition: 0 }]
+          }
+        }),
+        setBoschZoneSetpoint: async () => ({})
+      },
+      haierAc: {
+        getStatus: () => ({ units: [{ id: 'salone', room: 'Salone', online: true, isOn: unitOn, mode: 'heat', targetTemperature: 22 }] }),
+        controlUnit: async (id, patch) => {
+          haierCalls.push({ id, patch });
+          if (typeof patch.power === 'boolean') unitOn = patch.power;
+          return { success: true };
+        }
+      },
+      merossEnergy: { getStatus: () => ({ totalPowerW: 300, plugs: [] }) }
+    });
+    opt.config.enabled = true;
+    opt.config.enableHybridAc = true;
+    opt.config.allowCamerettaNightAc = false;
+    assert.equal(opt.getStatus().hybridBlockedOnlyCinzia, true);
+
+    // Unità gestita da optimizer attiva con solo Cinzia -> deve fermarsi
+    opt.hybridManagedUnits.set('salone', {
+      unitId: 'salone',
+      zoneId: 'zn10',
+      room: 'Salone',
+      startedAt: Date.now() - 15 * 60 * 1000,
+      mode: 'heat',
+      source: 'optimizer',
+      targetBoschC: 20.5,
+      boostTimer: null
+    });
+    await opt.evaluateNow({ reason: 'test_only_cinzia' });
+    assert.equal(opt.hybridManagedUnits.has('salone'), false, 'Con solo Cinzia l\'unità optimizer deve essere fermata');
+    assert.ok(haierCalls.some((c) => c.id === 'salone' && c.patch.power === false));
+
+    // Unità spenta con solo Cinzia -> NON deve avviare Haier automaticamente
+    haierCalls.length = 0;
+    unitOn = false;
+    await opt.evaluateNow({ reason: 'test_only_cinzia_no_start' });
+    assert.equal(haierCalls.filter((c) => c.patch.power === true).length, 0, 'Con solo Cinzia non deve avviare Haier');
+
+    // Con Alex presente -> consente avvio automatico (in fascia oraria 08:00-22:00)
+    presenceMock = { lastUpdated: Date.now(), anyHome: true, alex: { status: 'home' }, cinzia: { status: 'home' } };
+    const optAlex = new ClimateOptimizer({
+      evClimateHub: {
+        getUnifiedStatus: () => ({
+          bosch: {
+            connected: true,
+            outdoorTemp: 10,
+            flameOn: false,
+            zones: [{ id: 'zn10', name: 'Salone', tempActual: 19.0, tempSetpoint: 20.5, valvePosition: 0 }]
+          }
+        }),
+        setBoschZoneSetpoint: async () => ({})
+      },
+      haierAc: {
+        getStatus: () => ({ units: [{ id: 'salone', room: 'Salone', online: true, isOn: false, mode: 'heat', targetTemperature: 22 }] }),
+        controlUnit: async (id, patch) => {
+          haierCalls.push({ id, patch });
+          return { success: true };
+        }
+      },
+      merossEnergy: { getStatus: () => ({ totalPowerW: 300, plugs: [] }) }
+    });
+    optAlex.config.enabled = true;
+    optAlex.config.enableHybridAc = true;
+    const noonToday = new Date();
+    noonToday.setHours(12, 0, 0, 0);
+    await optAlex.evaluateNow({ reason: 'test_alex_home', nowMs: noonToday.getTime() });
+    assert.ok(haierCalls.some((c) => c.id === 'salone' && c.patch.power === true), 'Con Alex in casa deve avviare Haier');
+  } finally {
+    iliadboxClient.getPresenceState = origGetPresence;
+  }
+
+  // 3. GoogleSmartHomeManager: SYNC, QUERY & EXECUTE per haier-ac-salone e haier-ac-cameretta
+  const ctrlCalls = [];
+  let saloneState = { id: 'salone', online: true, isOn: false, mode: 'cool', targetTemperature: 24, temperature: 25 };
+  let camerettaState = { id: 'cameretta', online: true, isOn: true, mode: 'fan', targetTemperature: 21, temperature: 20.5 };
+  const gm = new GoogleSmartHomeManager({
+    evClimateHub: { getUnifiedStatus: () => ({ bosch: { zones: [] }, volvo: {}, wallbox: {} }) },
+    haierAc: {
+      getStatus: () => ({ units: [saloneState, camerettaState] }),
+      controlUnit: async (unitId, patch) => {
+        ctrlCalls.push({ unitId, patch });
+        const target = unitId === 'salone' ? saloneState : camerettaState;
+        if (typeof patch.power === 'boolean') target.isOn = patch.power;
+        if (patch.mode) target.mode = patch.mode;
+        if (patch.targetTemperature != null) target.targetTemperature = patch.targetTemperature;
+        return { success: true, unit: { ...target } };
+      }
+    }
+  });
+
+  const syncRes = await gm.handleFulfillment({ requestId: 'r1', inputs: [{ intent: 'action.devices.SYNC' }] });
+  const syncIds = syncRes.payload.devices.map((d) => d.id);
+  assert.ok(syncIds.includes('haier-ac-salone'));
+  assert.ok(syncIds.includes('haier-ac-cameretta'));
+  const saloneSync = syncRes.payload.devices.find((d) => d.id === 'haier-ac-salone');
+  assert.equal(saloneSync.type, 'action.devices.types.AC_UNIT');
+
+  const queryRes = await gm.handleFulfillment({
+    requestId: 'r2',
+    inputs: [{ intent: 'action.devices.QUERY', payload: { devices: [{ id: 'haier-ac-salone' }, { id: 'haier-ac-cameretta' }] } }]
+  });
+  assert.equal(queryRes.payload.devices['haier-ac-salone'].thermostatMode, 'off');
+  assert.equal(queryRes.payload.devices['haier-ac-cameretta'].thermostatMode, 'fan-only');
+  assert.equal(queryRes.payload.devices['haier-ac-cameretta'].on, true);
+
+  const execRes = await gm.handleFulfillment({
+    requestId: 'r3',
+    inputs: [{
+      intent: 'action.devices.EXECUTE',
+      payload: {
+        commands: [
+          { devices: [{ id: 'haier-ac-salone' }], execution: [{ command: 'action.devices.commands.OnOff', params: { on: true } }] },
+          { devices: [{ id: 'haier-ac-salone' }], execution: [{ command: 'action.devices.commands.ThermostatTemperatureSetpoint', params: { thermostatTemperatureSetpoint: 35 } }] },
+          { devices: [{ id: 'haier-ac-cameretta' }], execution: [{ command: 'action.devices.commands.ThermostatSetMode', params: { thermostatMode: 'heat' } }] }
+        ]
+      }
+    }]
+  });
+  assert.equal(execRes.payload.commands[0].status, 'SUCCESS');
+  assert.equal(execRes.payload.commands[1].states.thermostatTemperatureSetpoint, 30);
+  assert.equal(execRes.payload.commands[2].states.thermostatMode, 'heat');
+  assert.equal(ctrlCalls.length, 3);
+});

@@ -133,6 +133,65 @@ const boschChartOptions = computed(() => ({
 
 const thermalChartData = computed(() => {
   const pts = Array.isArray(store.thermalZonePoints) ? store.thermalZonePoints : [];
+  const showAcSeries = Boolean(store.thermalZoneHasHaierAc) || pts.some((p) => p.acOn === true);
+  const datasets = [
+    {
+      label: 'Temp Reale (°C)',
+      data: pts.map((p) => p.tActual ?? p.temp ?? p.temperature ?? null),
+      borderColor: '#38bdf8',
+      backgroundColor: 'rgba(56, 189, 248, 0.12)',
+      borderWidth: 2,
+      pointRadius: 1.5,
+      tension: 0.3,
+      fill: true,
+      yAxisID: 'y'
+    },
+    {
+      label: 'Setpoint (°C)',
+      data: pts.map((p) => p.tSet ?? p.setpoint ?? null),
+      borderColor: '#fbbf24',
+      borderDash: [4, 4],
+      borderWidth: 1.8,
+      pointRadius: 0,
+      tension: 0.1,
+      yAxisID: 'y'
+    },
+    {
+      label: 'Valvola (%)',
+      data: pts.map((p) => p.valvePos ?? p.valvePct ?? p.valve ?? null),
+      borderColor: '#a855f7',
+      borderWidth: 1.5,
+      pointRadius: 0,
+      tension: 0.2,
+      yAxisID: 'yValve'
+    }
+  ];
+  if (showAcSeries) {
+    datasets.push(
+      {
+        label: '🔥 AC Riscaldamento (°C)',
+        data: pts.map((p) => (p.acOn && p.acMode === 'heat' ? (p.acTargetTemp ?? p.tActual ?? null) : null)),
+        borderColor: '#f97316',
+        backgroundColor: 'rgba(249, 115, 22, 0.22)',
+        fill: 'start',
+        borderWidth: 2,
+        pointRadius: 2,
+        spanGaps: false,
+        yAxisID: 'y'
+      },
+      {
+        label: '❄️ AC Raffreddamento (°C)',
+        data: pts.map((p) => (p.acOn && (p.acMode === 'cool' || p.acMode === 'dry') ? (p.acTargetTemp ?? p.tActual ?? null) : null)),
+        borderColor: '#06b6d4',
+        backgroundColor: 'rgba(6, 182, 212, 0.22)',
+        fill: 'start',
+        borderWidth: 2,
+        pointRadius: 2,
+        spanGaps: false,
+        yAxisID: 'y'
+      }
+    );
+  }
   return {
     labels: pts.map((p) => {
       if (p.label) return p.label;
@@ -146,38 +205,7 @@ const thermalChartData = computed(() => {
         return '';
       }
     }),
-    datasets: [
-      {
-        label: 'Temp Reale (°C)',
-        data: pts.map((p) => p.tActual ?? p.temp ?? p.temperature ?? null),
-        borderColor: '#38bdf8',
-        backgroundColor: 'rgba(56, 189, 248, 0.12)',
-        borderWidth: 2,
-        pointRadius: 1.5,
-        tension: 0.3,
-        fill: true,
-        yAxisID: 'y'
-      },
-      {
-        label: 'Setpoint (°C)',
-        data: pts.map((p) => p.tSet ?? p.setpoint ?? null),
-        borderColor: '#fbbf24',
-        borderDash: [4, 4],
-        borderWidth: 1.8,
-        pointRadius: 0,
-        tension: 0.1,
-        yAxisID: 'y'
-      },
-      {
-        label: 'Valvola (%)',
-        data: pts.map((p) => p.valvePos ?? p.valvePct ?? p.valve ?? null),
-        borderColor: '#a855f7',
-        borderWidth: 1.5,
-        pointRadius: 0,
-        tension: 0.2,
-        yAxisID: 'yValve'
-      }
-    ]
+    datasets
   };
 });
 
@@ -790,6 +818,7 @@ function activePlugLive(plug) {
                         <th class="py-2 pr-3">Media °C</th>
                         <th class="py-2 pr-3">Sopra Target</th>
                         <th class="py-2 pr-3">Ore Valvola</th>
+                        <th class="py-2 pr-3">Ore AC</th>
                         <th class="py-2 pr-3">Raffr. °C/h</th>
                         <th class="py-2 pr-3">Guadagno Passivo</th>
                       </tr>
@@ -806,6 +835,14 @@ function activePlugLive(plug) {
                         <td class="py-2 pr-3 font-mono text-cyan-300">{{ z.avgTemp ?? '--' }}°C</td>
                         <td class="py-2 pr-3 font-mono">{{ z.aboveTargetPct ?? 0 }}%</td>
                         <td class="py-2 pr-3 font-mono">{{ z.valveOpenHours ?? 0 }}h</td>
+                        <td class="py-2 pr-3 font-mono text-[10px]">
+                          <template v-if="z.hasHaierAc">
+                            <span v-if="(z.acHeatHours || 0) > 0" class="text-orange-300">🔥 {{ z.acHeatHours }}h</span>
+                            <span v-if="(z.acCoolHours || 0) > 0" class="text-cyan-300 ml-1">❄️ {{ z.acCoolHours }}h</span>
+                            <span v-if="!(z.acHeatHours > 0) && !(z.acCoolHours > 0)" class="text-slate-400">0h</span>
+                          </template>
+                          <span v-else class="text-slate-600">—</span>
+                        </td>
                         <td class="py-2 pr-3 font-mono">{{ (z.coolingRatePerHour !== null && z.coolingRatePerHour !== undefined) ? z.coolingRatePerHour : '--' }}</td>
                         <td class="py-2 pr-3 font-mono text-emerald-400">{{ z.passiveGainHours > 0 ? `+${z.passiveGainHours}h` : '0h' }}</td>
                       </tr>

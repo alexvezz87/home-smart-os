@@ -20,6 +20,7 @@ export const useEnergyStore = defineStore('energy', {
     thermalSelectedZone: 'zn1',
     thermalReport: null,
     thermalZonePoints: [],
+    thermalZoneHasHaierAc: false,
     extraBillsFilter: 'all',
     extraBills: [],
     plugDetailModal: {
@@ -522,6 +523,7 @@ export const useEnergyStore = defineStore('energy', {
         const json = await res.json();
         if (res.ok && json?.success) {
           this.thermalZonePoints = Array.isArray(json?.data?.points) ? json.data.points : [];
+          this.thermalZoneHasHaierAc = Boolean(json?.data?.hasHaierAc ?? json?.data?.stats?.hasHaierAc);
         }
       } catch (_) {}
     },

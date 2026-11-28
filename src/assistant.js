@@ -14,6 +14,7 @@ const eventBus = require('./event-bus');
 const climateOptimizer = require('./climate-optimizer');
 const thermalAnalytics = require('./thermal-analytics');
 const haierAc = require('./haier-ac');
+const iliadboxClient = require('./iliadbox-client');
 
 function roundHalf(v) {
   return +(Math.round(Number(v) * 2) / 2).toFixed(1);
@@ -510,8 +511,10 @@ async function handleComfortBoost({ intent, deltaC = null, text = '', options = 
       : { indoorLoadW: 0 };
     const loadOk = loads.indoorLoadW < Number(climateOptimizer?.config?.maxHouseLoadForAutoAcW ?? 2000);
     const isManagedOrOff = !unitSt?.isOn || climateOptimizer?.hybridManagedUnits?.has?.(unitId);
+    const presence = iliadboxClient.getPresenceState?.();
+    const onlyCinziaHome = Boolean(presence?.lastUpdated && presence.cinzia?.status === 'home' && presence.alex?.status !== 'home');
 
-    if (camerettaAllowed && hybridEnabled && unitSt && unitSt.online === true && isManagedOrOff && outdoorOk && loadOk) {
+    if (!onlyCinziaHome && camerettaAllowed && hybridEnabled && unitSt && unitSt.online === true && isManagedOrOff && outdoorOk && loadOk) {
       await climateOptimizer.startHybridComfortBoost(unitId, {
         room: resolved.room,
         zoneId: zone.id || resolved.room,
